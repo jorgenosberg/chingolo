@@ -136,7 +136,10 @@ function CopyButton({
 /** "16:20" for today, "Nov 3, 16:20" for earlier days; the full date is in the tooltip. */
 function SentTime({ ms }: { ms: number }) {
 	const d = new Date(ms);
-	const time = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+	const time = d.toLocaleTimeString(undefined, {
+		hour: "2-digit",
+		minute: "2-digit",
+	});
 	const today = d.toDateString() === new Date().toDateString();
 	const label = today
 		? time

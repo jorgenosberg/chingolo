@@ -1,5 +1,11 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { Fragment, useCallback, useLayoutEffect, useRef, useState } from "react";
+import {
+	Fragment,
+	useCallback,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from "react";
 import { useNav } from "../../app/nav";
 import { ActionMenu } from "../../components/ActionMenu";
 import { useDialogs } from "../../components/dialogs";
@@ -153,41 +159,41 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 				data-tauri-drag-region
 				className="flex h-12 shrink-0 items-center justify-between gap-4 border-b border-border px-5"
 			>
-					<div className="flex min-w-0 items-center gap-1">
-						<button
-							type="button"
-							onDoubleClick={rename}
-							title="Double-click to rename"
-							className="min-w-0 truncate rounded-md text-left text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
-						>
-							{conversation?.title ?? ""}
-						</button>
-						{conversation && (
-							<ActionMenu
-								label="Conversation actions"
-								actions={[
-									{ id: "rename", label: "Rename…", run: rename },
-									...(list.length > 0
-										? [
-												{
-													id: "fork",
-													label: "Fork conversation",
-													run: () => fork(conversation),
-												},
-												{
-													id: "handoff",
-													label: "Hand off to a new conversation",
-													run: () => handoff(conversation),
-												},
-											]
-										: []),
-								]}
-							/>
-						)}
-					</div>
-					<IconButton label="Toggle context pane" onPress={toggleContext}>
-						<SidebarRightIcon />
-					</IconButton>
+				<div className="flex min-w-0 items-center gap-1">
+					<button
+						type="button"
+						onDoubleClick={rename}
+						title="Double-click to rename"
+						className="min-w-0 truncate rounded-md text-left text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+					>
+						{conversation?.title ?? ""}
+					</button>
+					{conversation && (
+						<ActionMenu
+							label="Conversation actions"
+							actions={[
+								{ id: "rename", label: "Rename…", run: rename },
+								...(list.length > 0
+									? [
+											{
+												id: "fork",
+												label: "Fork conversation",
+												run: () => fork(conversation),
+											},
+											{
+												id: "handoff",
+												label: "Hand off to a new conversation",
+												run: () => handoff(conversation),
+											},
+										]
+									: []),
+							]}
+						/>
+					)}
+				</div>
+				<IconButton label="Toggle context pane" onPress={toggleContext}>
+					<SidebarRightIcon />
+				</IconButton>
 			</header>
 
 			<div
