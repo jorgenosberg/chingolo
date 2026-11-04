@@ -90,6 +90,11 @@ export const ForkIcon = (p: P) => (
 		<path d="M4.5 5v6M11.5 7c0 2-2 2.5-7 3.5" />
 	</Icon>
 );
+export const SparkleIcon = (p: P) => (
+	<Icon {...p}>
+		<path d="M8 2.5c.45 3 1.6 4.05 4.5 5.5-2.9 1.45-4.05 2.5-4.5 5.5-.45-3-1.6-4.05-4.5-5.5C6.4 6.55 7.55 5.5 8 2.5Z" />
+	</Icon>
+);
 export const CheckIcon = (p: P) => (
 	<Icon {...p}>
 		<path d="m3.5 8.5 3 3 6-7" />

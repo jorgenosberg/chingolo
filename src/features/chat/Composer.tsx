@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Button as RacButton } from "react-aria-components";
 import { SendIcon, StopIcon } from "../../components/icons";
 import { cx, focus } from "../../components/ui";
@@ -18,6 +18,7 @@ export function Composer({
 	canStop,
 	onSend,
 	onStop,
+	extra,
 }: {
 	conversationId: string;
 	busy: boolean;
@@ -25,6 +26,8 @@ export function Composer({
 	/** Return false if the message wasn't sent, so the text stays in the box. */
 	onSend: (text: string) => Promise<boolean>;
 	onStop: () => void;
+	/** Controls shown next to the send button, such as the model picker. */
+	extra?: ReactNode;
 }) {
 	const [text, setText] = useState(() => drafts.get(conversationId) ?? "");
 	const ref = useRef<HTMLTextAreaElement>(null);
@@ -81,6 +84,7 @@ export function Composer({
 				}}
 				className="max-h-[200px] min-h-7 flex-1 resize-none bg-transparent py-1 text-[15px] leading-relaxed outline-none placeholder:text-muted-foreground/70"
 			/>
+			{extra}
 			{busy ? (
 				<RacButton
 					aria-label="Stop"

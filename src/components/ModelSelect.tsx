@@ -74,7 +74,7 @@ export function ModelSelect({
 	);
 }
 
-function formatTokens(n: number) {
+export function formatTokens(n: number) {
 	return n >= 1_000_000
 		? `${+(n / 1_000_000).toFixed(1)}M`
 		: `${Math.round(n / 1000)}k`;

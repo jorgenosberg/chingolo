@@ -20,19 +20,22 @@ export const MessageItem = memo(function MessageItem({
 }) {
 	if (message.role === "user") {
 		return (
-			<div className="group flex items-center justify-end gap-1">
-				{onFork && (
-					<span className="opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+			<div className="group flex flex-col items-end gap-1">
+				<div className="selectable max-w-[85%] whitespace-pre-wrap rounded-2xl bg-accent-soft px-4 py-2.5 text-[15px] leading-relaxed">
+					{message.content}
+				</div>
+				{/* Shown on hover or keyboard focus; the space is always reserved. */}
+				<div className="flex items-center gap-1 text-muted-foreground opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+					<SentTime ms={message.createdAt} />
+					<CopyButton text={message.content} label="Copy message" />
+					{onFork && (
 						<IconButton
 							label="Fork conversation from here"
 							onPress={() => onFork(message.id)}
 						>
 							<ForkIcon />
 						</IconButton>
-					</span>
-				)}
-				<div className="selectable max-w-[85%] whitespace-pre-wrap rounded-2xl bg-accent-soft px-4 py-2.5 text-[15px] leading-relaxed">
-					{message.content}
+					)}
 				</div>
 			</div>
 		);
@@ -70,7 +73,7 @@ export const MessageItem = memo(function MessageItem({
 			)}
 
 			{!streaming && text && (
-				<div className="flex items-center gap-2 text-xs text-muted-foreground opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+				<div className="flex items-center gap-2 text-xs text-muted-foreground">
 					<CopyButton text={text} />
 					{onFork && message.status === "complete" && (
 						<IconButton
@@ -80,9 +83,9 @@ export const MessageItem = memo(function MessageItem({
 							<ForkIcon />
 						</IconButton>
 					)}
-					{message.modelId && (
-						<span className="selectable">{message.modelId}</span>
-					)}
+					<span className="opacity-0 transition-opacity group-hover:opacity-100">
+						<SentTime ms={message.createdAt} />
+					</span>
 				</div>
 			)}
 		</div>
@@ -104,11 +107,17 @@ function describeNote(m: Message): string | null {
 	}
 }
 
-function CopyButton({ text }: { text: string }) {
+function CopyButton({
+	text,
+	label = "Copy reply",
+}: {
+	text: string;
+	label?: string;
+}) {
 	const [done, setDone] = useState(false);
 	return (
 		<IconButton
-			label={done ? "Copied" : "Copy reply"}
+			label={done ? "Copied" : label}
 			onPress={async () => {
 				try {
 					await navigator.clipboard.writeText(text);
@@ -121,5 +130,24 @@ function CopyButton({ text }: { text: string }) {
 		>
 			{done ? <CheckIcon /> : <CopyIcon />}
 		</IconButton>
+	);
+}
+
+/** "16:20" for today, "Nov 3, 16:20" for earlier days; the full date is in the tooltip. */
+function SentTime({ ms }: { ms: number }) {
+	const d = new Date(ms);
+	const time = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+	const today = d.toDateString() === new Date().toDateString();
+	const label = today
+		? time
+		: `${d.toLocaleDateString(undefined, { month: "short", day: "numeric" })}, ${time}`;
+	return (
+		<time
+			dateTime={d.toISOString()}
+			title={d.toLocaleString()}
+			className="px-1 text-xs tabular-nums"
+		>
+			{label}
+		</time>
 	);
 }
