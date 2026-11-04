@@ -7,8 +7,9 @@ use crate::domain::{
 use crate::error::{AppError, Result};
 
 const CONV_COLS: &str = "id, project_id, chapter_id, title, provider, model_id, archived_at, created_at, updated_at,
-    EXISTS(SELECT 1 FROM messages m WHERE m.conversation_id = conversations.id
-           AND m.role = 'assistant' AND (m.status <> 'error' OR m.content <> ''))";
+    (SELECT CASE WHEN m.status <> 'error' THEN NULLIF(m.input_tokens, 0) END
+       FROM messages m WHERE m.conversation_id = conversations.id AND m.role = 'assistant'
+       ORDER BY m.id DESC LIMIT 1)";
 const MSG_COLS: &str = "id, conversation_id, role, content, status, provider, model_id, input_tokens, output_tokens, error, created_at, updated_at";
 
 fn conversation_from_row(r: &Row) -> rusqlite::Result<Conversation> {
@@ -22,7 +23,7 @@ fn conversation_from_row(r: &Row) -> rusqlite::Result<Conversation> {
         archived_at: r.get(6)?,
         created_at: r.get(7)?,
         updated_at: r.get(8)?,
-        model_locked: r.get(9)?,
+        switch_cost_tokens: r.get(9)?,
     })
 }
 
@@ -151,18 +152,6 @@ pub fn set_archived(conn: &Connection, id: &str, archived: bool) -> Result<Conve
     get_conversation(conn, id)
 }
 
-/// Switching models mid-conversation makes the new model re-read the whole history with no
-/// prompt cache. Once a model has produced a reply, the conversation keeps it.
-pub fn change_model(conn: &Connection, id: &str, model_id: &str) -> Result<Conversation> {
-    if get_conversation(conn, id)?.model_locked {
-        return Err(AppError::Invalid(
-            "This conversation already has a reply, so its model is fixed. Start a new conversation to use another model."
-                .into(),
-        ));
-    }
-    set_model(conn, id, model_id)
-}
-
 pub fn set_model(conn: &Connection, id: &str, model_id: &str) -> Result<Conversation> {
     let n = conn.execute(
         "UPDATE conversations SET model_id = ?1 WHERE id = ?2",
@@ -172,6 +161,56 @@ pub fn set_model(conn: &Connection, id: &str, model_id: &str) -> Result<Conversa
         return Err(AppError::NotFound);
     }
     get_conversation(conn, id)
+}
+
+/// Copies a conversation, up to and including `up_to_message_id` if given, into a new one in the
+/// same project and chapter. Only finished messages are copied. Token counts are not, because
+/// the copy starts with no cached input.
+pub fn fork_conversation(
+    conn: &mut Connection,
+    source_id: &str,
+    up_to_message_id: Option<&str>,
+) -> Result<Conversation> {
+    let source = get_conversation(conn, source_id)?;
+    let mut messages = list_messages(conn, source_id)?;
+    if let Some(up_to) = up_to_message_id {
+        let pos = messages
+            .iter()
+            .position(|m| m.id == up_to)
+            .ok_or(AppError::NotFound)?;
+        messages.truncate(pos + 1);
+    }
+    messages.retain(|m| m.status == MessageStatus::Complete);
+
+    let tx = conn.transaction()?;
+    let (id, now) = (new_id(), now_ms());
+    tx.execute(
+        "INSERT INTO conversations
+           (id, project_id, chapter_id, title, provider, model_id, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
+        params![
+            id,
+            source.project_id,
+            source.chapter_id,
+            format!("{} (fork)", source.title),
+            source.provider,
+            source.model_id,
+            now
+        ],
+    )?;
+    for m in &messages {
+        insert_message(
+            &tx,
+            &id,
+            m.role,
+            &m.content,
+            MessageStatus::Complete,
+            m.provider.as_deref(),
+            m.model_id.as_deref(),
+        )?;
+    }
+    tx.commit()?;
+    get_conversation(conn, &id)
 }
 
 pub fn delete_conversation(conn: &Connection, id: &str) -> Result<()> {
@@ -311,21 +350,56 @@ mod tests {
         assert!(matches!(get_conversation(&conn, &c.id), Err(AppError::NotFound)));
     }
 
+    fn reply(conn: &Connection, conv: &str, text: &str, status: MessageStatus, input: Option<u32>) -> Message {
+        let m = insert_message(conn, conv, Role::Assistant, "", MessageStatus::Streaming, Some("gemini"), Some("m")).unwrap();
+        finish_message(conn, &m.id, Finish { content: text, status, input_tokens: input, output_tokens: Some(5), error: None }).unwrap()
+    }
+
     #[test]
-    fn model_is_locked_after_a_reply_but_not_after_a_failed_one() {
+    fn switch_cost_follows_the_latest_reply() {
         let conn = test_conn();
         let c = conv(&conn);
-        assert!(!c.model_locked);
+        assert_eq!(c.switch_cost_tokens, None, "no replies yet");
         insert_message(&conn, &c.id, Role::User, "hi", MessageStatus::Complete, None, None).unwrap();
-        let failed = insert_message(&conn, &c.id, Role::Assistant, "", MessageStatus::Streaming, None, None).unwrap();
-        finish_message(&conn, &failed.id, Finish { content: "", status: MessageStatus::Error, input_tokens: None, output_tokens: None, error: Some("503") }).unwrap();
-        assert!(change_model(&conn, &c.id, "other").is_ok(), "a failed first attempt must not lock the model");
+        reply(&conn, &c.id, "hello", MessageStatus::Complete, Some(1200));
+        assert_eq!(get_conversation(&conn, &c.id).unwrap().switch_cost_tokens, Some(1200));
+        reply(&conn, &c.id, "", MessageStatus::Error, None);
+        assert_eq!(
+            get_conversation(&conn, &c.id).unwrap().switch_cost_tokens,
+            None,
+            "when the current model is failing, switching is free of warnings"
+        );
+        reply(&conn, &c.id, "again", MessageStatus::Complete, Some(2500));
+        assert_eq!(get_conversation(&conn, &c.id).unwrap().switch_cost_tokens, Some(2500));
+    }
 
-        let ok = insert_message(&conn, &c.id, Role::Assistant, "", MessageStatus::Streaming, None, None).unwrap();
-        finish_message(&conn, &ok.id, Finish { content: "hello", status: MessageStatus::Complete, input_tokens: None, output_tokens: None, error: None }).unwrap();
-        assert!(get_conversation(&conn, &c.id).unwrap().model_locked);
-        assert!(change_model(&conn, &c.id, "third").is_err());
-        assert_eq!(get_conversation(&conn, &c.id).unwrap().model_id.as_deref(), Some("other"));
+    #[test]
+    fn fork_copies_finished_messages_up_to_a_point() {
+        let mut conn = test_conn();
+        let p = projects::create_project(&conn, "P").unwrap();
+        let c = create_conversation(&conn, Some(&p.id), None, "gemini", Some("m")).unwrap();
+        rename_conversation(&conn, &c.id, "Topic").unwrap();
+        let mut ids = Vec::new();
+        for i in 0..30 {
+            let u = insert_message(&conn, &c.id, Role::User, &format!("q{i}"), MessageStatus::Complete, None, None).unwrap();
+            let a = reply(&conn, &c.id, &format!("a{i}"), MessageStatus::Complete, Some(900));
+            ids.push((u.id, a.id));
+        }
+        reply(&conn, &c.id, "", MessageStatus::Error, None);
+
+        let whole = fork_conversation(&mut conn, &c.id, None).unwrap();
+        assert_eq!(whole.title, "Topic (fork)");
+        assert_eq!(whole.project_id.as_deref(), Some(p.id.as_str()));
+        assert_eq!(whole.switch_cost_tokens, None, "a fork starts uncached");
+        let texts: Vec<_> = list_messages(&conn, &whole.id).unwrap().into_iter().map(|m| m.content).collect();
+        let expected: Vec<_> = (0..30).flat_map(|i| [format!("q{i}"), format!("a{i}")]).collect();
+        assert_eq!(texts, expected, "failed replies are skipped and order is kept");
+
+        let partial = fork_conversation(&mut conn, &c.id, Some(&ids[1].1)).unwrap();
+        let texts: Vec<_> = list_messages(&conn, &partial.id).unwrap().into_iter().map(|m| m.content).collect();
+        assert_eq!(texts, ["q0", "a0", "q1", "a1"]);
+        assert_eq!(list_messages(&conn, &c.id).unwrap().len(), 61, "the original is untouched");
+        assert!(matches!(fork_conversation(&mut conn, &c.id, Some("nope")), Err(AppError::NotFound)));
     }
 
     #[test]

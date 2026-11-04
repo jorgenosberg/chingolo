@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { useNav } from "../../app/nav";
+import { ActionMenu } from "../../components/ActionMenu";
 import { useDialogs } from "../../components/dialogs";
 import { SidebarRightIcon } from "../../components/icons";
 import { ModelSelect } from "../../components/ModelSelect";
@@ -17,18 +18,30 @@ import {
 import { useLiveReply } from "../../lib/streams";
 import { PrivacyNotice } from "../settings/PrivacyNotice";
 import { Composer } from "./Composer";
+import { useConversationFlows } from "./flows";
 import { MessageItem } from "./MessageItem";
 
 export function ChatView({ conversationId }: { conversationId: string }) {
 	const qc = useQueryClient();
 	const { openSettings, toggleContext } = useNav();
-	const { prompt } = useDialogs();
+	const { prompt, confirm } = useDialogs();
+	const { fork, handoff } = useConversationFlows();
 	const conversations = useConversations();
 	const conversation = conversations.data?.find((c) => c.id === conversationId);
 	const messages = useMessages(conversationId);
 	const live = useLiveReply(conversationId);
 	const settings = useSettings();
 	const models = useModels(!!settings.data?.hasApiKey);
+
+	// Stable callback so finished messages don't re-render while a reply streams.
+	const forkRef = useRef<(messageId: string) => void>(() => {});
+	forkRef.current = (messageId) => {
+		if (conversation) fork(conversation, messageId);
+	};
+	const onFork = useCallback(
+		(messageId: string) => forkRef.current(messageId),
+		[],
+	);
 
 	const [sending, setSending] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -60,7 +73,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 
 	const hasKey = settings.data?.hasApiKey ?? false;
 	const busy = sending || live !== undefined;
-	const modelLocked = conversation?.modelLocked ?? false;
+	const switchCost = conversation?.switchCostTokens ?? null;
 	const modelId = conversation?.modelId ?? settings.data?.defaultModel ?? null;
 
 	const doSend = async (text: string): Promise<boolean> => {
@@ -98,6 +111,16 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 	};
 
 	const changeModel = async (id: string) => {
+		if (id === modelId) return;
+		if (switchCost) {
+			const name = models.data?.find((m) => m.id === id)?.displayName ?? id;
+			const ok = await confirm({
+				title: "Switch model?",
+				message: `${name} has to read this whole conversation (about ${formatTokens(switchCost)} tokens) as new input, with no cached input from the current model. Cached input usually costs about a tenth as much, so the next message costs more. Messages after that are cached again. To continue with less context, use "Hand off to a new conversation" from the ⋯ menu instead.`,
+				confirmLabel: "Switch model",
+			});
+			if (!ok) return;
+		}
 		await api.setConversationModel(conversationId, id);
 		await qc.invalidateQueries({ queryKey: keys.conversations });
 	};
@@ -131,25 +154,38 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 				>
 					{conversation?.title ?? ""}
 				</button>
-				<div
-					className="w-56 shrink-0"
-					title={
-						modelLocked
-							? "The model is fixed once it has replied. Switching would make the new model re-read the whole conversation without cached input. Start a new conversation to use another model."
-							: undefined
-					}
-				>
+				<div className="w-56 shrink-0">
 					<ModelSelect
-						label={
-							modelLocked ? "Model (fixed for this conversation)" : "Model"
-						}
+						label="Model"
 						models={models.data ?? []}
 						value={modelId}
 						onChange={changeModel}
-						isDisabled={!hasKey || busy || modelLocked}
+						isDisabled={!hasKey || busy}
 						placeholder={hasKey ? "Choose a model" : "No API key"}
 					/>
 				</div>
+				{conversation && (
+					<ActionMenu
+						label="Conversation actions"
+						actions={[
+							{ id: "rename", label: "Rename…", run: rename },
+							...(list.length > 0
+								? [
+										{
+											id: "fork",
+											label: "Fork conversation",
+											run: () => fork(conversation),
+										},
+										{
+											id: "handoff",
+											label: "Hand off to a new conversation",
+											run: () => handoff(conversation),
+										},
+									]
+								: []),
+						]}
+					/>
+				)}
 				<IconButton label="Toggle context pane" onPress={toggleContext}>
 					<SidebarRightIcon />
 				</IconButton>
@@ -184,6 +220,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 						<MessageItem
 							key={m.id}
 							message={m}
+							onFork={onFork}
 							liveText={live && live.messageId === m.id ? live.text : undefined}
 						/>
 					))}
@@ -217,4 +254,8 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 			</Modal_>
 		</div>
 	);
+}
+
+function formatTokens(n: number) {
+	return n >= 1000 ? `${Math.round(n / 100) / 10}k` : String(n);
 }

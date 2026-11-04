@@ -15,6 +15,8 @@ bun install
 bun run tauri dev
 ```
 
+Dev builds are signed with a local Apple Development certificate when one is installed, so macOS Keychain access is remembered across rebuilds. See `src-tauri/scripts/dev-run.sh`.
+
 See `docs/PLAN.md`, `docs/ARCHITECTURE.md` and `docs/STATUS.md`.
 
 ## License

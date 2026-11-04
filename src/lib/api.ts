@@ -47,6 +47,9 @@ export const api = {
 	setConversationModel: (id: string, modelId: string) =>
 		unwrap(commands.setConversationModel(id, modelId)),
 	deleteConversation: (id: string) => unwrap(commands.deleteConversation(id)),
+	forkConversation: (id: string, fromMessageId: string | null) =>
+		unwrap(commands.forkConversation(id, fromMessageId)),
+	summarizeForHandoff: (id: string) => unwrap(commands.summarizeForHandoff(id)),
 	listMessages: (conversationId: string) =>
 		unwrap(commands.listMessages(conversationId)),
 	cancelGeneration: (messageId: string) => commands.cancelGeneration(messageId),

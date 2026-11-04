@@ -78,7 +78,7 @@ pub async fn set_conversation_model(
 ) -> CmdResult<Conversation> {
     Ok(state
         .db
-        .call(move |c| repo::change_model(c, &id, &model_id))
+        .call(move |c| repo::set_model(c, &id, &model_id))
         .await?)
 }
 
@@ -119,4 +119,28 @@ pub async fn send_message(
 #[specta::specta]
 pub fn cancel_generation(state: State<'_, AppState>, message_id: String) -> bool {
     state.generations.cancel(&message_id)
+}
+
+/// Copies a conversation (up to `from_message_id`, or all of it) into a new one.
+#[tauri::command]
+#[specta::specta]
+pub async fn fork_conversation(
+    state: State<'_, AppState>,
+    id: String,
+    from_message_id: Option<String>,
+) -> CmdResult<Conversation> {
+    Ok(state
+        .db
+        .call(move |c| repo::fork_conversation(c, &id, from_message_id.as_deref()))
+        .await?)
+}
+
+/// Returns a handoff note written by the conversation's model. Nothing is saved.
+#[tauri::command]
+#[specta::specta]
+pub async fn summarize_for_handoff(
+    state: State<'_, AppState>,
+    id: String,
+) -> CmdResult<String> {
+    Ok(chat::handoff_summary(&state, id).await?)
 }

@@ -34,6 +34,8 @@ fn specta_builder() -> Builder<tauri::Wry> {
         commands::chat::list_messages,
         commands::chat::send_message,
         commands::chat::cancel_generation,
+        commands::chat::fork_conversation,
+        commands::chat::summarize_for_handoff,
         commands::settings::get_settings,
         commands::settings::update_settings,
         commands::settings::save_api_key,

@@ -66,8 +66,9 @@ pub struct Conversation {
     pub title: String,
     pub provider: String,
     pub model_id: Option<String>,
-    /// True once a model has replied. The model can't change after that (see `change_model`).
-    pub model_locked: bool,
+    /// Input tokens of the latest reply: roughly how much a different model would have to re-read
+    /// without cached input. None if there is no reply, or the latest one failed.
+    pub switch_cost_tokens: Option<u32>,
     #[specta(type = Option<Number>)]
     pub archived_at: Option<i64>,
     #[specta(type = Number)]

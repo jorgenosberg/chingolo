@@ -82,6 +82,14 @@ export const ChatIcon = (p: P) => (
 		<path d="M3.5 3h9A1.5 1.5 0 0 1 14 4.5v5a1.5 1.5 0 0 1-1.5 1.5H8l-3 2.5V11h-1.5A1.5 1.5 0 0 1 2 9.5v-5A1.5 1.5 0 0 1 3.5 3Z" />
 	</Icon>
 );
+export const ForkIcon = (p: P) => (
+	<Icon {...p}>
+		<circle cx="4.5" cy="3.5" r="1.5" />
+		<circle cx="4.5" cy="12.5" r="1.5" />
+		<circle cx="11.5" cy="5.5" r="1.5" />
+		<path d="M4.5 5v6M11.5 7c0 2-2 2.5-7 3.5" />
+	</Icon>
+);
 export const CheckIcon = (p: P) => (
 	<Icon {...p}>
 		<path d="m3.5 8.5 3 3 6-7" />

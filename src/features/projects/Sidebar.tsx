@@ -1,19 +1,16 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
-import {
-	Menu,
-	MenuItem,
-	MenuTrigger,
-	Popover,
-	Button as RacButton,
-} from "react-aria-components";
+import { Button as RacButton } from "react-aria-components";
 import { useNav } from "../../app/nav";
+import {
+	type Action,
+	ActionMenu as RowMenu,
+} from "../../components/ActionMenu";
 import { useDialogs } from "../../components/dialogs";
 import {
 	ChatIcon,
 	ChevronIcon,
 	FolderIcon,
-	MoreIcon,
 	PlusIcon,
 	SearchIcon,
 	SettingsIcon,
@@ -28,41 +25,7 @@ import {
 	useConversations,
 	useProjects,
 } from "../../lib/queries";
-
-type Action = { id: string; label: string; run: () => void; danger?: boolean };
-
-function RowMenu({ label, actions }: { label: string; actions: Action[] }) {
-	return (
-		<MenuTrigger>
-			<IconButton label={label} className="size-6">
-				<MoreIcon />
-			</IconButton>
-			<Popover
-				placement="bottom end"
-				className="min-w-44 rounded-xl border border-border bg-card p-1 shadow-lg"
-			>
-				<Menu
-					aria-label={label}
-					onAction={(k) => actions.find((a) => a.id === k)?.run()}
-					className="outline-none"
-				>
-					{actions.map((a) => (
-						<MenuItem
-							key={a.id}
-							id={a.id}
-							className={cx(
-								"cursor-default rounded-md px-2.5 py-1.5 text-[13px] outline-none data-[focused]:bg-muted",
-								a.danger && "text-problem",
-							)}
-						>
-							{a.label}
-						</MenuItem>
-					))}
-				</Menu>
-			</Popover>
-		</MenuTrigger>
-	);
-}
+import { useConversationFlows } from "../chat/flows";
 
 function Row({
 	depth = 0,
@@ -138,6 +101,7 @@ function useConversationActions() {
 	const qc = useQueryClient();
 	const { select, conversationId } = useNav();
 	const { prompt, confirm } = useDialogs();
+	const { fork, handoff } = useConversationFlows();
 	const refresh = () => qc.invalidateQueries({ queryKey: keys.conversations });
 
 	return (c: Conversation): Action[] => [
@@ -155,6 +119,12 @@ function useConversationActions() {
 					refresh();
 				}
 			},
+		},
+		{ id: "fork", label: "Fork", run: () => fork(c) },
+		{
+			id: "handoff",
+			label: "Hand off to a new conversation",
+			run: () => handoff(c),
 		},
 		{
 			id: "archive",

@@ -1,5 +1,6 @@
 //! Sends a user message and streams the reply into the database and to the UI.
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
@@ -38,6 +39,14 @@ pub struct SendResult {
     pub assistant_message: Message,
 }
 
+async fn provider_and_key(state: &AppState, provider_id: &str) -> Result<(Arc<dyn Provider>, String)> {
+    let provider = state.providers.get(provider_id)?;
+    let key = security::get_key(provider.id())
+        .await?
+        .ok_or_else(|| AppError::NoApiKey(provider.id().to_string()))?;
+    Ok((provider, key))
+}
+
 struct Prepared {
     user_message: Message,
     assistant_message: Message,
@@ -60,10 +69,7 @@ pub async fn send(
         .db
         .call(move |c| repo::get_conversation(c, &conv_id))
         .await?;
-    let provider = state.providers.get(&conv.provider)?;
-    let api_key = security::get_key(provider.id())
-        .await?
-        .ok_or_else(|| AppError::NoApiKey(provider.id().to_string()))?;
+    let (provider, api_key) = provider_and_key(state, &conv.provider).await?;
 
     let provider_id = provider.id().to_string();
     let prepared = state
@@ -143,7 +149,7 @@ enum Outcome {
 async fn run_generation(
     db: Db,
     generations: Generations,
-    provider: std::sync::Arc<dyn Provider>,
+    provider: Arc<dyn Provider>,
     api_key: String,
     request: GenerationRequest,
     assistant: Message,
@@ -221,4 +227,63 @@ async fn run_generation(
         ..assistant
     });
     let _ = on_event.send(ChatEvent::Finished { message });
+}
+
+const HANDOFF_SYSTEM: &str = "You write short, faithful handoff notes. \
+Use only what is in the conversation. Don't add facts, sources or citations that were not there.";
+
+const HANDOFF_REQUEST: &str = "Write a handoff note so a new conversation can pick up this work \
+without the full history. Cover: the goal, the key facts and decisions so far (with any numbers \
+exactly as given), what is still open or unclear, and the next steps. Keep it under 400 words. \
+Plain Markdown, no preamble.";
+
+/// Asks the conversation's own model for a handoff note. Using the same model means it reads
+/// the history from its cache, which is cheaper than any other way of summarizing.
+pub async fn handoff_summary(state: &AppState, conversation_id: String) -> Result<String> {
+    let id = conversation_id.clone();
+    let (conv, mut turns) = state
+        .db
+        .call(move |c| Ok((repo::get_conversation(c, &id)?, history(c, &id)?)))
+        .await?;
+    if turns.is_empty() {
+        return Err(AppError::Invalid("There is nothing to summarize yet.".into()));
+    }
+    let model = match conv.model_id.clone() {
+        Some(m) => m,
+        None => state
+            .db
+            .call(|c| settings::get(c, "default_model"))
+            .await?
+            .ok_or_else(|| AppError::Invalid("Choose a model first.".into()))?,
+    };
+    let (provider, api_key) = provider_and_key(state, &conv.provider).await?;
+    turns.push(Turn {
+        role: TurnRole::User,
+        text: HANDOFF_REQUEST.to_string(),
+    });
+    let mut stream = provider.generate(
+        api_key,
+        GenerationRequest {
+            model,
+            system: Some(HANDOFF_SYSTEM.to_string()),
+            turns,
+        },
+    );
+    let collect = async {
+        let mut out = String::new();
+        while let Some(item) = stream.next().await {
+            if let GenerationEvent::Text(t) = item? {
+                out.push_str(&t);
+            }
+        }
+        Ok::<_, AppError>(out)
+    };
+    let text = tokio::time::timeout(Duration::from_secs(120), collect)
+        .await
+        .map_err(|_| AppError::Provider("Writing the summary took too long.".into()))??;
+    let text = text.trim().to_string();
+    if text.is_empty() {
+        return Err(AppError::Provider("The model returned an empty summary.".into()));
+    }
+    Ok(text)
 }

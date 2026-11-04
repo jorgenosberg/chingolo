@@ -23,6 +23,10 @@ export const commands = {
 	/**  Saves the user's message, then streams the reply over `on_event`. */
 	sendMessage: (conversationId: string, content: string, onEvent: Channel<ChatEvent>) => typedError<SendResult, CmdError>(__TAURI_INVOKE("send_message", { conversationId, content, onEvent })),
 	cancelGeneration: (messageId: string) => __TAURI_INVOKE<boolean>("cancel_generation", { messageId }),
+	/**  Copies a conversation (up to `from_message_id`, or all of it) into a new one. */
+	forkConversation: (id: string, fromMessageId: string | null) => typedError<Conversation, CmdError>(__TAURI_INVOKE("fork_conversation", { id, fromMessageId })),
+	/**  Returns a handoff note written by the conversation's model. Nothing is saved. */
+	summarizeForHandoff: (id: string) => typedError<string, CmdError>(__TAURI_INVOKE("summarize_for_handoff", { id })),
 	getSettings: () => typedError<AppSettings, CmdError>(__TAURI_INVOKE("get_settings")),
 	updateSettings: (patch: SettingsPatch) => typedError<AppSettings, CmdError>(__TAURI_INVOKE("update_settings", { patch })),
 	/**  Checks the key by listing models, and stores it in the Keychain only if that works. */
@@ -62,8 +66,11 @@ export type Conversation = {
 	title: string,
 	provider: string,
 	modelId: string | null,
-	/**  True once a model has replied. The model can't change after that (see `change_model`). */
-	modelLocked: boolean,
+	/**
+	 *  Input tokens of the latest reply: roughly how much a different model would have to re-read
+	 *  without cached input. None if there is no reply, or the latest one failed.
+	 */
+	switchCostTokens: number | null,
 	archivedAt: number | null,
 	createdAt: number,
 	updatedAt: number,

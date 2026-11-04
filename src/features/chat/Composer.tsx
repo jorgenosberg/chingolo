@@ -6,6 +6,12 @@ import { cx, focus } from "../../components/ui";
 // Unsent text per conversation, kept for the session.
 const drafts = new Map<string, string>();
 
+/** Puts text in a conversation's composer before it is opened. */
+export function setDraft(conversationId: string, text: string) {
+	if (text) drafts.set(conversationId, text);
+	else drafts.delete(conversationId);
+}
+
 export function Composer({
 	conversationId,
 	busy,

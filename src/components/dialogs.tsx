@@ -5,7 +5,7 @@ import {
 	useContext,
 	useState,
 } from "react";
-import { Button, Modal_, TextInput } from "./ui";
+import { Button, Modal_, Spinner, TextInput } from "./ui";
 
 type PromptOpts = {
 	title: string;
@@ -25,6 +25,9 @@ type Dialogs = {
 	/** Resolves with the trimmed text, or null if cancelled. */
 	prompt: (o: PromptOpts) => Promise<string | null>;
 	confirm: (o: ConfirmOpts) => Promise<boolean>;
+	alert: (o: { title: string; message: string }) => Promise<void>;
+	/** Shows a progress dialog while `fn` runs. */
+	busy: <T>(message: string, fn: () => Promise<T>) => Promise<T>;
 };
 
 const Ctx = createContext<Dialogs | null>(null);
@@ -37,11 +40,17 @@ export function useDialogs(): Dialogs {
 
 type Active =
 	| { kind: "prompt"; opts: PromptOpts; resolve: (v: string | null) => void }
-	| { kind: "confirm"; opts: ConfirmOpts; resolve: (v: boolean) => void };
+	| { kind: "confirm"; opts: ConfirmOpts; resolve: (v: boolean) => void }
+	| {
+			kind: "alert";
+			opts: { title: string; message: string };
+			resolve: () => void;
+	  };
 
 export function DialogProvider({ children }: { children: ReactNode }) {
 	const [active, setActive] = useState<Active | null>(null);
 	const [text, setText] = useState("");
+	const [working, setWorking] = useState<string | null>(null);
 
 	const prompt = useCallback(
 		(opts: PromptOpts) =>
@@ -59,11 +68,68 @@ export function DialogProvider({ children }: { children: ReactNode }) {
 		[],
 	);
 
+	const alert = useCallback(
+		(opts: { title: string; message: string }) =>
+			new Promise<void>((resolve) =>
+				setActive({ kind: "alert", opts, resolve }),
+			),
+		[],
+	);
+	const busy = useCallback(
+		async <T,>(message: string, fn: () => Promise<T>) => {
+			setWorking(message);
+			try {
+				return await fn();
+			} finally {
+				setWorking(null);
+			}
+		},
+		[],
+	);
+
 	const close = () => setActive(null);
 
 	return (
-		<Ctx.Provider value={{ prompt, confirm }}>
+		<Ctx.Provider value={{ prompt, confirm, alert, busy }}>
 			{children}
+			{working && (
+				<Modal_
+					isOpen
+					title={working}
+					onOpenChange={() => {}}
+					dismissable={false}
+				>
+					<div className="flex items-center gap-3 text-sm text-muted-foreground">
+						<Spinner /> This can take a few seconds.
+					</div>
+				</Modal_>
+			)}
+			{active?.kind === "alert" && (
+				<Modal_
+					isOpen
+					title={active.opts.title}
+					onOpenChange={() => {
+						active.resolve();
+						close();
+					}}
+				>
+					<p role="alert" className="mb-5 text-sm text-muted-foreground">
+						{active.opts.message}
+					</p>
+					<div className="flex justify-end">
+						<Button
+							variant="primary"
+							autoFocus
+							onPress={() => {
+								active.resolve();
+								close();
+							}}
+						>
+							OK
+						</Button>
+					</div>
+				</Modal_>
+			)}
 			{active?.kind === "prompt" && (
 				<Modal_
 					isOpen

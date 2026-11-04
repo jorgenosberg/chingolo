@@ -1,7 +1,7 @@
 import { math } from "@streamdown/math";
 import { memo, useState } from "react";
 import { Streamdown } from "streamdown";
-import { CheckIcon, CopyIcon } from "../../components/icons";
+import { CheckIcon, CopyIcon, ForkIcon } from "../../components/icons";
 import { IconButton } from "../../components/ui";
 import type { Message } from "../../lib/bindings";
 
@@ -10,14 +10,27 @@ const plugins = { math };
 export const MessageItem = memo(function MessageItem({
 	message,
 	liveText,
+	onFork,
 }: {
 	message: Message;
+	/** Copies the conversation up to and including this message into a new one. */
+	onFork?: (messageId: string) => void;
 	/** Text received so far while this reply is streaming; overrides the saved text. */
 	liveText?: string;
 }) {
 	if (message.role === "user") {
 		return (
-			<div className="flex justify-end">
+			<div className="group flex items-center justify-end gap-1">
+				{onFork && (
+					<span className="opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+						<IconButton
+							label="Fork conversation from here"
+							onPress={() => onFork(message.id)}
+						>
+							<ForkIcon />
+						</IconButton>
+					</span>
+				)}
 				<div className="selectable max-w-[85%] whitespace-pre-wrap rounded-2xl bg-accent-soft px-4 py-2.5 text-[15px] leading-relaxed">
 					{message.content}
 				</div>
@@ -59,6 +72,14 @@ export const MessageItem = memo(function MessageItem({
 			{!streaming && text && (
 				<div className="flex items-center gap-2 text-xs text-muted-foreground opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
 					<CopyButton text={text} />
+					{onFork && message.status === "complete" && (
+						<IconButton
+							label="Fork conversation from here"
+							onPress={() => onFork(message.id)}
+						>
+							<ForkIcon />
+						</IconButton>
+					)}
 					{message.modelId && (
 						<span className="selectable">{message.modelId}</span>
 					)}
