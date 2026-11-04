@@ -101,6 +101,10 @@
 		outline-offset: 2px;
 	}
 
+	button:not(:disabled, [aria-disabled="true"], [data-disabled]) {
+		cursor: pointer;
+	}
+
 	::selection {
 		background: var(--accent-soft);
 	}
