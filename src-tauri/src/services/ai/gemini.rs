@@ -205,8 +205,23 @@ fn net_error(e: reqwest::Error) -> AppError {
         AppError::Provider("Couldn't reach Gemini. Check your internet connection.".into())
     } else {
         // reqwest errors can embed the URL, which never contains the key (it is sent as a header).
-        AppError::Provider(format!("Network error talking to Gemini: {e}"))
+        AppError::Provider(format!(
+            "Network error talking to Gemini: {}",
+            error_chain(&e)
+        ))
     }
+}
+
+/// reqwest's top-level message hides the real cause (TLS, closed connection, ...).
+fn error_chain(e: &dyn std::error::Error) -> String {
+    let mut out = e.to_string();
+    let mut source = e.source();
+    while let Some(s) = source {
+        out.push_str(": ");
+        out.push_str(&s.to_string());
+        source = s.source();
+    }
+    out
 }
 
 async fn check_status(resp: reqwest::Response) -> Result<reqwest::Response> {
