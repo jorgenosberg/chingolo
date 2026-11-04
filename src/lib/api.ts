@@ -1,0 +1,77 @@
+import { Channel } from "@tauri-apps/api/core";
+import {
+	type ChatEvent,
+	type ConversationFilter,
+	commands,
+	type SettingsPatch,
+} from "./bindings";
+
+type Result<T> = { status: "ok"; data: T } | { status: "error"; error: string };
+
+/** Commands report errors as plain strings. Turn them into thrown Errors for react-query. */
+async function unwrap<T>(p: Promise<Result<T>>): Promise<T> {
+	const r = await p;
+	if (r.status === "error") throw new Error(r.error);
+	return r.data;
+}
+
+export const PROVIDER = "gemini";
+
+export const api = {
+	listProjects: () => unwrap(commands.listProjects()),
+	createProject: (name: string) => unwrap(commands.createProject(name)),
+	renameProject: (id: string, name: string) =>
+		unwrap(commands.renameProject(id, name)),
+	deleteProject: (id: string) => unwrap(commands.deleteProject(id)),
+	listChapters: (projectId: string) => unwrap(commands.listChapters(projectId)),
+	createChapter: (projectId: string, title: string) =>
+		unwrap(commands.createChapter(projectId, title)),
+	renameChapter: (id: string, title: string) =>
+		unwrap(commands.renameChapter(id, title)),
+	deleteChapter: (id: string) => unwrap(commands.deleteChapter(id)),
+
+	listConversations: (filter: Partial<ConversationFilter>) =>
+		unwrap(
+			commands.listConversations({
+				projectId: null,
+				query: null,
+				...filter,
+			}),
+		),
+	createConversation: (projectId: string | null, chapterId: string | null) =>
+		unwrap(commands.createConversation(projectId, chapterId)),
+	renameConversation: (id: string, title: string) =>
+		unwrap(commands.renameConversation(id, title)),
+	archiveConversation: (id: string, archived: boolean) =>
+		unwrap(commands.archiveConversation(id, archived)),
+	setConversationModel: (id: string, modelId: string) =>
+		unwrap(commands.setConversationModel(id, modelId)),
+	deleteConversation: (id: string) => unwrap(commands.deleteConversation(id)),
+	listMessages: (conversationId: string) =>
+		unwrap(commands.listMessages(conversationId)),
+	cancelGeneration: (messageId: string) => commands.cancelGeneration(messageId),
+
+	getSettings: () => unwrap(commands.getSettings()),
+	updateSettings: (patch: Partial<SettingsPatch>) =>
+		unwrap(
+			commands.updateSettings({
+				onboarded: null,
+				privacyAcknowledged: null,
+				defaultModel: null,
+				...patch,
+			}),
+		),
+	saveApiKey: (key: string) => unwrap(commands.saveApiKey(PROVIDER, key)),
+	deleteApiKey: () => unwrap(commands.deleteApiKey(PROVIDER)),
+	listModels: () => unwrap(commands.listModels(PROVIDER)),
+};
+
+export function sendMessageRaw(
+	conversationId: string,
+	content: string,
+	channel: Channel<ChatEvent>,
+) {
+	return unwrap(commands.sendMessage(conversationId, content, channel));
+}
+
+export { Channel };
