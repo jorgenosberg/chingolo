@@ -78,7 +78,7 @@ pub async fn set_conversation_model(
 ) -> CmdResult<Conversation> {
     Ok(state
         .db
-        .call(move |c| repo::set_model(c, &id, &model_id))
+        .call(move |c| repo::change_model(c, &id, &model_id))
         .await?)
 }
 

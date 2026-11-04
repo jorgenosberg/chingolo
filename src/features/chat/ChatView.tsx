@@ -60,6 +60,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 
 	const hasKey = settings.data?.hasApiKey ?? false;
 	const busy = sending || live !== undefined;
+	const modelLocked = conversation?.modelLocked ?? false;
 	const modelId = conversation?.modelId ?? settings.data?.defaultModel ?? null;
 
 	const doSend = async (text: string): Promise<boolean> => {
@@ -130,15 +131,25 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 				>
 					{conversation?.title ?? ""}
 				</button>
-				<ModelSelect
-					label="Model"
-					models={models.data ?? []}
-					value={modelId}
-					onChange={changeModel}
-					isDisabled={!hasKey || busy}
-					placeholder={hasKey ? "Choose a model" : "No API key"}
+				<div
 					className="w-56 shrink-0"
-				/>
+					title={
+						modelLocked
+							? "The model is fixed once it has replied. Switching would make the new model re-read the whole conversation without cached input. Start a new conversation to use another model."
+							: undefined
+					}
+				>
+					<ModelSelect
+						label={
+							modelLocked ? "Model (fixed for this conversation)" : "Model"
+						}
+						models={models.data ?? []}
+						value={modelId}
+						onChange={changeModel}
+						isDisabled={!hasKey || busy || modelLocked}
+						placeholder={hasKey ? "Choose a model" : "No API key"}
+					/>
+				</div>
 				<IconButton label="Toggle context pane" onPress={toggleContext}>
 					<SidebarRightIcon />
 				</IconButton>

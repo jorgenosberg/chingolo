@@ -6,7 +6,9 @@ use crate::domain::{
 };
 use crate::error::{AppError, Result};
 
-const CONV_COLS: &str = "id, project_id, chapter_id, title, provider, model_id, archived_at, created_at, updated_at";
+const CONV_COLS: &str = "id, project_id, chapter_id, title, provider, model_id, archived_at, created_at, updated_at,
+    EXISTS(SELECT 1 FROM messages m WHERE m.conversation_id = conversations.id
+           AND m.role = 'assistant' AND (m.status <> 'error' OR m.content <> ''))";
 const MSG_COLS: &str = "id, conversation_id, role, content, status, provider, model_id, input_tokens, output_tokens, error, created_at, updated_at";
 
 fn conversation_from_row(r: &Row) -> rusqlite::Result<Conversation> {
@@ -20,6 +22,7 @@ fn conversation_from_row(r: &Row) -> rusqlite::Result<Conversation> {
         archived_at: r.get(6)?,
         created_at: r.get(7)?,
         updated_at: r.get(8)?,
+        model_locked: r.get(9)?,
     })
 }
 
@@ -146,6 +149,18 @@ pub fn set_archived(conn: &Connection, id: &str, archived: bool) -> Result<Conve
         return Err(AppError::NotFound);
     }
     get_conversation(conn, id)
+}
+
+/// Switching models mid-conversation makes the new model re-read the whole history with no
+/// prompt cache. Once a model has produced a reply, the conversation keeps it.
+pub fn change_model(conn: &Connection, id: &str, model_id: &str) -> Result<Conversation> {
+    if get_conversation(conn, id)?.model_locked {
+        return Err(AppError::Invalid(
+            "This conversation already has a reply, so its model is fixed. Start a new conversation to use another model."
+                .into(),
+        ));
+    }
+    set_model(conn, id, model_id)
 }
 
 pub fn set_model(conn: &Connection, id: &str, model_id: &str) -> Result<Conversation> {
@@ -294,6 +309,23 @@ mod tests {
         assert_eq!(c.model_id.as_deref(), Some("other-model"));
         delete_conversation(&conn, &c.id).unwrap();
         assert!(matches!(get_conversation(&conn, &c.id), Err(AppError::NotFound)));
+    }
+
+    #[test]
+    fn model_is_locked_after_a_reply_but_not_after_a_failed_one() {
+        let conn = test_conn();
+        let c = conv(&conn);
+        assert!(!c.model_locked);
+        insert_message(&conn, &c.id, Role::User, "hi", MessageStatus::Complete, None, None).unwrap();
+        let failed = insert_message(&conn, &c.id, Role::Assistant, "", MessageStatus::Streaming, None, None).unwrap();
+        finish_message(&conn, &failed.id, Finish { content: "", status: MessageStatus::Error, input_tokens: None, output_tokens: None, error: Some("503") }).unwrap();
+        assert!(change_model(&conn, &c.id, "other").is_ok(), "a failed first attempt must not lock the model");
+
+        let ok = insert_message(&conn, &c.id, Role::Assistant, "", MessageStatus::Streaming, None, None).unwrap();
+        finish_message(&conn, &ok.id, Finish { content: "hello", status: MessageStatus::Complete, input_tokens: None, output_tokens: None, error: None }).unwrap();
+        assert!(get_conversation(&conn, &c.id).unwrap().model_locked);
+        assert!(change_model(&conn, &c.id, "third").is_err());
+        assert_eq!(get_conversation(&conn, &c.id).unwrap().model_id.as_deref(), Some("other"));
     }
 
     #[test]

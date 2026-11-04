@@ -62,6 +62,8 @@ export type Conversation = {
 	title: string,
 	provider: string,
 	modelId: string | null,
+	/**  True once a model has replied. The model can't change after that (see `change_model`). */
+	modelLocked: boolean,
 	archivedAt: number | null,
 	createdAt: number,
 	updatedAt: number,

@@ -66,6 +66,8 @@ pub struct Conversation {
     pub title: String,
     pub provider: String,
     pub model_id: Option<String>,
+    /// True once a model has replied. The model can't change after that (see `change_model`).
+    pub model_locked: bool,
     #[specta(type = Option<Number>)]
     pub archived_at: Option<i64>,
     #[specta(type = Number)]
