@@ -123,6 +123,8 @@ export type Chapter = {
 };
 
 export type ChatEvent = { type: "delta"; text: string } | 
+/**  The model is using a tool. `summary` is a short line to show while it runs. */
+{ type: "tool"; name: string; summary: string } | 
 /**  Sent once at the end, whether the reply completed, failed or was cancelled. */
 { type: "finished"; message: Message };
 

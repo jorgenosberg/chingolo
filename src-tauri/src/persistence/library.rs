@@ -374,6 +374,60 @@ pub fn hits_for_ids(conn: &Connection, ids: &[Id], matched_by: MatchKind) -> Res
     Ok(out)
 }
 
+/// How many documents a question could draw on: ready ones attached to the project, or in the
+/// whole library when no project is given.
+pub fn ready_document_count(conn: &Connection, project_id: Option<&str>) -> Result<u32> {
+    Ok(match project_id {
+        Some(p) => conn.query_row(
+            "SELECT COUNT(*) FROM documents d
+              WHERE d.status = 'ready'
+                AND d.id IN (SELECT document_id FROM project_documents WHERE project_id = ?1)",
+            [p],
+            |r| r.get(0),
+        )?,
+        None => conn.query_row("SELECT COUNT(*) FROM documents WHERE status = 'ready'", [], |r| r.get(0))?,
+    })
+}
+
+fn hit_from_row(r: &Row, matched_by: MatchKind) -> rusqlite::Result<SearchHit> {
+    Ok(SearchHit {
+        passage_id: r.get(0)?,
+        document_id: r.get(1)?,
+        document_title: r.get(2)?,
+        page_start: r.get(3)?,
+        page_end: r.get(4)?,
+        text: r.get(5)?,
+        matched_by,
+    })
+}
+
+/// The passage and up to `before` and `after` neighbours in reading order. Empty if the passage
+/// no longer exists (the file was read again).
+pub fn passages_around(conn: &Connection, passage_id: &str, before: u32, after: u32) -> Result<Vec<SearchHit>> {
+    let mut stmt = conn.prepare(
+        "SELECT p.id, d.id, COALESCE(NULLIF(d.title, ''), d.original_name), p.page_start, p.page_end, p.text
+           FROM passages p JOIN documents d ON d.id = p.document_id
+          WHERE p.document_id = (SELECT document_id FROM passages WHERE id = ?1)
+            AND p.ordinal BETWEEN (SELECT ordinal FROM passages WHERE id = ?1) - ?2
+                              AND (SELECT ordinal FROM passages WHERE id = ?1) + ?3
+          ORDER BY p.ordinal",
+    )?;
+    let rows = stmt.query_map(params![passage_id, before, after], |r| hit_from_row(r, MatchKind::Context))?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+/// Passages that touch this page, in reading order.
+pub fn passages_on_page(conn: &Connection, document_id: &str, page: u32, limit: u32) -> Result<Vec<SearchHit>> {
+    let mut stmt = conn.prepare(
+        "SELECT p.id, d.id, COALESCE(NULLIF(d.title, ''), d.original_name), p.page_start, p.page_end, p.text
+           FROM passages p JOIN documents d ON d.id = p.document_id
+          WHERE p.document_id = ?1 AND p.page_start <= ?2 AND p.page_end >= ?2
+          ORDER BY p.ordinal LIMIT ?3",
+    )?;
+    let rows = stmt.query_map(params![document_id, page, limit], |r| hit_from_row(r, MatchKind::Context))?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
 pub struct StoredPassage {
     pub id: Id,
     pub document_id: Id,
