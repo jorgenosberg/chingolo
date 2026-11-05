@@ -19,7 +19,7 @@ import { keys } from "../lib/queries";
 const STORAGE_KEY = "chingui.conversation";
 
 /** What the reader shows: a document, a page, and optionally a passage to highlight. */
-type View = "chat" | "library" | "reader";
+type View = "chat" | "library" | "reader" | "settings";
 
 export type ReaderTarget = {
 	documentId: string;
@@ -44,9 +44,9 @@ type Nav = {
 		projectId?: string | null,
 		chapterId?: string | null,
 	) => Promise<void>;
-	settingsOpen: boolean;
-	setSettingsOpen: (open: boolean) => void;
+	/** Settings fill the main pane. `closeSettings` goes back to the view it was opened from. */
 	openSettings: () => void;
+	closeSettings: () => void;
 	contextPanel: RefObject<PanelImperativeHandle | null>;
 	toggleContext: () => void;
 };
@@ -72,7 +72,6 @@ export function NavProvider({ children }: { children: ReactNode }) {
 	const [conversationId, setConversationId] = useState<string | null>(
 		readSaved,
 	);
-	const [settingsOpen, setSettingsOpen] = useState(false);
 	const [view, setView] = useState<View>("chat");
 	const [libraryScope, setLibraryScope] = useState<string | null>(null);
 	const [reader, setReader] = useState<ReaderTarget | null>(null);
@@ -90,6 +89,15 @@ export function NavProvider({ children }: { children: ReactNode }) {
 		setReader(null);
 		setView(returnView.current);
 	}, []);
+
+	const settingsReturn = useRef<View>("chat");
+	const openSettings = useCallback(() => {
+		setView((v) => {
+			if (v !== "settings") settingsReturn.current = v;
+			return "settings";
+		});
+	}, []);
+	const closeSettings = useCallback(() => setView(settingsReturn.current), []);
 
 	const openLibrary = useCallback((scope?: string | null) => {
 		if (scope !== undefined) setLibraryScope(scope);
@@ -138,9 +146,8 @@ export function NavProvider({ children }: { children: ReactNode }) {
 			conversationId,
 			select,
 			newChat,
-			settingsOpen,
-			setSettingsOpen,
-			openSettings: () => setSettingsOpen(true),
+			openSettings,
+			closeSettings,
 			contextPanel,
 			toggleContext,
 		}),
@@ -154,7 +161,8 @@ export function NavProvider({ children }: { children: ReactNode }) {
 			conversationId,
 			select,
 			newChat,
-			settingsOpen,
+			openSettings,
+			closeSettings,
 			contextPanel,
 			toggleContext,
 		],

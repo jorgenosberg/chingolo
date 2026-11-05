@@ -11,7 +11,7 @@ import { Button, IconButton, Kbd, SHORTCUTS, Spinner } from "../components/ui";
 import { ChatView } from "../features/chat/ChatView";
 import { LibraryView } from "../features/library/LibraryView";
 import { Sidebar } from "../features/projects/Sidebar";
-import { SettingsDialog } from "../features/settings/SettingsDialog";
+import { SettingsView } from "../features/settings/SettingsView";
 import { api } from "../lib/api";
 import { useDropActive, useLibraryEvents } from "../lib/library";
 import { useConversations, useProjects } from "../lib/queries";
@@ -179,7 +179,9 @@ export function AppShell() {
 				<Divider />
 				<Panel id="main" minSize="420px">
 					<main className="relative h-full bg-background">
-						{nav.view === "reader" ? (
+						{nav.view === "settings" ? (
+							<SettingsView />
+						) : nav.view === "reader" ? (
 							<Suspense
 								fallback={
 									<div className="flex h-full items-center justify-center">
@@ -218,10 +220,6 @@ export function AppShell() {
 				targetName={
 					projects.data?.find((p) => p.id === importTarget)?.name ?? null
 				}
-			/>
-			<SettingsDialog
-				isOpen={nav.settingsOpen}
-				onOpenChange={nav.setSettingsOpen}
 			/>
 		</div>
 	);
