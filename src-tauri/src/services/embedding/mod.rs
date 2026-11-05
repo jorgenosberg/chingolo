@@ -13,6 +13,7 @@ use fastembed::{
 use crate::error::{AppError, Result};
 
 pub const MODEL_NAME: &str = "embeddinggemma-300m-q4";
+#[cfg(test)]
 pub const DIMENSIONS: usize = 768;
 /// EmbeddingGemma expects these prefixes (see the benchmark notes in docs/STATUS.md).
 pub const QUERY_PREFIX: &str = "task: search result | query: ";
@@ -50,6 +51,7 @@ pub fn load_model(dir: &Path) -> Result<TextEmbedding> {
 }
 
 /// Dot product of two L2-normalized vectors.
+#[cfg(test)]
 pub fn dot(a: &[f32], b: &[f32]) -> f32 {
     a.iter().zip(b).map(|(x, y)| x * y).sum()
 }
