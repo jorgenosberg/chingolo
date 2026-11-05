@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use fastembed::TextEmbedding;
 use rusqlite::Connection;
@@ -14,19 +14,21 @@ use specta::Type;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use super::model::{self, FILES, ModelState, REPO_URL, REVISION};
-use super::{DOC_PREFIX, MODEL_NAME, QUERY_PREFIX};
+use super::cloud::GeminiEncoder;
+use super::model::{self, FILES, ModelState, REPO_URL};
+use super::{Backend, DOC_PREFIX, QUERY_PREFIX};
 use crate::error::{AppError, Result};
+use crate::persistence::usage::{self, NewUsage};
 use crate::persistence::{Db, library as repo, vectors};
+use crate::security;
 use crate::services::ingestion::queue::{DocumentChanged, Emit};
-
-/// Passages per model call. Small, so a search query never waits long for the model.
-const BATCH: u32 = 8;
 
 /// Sent whenever the model state, the indexing counts or the pause flag change.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type, tauri_specta::Event)]
 #[serde(rename_all = "camelCase")]
 pub struct EmbeddingStatus {
+    pub backend: Backend,
+    /// For Gemini, `missing` means the user hasn't agreed to send passages yet.
     pub model: ModelState,
     /// Passages of ready documents that have a vector, and all such passages.
     pub indexed: u32,
@@ -36,12 +38,26 @@ pub struct EmbeddingStatus {
 
 pub type StatusEmit = Arc<dyn Fn(EmbeddingStatus) + Send + Sync>;
 
-/// Turns text into L2-normalized vectors. The real one wraps the ONNX model; tests use a fake.
+/// Turns text into L2-normalized vectors. The real ones wrap the ONNX model or the Gemini API;
+/// tests use a fake.
 pub trait Encoder: Send {
     fn encode(&mut self, texts: &[String]) -> Result<Vec<Vec<f32>>>;
+
+    /// What the last `encode` call used, for encoders that are paid by the token.
+    fn last_usage(&self) -> Option<EncodeUsage> {
+        None
+    }
 }
 
-pub type Loader = Arc<dyn Fn(&Path) -> Result<Box<dyn Encoder>> + Send + Sync>;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EncodeUsage {
+    pub tokens: u32,
+    /// Guessed from text length, because the response had no count.
+    pub estimated: bool,
+}
+
+/// Builds the encoder for a backend. The folder holds the local model's files.
+pub type Loader = Arc<dyn Fn(Backend, &Path) -> Result<Box<dyn Encoder>> + Send + Sync>;
 
 struct Gemma(TextEmbedding);
 
@@ -49,13 +65,13 @@ impl Encoder for Gemma {
     fn encode(&mut self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
         let vecs = self
             .0
-            .embed(texts, Some(BATCH as usize))
+            .embed(texts, Some(Backend::Local.batch() as usize))
             .map_err(|e| AppError::Internal(format!("The search model failed: {e}")))?;
         Ok(vecs.into_iter().map(normalize).collect())
     }
 }
 
-fn normalize(mut v: Vec<f32>) -> Vec<f32> {
+pub(super) fn normalize(mut v: Vec<f32>) -> Vec<f32> {
     let n = v.iter().map(|x| x * x).sum::<f32>().sqrt();
     if n > 0.0 {
         v.iter_mut().for_each(|x| *x /= n);
@@ -63,12 +79,25 @@ fn normalize(mut v: Vec<f32>) -> Vec<f32> {
     v
 }
 
-fn gemma_loader() -> Loader {
-    Arc::new(|dir| Ok(Box::new(Gemma(super::load_model(dir)?)) as Box<dyn Encoder>))
+fn real_loader() -> Loader {
+    Arc::new(|backend, dir| match backend {
+        Backend::Local => Ok(Box::new(Gemma(super::load_model(dir)?)) as Box<dyn Encoder>),
+        Backend::Gemini => Ok(Box::new(GeminiEncoder::new(Arc::new(|| security::get_key_blocking("gemini"))))),
+    })
+}
+
+/// Where a backend starts: Gemini once the user has agreed, local once its files are there.
+fn initial_state(backend: Backend, cloud_accepted: bool, local_ready: bool) -> ModelState {
+    let ready = match backend {
+        Backend::Gemini => cloud_accepted,
+        Backend::Local => local_ready,
+    };
+    if ready { ModelState::Ready } else { ModelState::Missing }
 }
 
 struct Inner {
     dir: PathBuf,
+    backend: Mutex<Backend>,
     state: Mutex<ModelState>,
     counts: Mutex<(u32, u32)>,
     paused: AtomicBool,
@@ -79,6 +108,8 @@ struct Inner {
     emit_status: StatusEmit,
     emit_doc: Emit,
     load: Loader,
+    /// Writes usage rows. Separate from the worker's connection because searches record too.
+    usage_db: Mutex<Connection>,
 }
 
 #[derive(Clone)]
@@ -91,15 +122,23 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 impl Embedder {
     /// `app_data` is the app's data folder. `emit_doc` must not be the one that wakes this
     /// engine, or every batch would wake itself.
-    pub fn start(db_path: &Path, app_data: &Path, emit_status: StatusEmit, emit_doc: Emit) -> Result<Self> {
+    pub fn start(
+        db_path: &Path,
+        app_data: &Path,
+        backend: Backend,
+        cloud_accepted: bool,
+        emit_status: StatusEmit,
+        emit_doc: Emit,
+    ) -> Result<Self> {
         let dir = model::model_dir(app_data);
-        let ready = model::is_complete(&dir, FILES);
-        Self::start_with(db_path, dir, ready, gemma_loader(), emit_status, emit_doc)
+        let ready = initial_state(backend, cloud_accepted, model::is_complete(&dir, FILES)) == ModelState::Ready;
+        Self::start_with(db_path, dir, backend, ready, real_loader(), emit_status, emit_doc)
     }
 
     pub fn start_with(
         db_path: &Path,
         dir: PathBuf,
+        backend: Backend,
         ready: bool,
         load: Loader,
         emit_status: StatusEmit,
@@ -109,6 +148,7 @@ impl Embedder {
         let (wake, rx) = mpsc::unbounded_channel();
         let inner = Arc::new(Inner {
             dir,
+            backend: Mutex::new(backend),
             state: Mutex::new(if ready { ModelState::Ready } else { ModelState::Missing }),
             counts: Mutex::new((0, 0)),
             paused: AtomicBool::new(false),
@@ -118,6 +158,7 @@ impl Embedder {
             emit_status,
             emit_doc,
             load,
+            usage_db: Mutex::new(Db::open_secondary(db_path)?),
         });
         let worker = inner.clone();
         std::thread::Builder::new()
@@ -129,9 +170,27 @@ impl Embedder {
         Ok(me)
     }
 
+    pub fn backend(&self) -> Backend {
+        *lock(&self.0.backend)
+    }
+
+    /// Switches the model that makes vectors. Vectors from the old one are dropped by the worker
+    /// and everything is embedded again. `cloud_accepted` only matters for Gemini.
+    pub fn use_backend(&self, backend: Backend, cloud_accepted: bool) {
+        log::info!("embedding backend set to {backend:?} (cloud accepted: {cloud_accepted})");
+        *lock(&self.0.backend) = backend;
+        *lock(&self.0.encoder) = None;
+        *lock(&self.0.counts) = (0, 0);
+        let local_ready = model::is_complete(&self.0.dir, FILES);
+        *lock(&self.0.state) = initial_state(backend, cloud_accepted, local_ready);
+        self.publish();
+        self.wake();
+    }
+
     pub fn status(&self) -> EmbeddingStatus {
         let (indexed, total) = *lock(&self.0.counts);
         EmbeddingStatus {
+            backend: self.backend(),
             model: lock(&self.0.state).clone(),
             indexed,
             total,
@@ -161,9 +220,15 @@ impl Embedder {
         self.publish();
     }
 
-    /// Makes sure the model is usable: starts the download if files are missing (and resumes a
+    /// Makes sure the model is usable. For Gemini that is the user's yes (or a retry after an
+    /// error). For the local model it starts the download if files are missing (and resumes a
     /// partial one), or retries loading when they are all there. Returns at once.
     pub fn ensure_model(&self) {
+        if self.backend() == Backend::Gemini {
+            self.set_state(ModelState::Ready);
+            self.wake();
+            return;
+        }
         let complete = model::is_complete(&self.0.dir, FILES);
         let downloading = {
             let mut state = lock(&self.0.state);
@@ -209,7 +274,7 @@ impl Embedder {
     fn with_encoder<T>(&self, f: impl FnOnce(&mut dyn Encoder) -> Result<T>) -> Result<T> {
         let mut slot = lock(&self.0.encoder);
         if slot.is_none() {
-            *slot = Some((self.0.load)(&self.0.dir)?);
+            *slot = Some((self.0.load)(self.backend(), &self.0.dir)?);
         }
         f(slot.as_mut().expect("just loaded").as_mut())
     }
@@ -222,42 +287,103 @@ impl Embedder {
         }
         self.0.waiting.fetch_add(1, Ordering::SeqCst);
         let text = vec![format!("{QUERY_PREFIX}{query}")];
-        let out = self.with_encoder(|e| e.encode(&text));
+        let started = Instant::now();
+        let waited_for_model = self.0.waiting.load(Ordering::SeqCst);
+        let out = self.encode_and_record("embed_query", &text, started);
         self.0.waiting.fetch_sub(1, Ordering::SeqCst);
+        log::debug!(
+            "query embedded in {} ms ({} searches waiting)",
+            started.elapsed().as_millis(),
+            waited_for_model
+        );
         Ok(out?.into_iter().next())
     }
 
+    /// Runs the encoder and, for Gemini, records what the call used and how long it took.
+    fn encode_and_record(&self, kind: &str, texts: &[String], started: Instant) -> Result<Vec<Vec<f32>>> {
+        let backend = self.backend();
+        let out = self.with_encoder(|e| {
+            let r = e.encode(texts);
+            let u = e.last_usage();
+            r.map(|v| (v, u))
+        });
+        if backend == Backend::Gemini {
+            let (tokens, estimated) = match &out {
+                Ok((_, Some(u))) => (u.tokens, u.estimated),
+                _ => (0, false),
+            };
+            let row = NewUsage {
+                provider: "gemini",
+                model: backend.identity().0,
+                kind,
+                input_tokens: tokens,
+                output_tokens: 0,
+                cached_tokens: 0,
+                estimated,
+                latency_ms: started.elapsed().as_millis() as u32,
+                ok: out.is_ok(),
+            };
+            if let Err(e) = usage::record(&lock(&self.0.usage_db), &row) {
+                log::warn!("couldn't record embedding usage: {e}");
+            }
+        }
+        out.map(|(v, _)| v)
+    }
+
     fn refresh_counts(&self, conn: &Connection) {
-        if let Ok((indexed, total)) = vectors::totals(conn, MODEL_NAME, REVISION) {
+        let (model, revision) = self.backend().identity();
+        if let Ok((indexed, total)) = vectors::totals(conn, model, revision) {
             *lock(&self.0.counts) = (indexed, total);
         }
     }
 
     fn fail(&self, e: AppError) {
+        log::error!("embedding stopped: {e}");
         self.set_state(ModelState::Failed { message: e.to_string() });
     }
 
     /// Embeds pending passages until none are left, the model isn't ready or the user pauses.
     fn drain(&self, conn: &mut Connection) {
+        // Vectors from another model or revision are no use: drop them so everything is re-embedded.
+        let (model, revision) = self.backend().identity();
+        let _ = vectors::purge_stale(conn, model, revision);
+        if let Ok((indexed, total)) = vectors::totals(conn, model, revision) {
+            if indexed < total && matches!(*lock(&self.0.state), ModelState::Ready) {
+                log::info!("embedding {} passages with {model}", total - indexed);
+            }
+        }
         loop {
+            let backend = self.backend();
+            let (model, revision) = backend.identity();
             let ready = matches!(*lock(&self.0.state), ModelState::Ready);
             if !ready || self.0.paused.load(Ordering::SeqCst) {
                 break;
             }
-            let Ok(batch) = vectors::pending_batch(conn, MODEL_NAME, REVISION, BATCH) else { break };
+            let Ok(batch) = vectors::pending_batch(conn, model, revision, backend.batch()) else { break };
             if batch.is_empty() {
                 break;
             }
             let texts: Vec<String> = batch.iter().map(|p| format!("{DOC_PREFIX}{}", p.text)).collect();
-            let vecs = match self.with_encoder(|e| e.encode(&texts)) {
+            let started = Instant::now();
+            let vecs = match self.encode_and_record("embed_index", &texts, started) {
                 Ok(v) if v.len() == batch.len() => v,
                 Ok(_) => return self.fail(AppError::Internal("The search model returned the wrong number of vectors.".into())),
                 Err(e) => return self.fail(e),
             };
+            // The backend may have been switched while the batch was in flight. Those vectors
+            // belong to the old model, so drop them and start over.
+            if self.backend() != backend {
+                continue;
+            }
             let items: Vec<_> = batch.iter().map(|p| p.passage_id.clone()).zip(vecs).collect();
-            if let Err(e) = vectors::store_vectors(conn, &items, MODEL_NAME, REVISION) {
+            if let Err(e) = vectors::store_vectors(conn, &items, model, revision) {
                 return self.fail(e);
             }
+            log::debug!(
+                "embedded {} passages with {model} in {} ms",
+                batch.len(),
+                started.elapsed().as_millis()
+            );
             self.refresh_counts(conn);
             self.publish();
             let mut seen: Vec<&str> = Vec::new();
@@ -277,13 +403,13 @@ impl Embedder {
         }
         self.refresh_counts(conn);
         self.publish();
+        let (indexed, total) = *lock(&self.0.counts);
+        log::info!("embedding idle: {indexed} of {total} passages indexed");
     }
 }
 
 fn worker_loop(mut conn: Connection, mut rx: mpsc::UnboundedReceiver<()>, inner: Arc<Inner>) {
     let me = Embedder(inner);
-    // Vectors from another model or revision are no use: drop them so everything is re-embedded.
-    let _ = vectors::purge_stale(&conn, MODEL_NAME, REVISION);
     while rx.blocking_recv().is_some() {
         while rx.try_recv().is_ok() {}
         // A bug in the model code must not take the worker down with it.
@@ -299,6 +425,7 @@ mod tests {
     use super::*;
     use crate::domain::library::{DocKind, DocStatus};
     use crate::persistence::library::{Extracted, NewPage, NewPassage};
+    use crate::services::embedding::{MODEL_NAME, model::REVISION};
 
     /// A vector made from the text, so equal texts get equal vectors.
     struct Fake {
@@ -332,13 +459,17 @@ mod tests {
     }
 
     fn rig(ready: bool, fail_after: Option<usize>, load_fails: bool) -> Rig {
+        rig_on(Backend::Local, ready, fail_after, load_fails)
+    }
+
+    fn rig_on(backend: Backend, ready: bool, fail_after: Option<usize>, load_fails: bool) -> Rig {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("t.sqlite");
         let _main = Db::open(&path).unwrap();
         let db = Db::open_secondary(&path).unwrap();
         let calls = Arc::new(AtomicUsize::new(0));
         let c = calls.clone();
-        let load: Loader = Arc::new(move |_| {
+        let load: Loader = Arc::new(move |_, _| {
             if load_fails {
                 return Err(AppError::Internal("no model".into()));
             }
@@ -350,6 +481,7 @@ mod tests {
         let embedder = Embedder::start_with(
             &path,
             dir.path().join("model"),
+            backend,
             ready,
             load,
             Arc::new(move |e| lock(&s).push(e)),
@@ -386,9 +518,11 @@ mod tests {
     #[test]
     fn embeds_every_ready_passage_and_reports_progress_and_documents() {
         let mut r = rig(true, None, false);
+        // Paused while the documents are added, so the worker can't start on the first one early.
+        r.embedder.set_paused(true);
         let a = add_doc(&mut r.db, "a", 11);
         let b = add_doc(&mut r.db, "b", 3);
-        r.embedder.wake();
+        r.embedder.set_paused(false);
         wait_for("embedding", || totals(&r) == (14, 14));
         wait_for("final status", || r.embedder.status().indexed == 14);
 
@@ -475,6 +609,53 @@ mod tests {
         });
     }
 
+    fn totals_for(r: &Rig, backend: Backend) -> (u32, u32) {
+        let (model, revision) = backend.identity();
+        vectors::totals(&r.db, model, revision).unwrap()
+    }
+
+    #[test]
+    fn gemini_sends_nothing_until_the_user_agrees_then_embeds_in_larger_batches() {
+        let mut r = rig_on(Backend::Gemini, false, None, false);
+        add_doc(&mut r.db, "a", 40);
+        r.embedder.wake();
+        std::thread::sleep(Duration::from_millis(100));
+        assert_eq!(r.calls.load(Ordering::SeqCst), 0, "no request before consent");
+        assert_eq!(r.embedder.embed_query("coral").unwrap(), None);
+
+        r.embedder.ensure_model();
+        wait_for("embedding", || totals_for(&r, Backend::Gemini) == (40, 40));
+        assert_eq!(r.calls.load(Ordering::SeqCst), 2, "40 passages in batches of 32");
+        assert_eq!(r.embedder.status().backend, Backend::Gemini);
+    }
+
+    #[test]
+    fn switching_backend_drops_the_old_vectors_and_embeds_again() {
+        let mut r = rig_on(Backend::Local, true, None, false);
+        add_doc(&mut r.db, "a", 5);
+        r.embedder.wake();
+        wait_for("local embedding", || totals_for(&r, Backend::Local) == (5, 5));
+
+        r.embedder.use_backend(Backend::Gemini, true);
+        wait_for("gemini embedding", || totals_for(&r, Backend::Gemini) == (5, 5));
+        let (model, revision) = Backend::Local.identity();
+        let left: u32 = r
+            .db
+            .query_row("SELECT COUNT(*) FROM passage_vectors WHERE model = ?1 AND revision = ?2", [model, revision], |row| row.get(0))
+            .unwrap();
+        assert_eq!(left, 0, "vectors from the other model are gone");
+    }
+
+    #[test]
+    fn switching_to_gemini_without_consent_keeps_it_waiting() {
+        let mut r = rig_on(Backend::Local, true, None, false);
+        add_doc(&mut r.db, "a", 3);
+        r.embedder.use_backend(Backend::Gemini, false);
+        std::thread::sleep(Duration::from_millis(100));
+        assert_eq!(r.embedder.status().model, ModelState::Missing);
+        assert_eq!(totals_for(&r, Backend::Gemini).0, 0);
+    }
+
     /// Imports a folder of papers through the real import worker, embeds them with the real
     /// model, and prints the timings. `CHINGUI_KEEP_DB` keeps the database for
     /// `tools/retrieval-bench app`.
@@ -506,8 +687,9 @@ mod tests {
         let embedder = Embedder::start_with(
             &db_path,
             model_dir,
+            Backend::Local,
             true,
-            gemma_loader(),
+            real_loader(),
             Arc::new(|_| {}),
             Arc::new(move |_| {
                 counter.fetch_add(1, Ordering::SeqCst);
@@ -560,7 +742,7 @@ mod tests {
         // keyword search worked before and after; a quick meaning query for the record
         let q = embedder.embed_query("why do some marine algae produce toxins").unwrap().unwrap();
         let hits = db
-            .call(move |c| crate::services::retrieval::hybrid_search(c, "why do some marine algae produce toxins", &q, None, 5))
+            .call(move |c| crate::services::retrieval::hybrid_search(c, "why do some marine algae produce toxins", &q, Backend::Local.identity(), None, 5))
             .await
             .unwrap();
         for h in &hits {

@@ -132,27 +132,45 @@ pub async fn search_library(
 ) -> CmdResult<Vec<SearchHit>> {
     let limit = limit.unwrap_or(30).clamp(1, 100);
     let trimmed = query.trim().to_string();
+    let started = std::time::Instant::now();
+    let identity = state.embedder.backend().identity();
     let vector = if trimmed.chars().count() >= 3 {
         let embedder = state.embedder.clone();
         let text = trimmed.clone();
-        tauri::async_runtime::spawn_blocking(move || embedder.embed_query(&text))
-            .await
-            .ok()
-            .and_then(Result::ok)
-            .flatten()
+        match tauri::async_runtime::spawn_blocking(move || embedder.embed_query(&text)).await {
+            Ok(Ok(v)) => v,
+            Ok(Err(e)) => {
+                log::warn!("query embedding failed, using keyword search: {e}");
+                None
+            }
+            Err(e) => {
+                log::warn!("query embedding task failed, using keyword search: {e}");
+                None
+            }
+        }
     } else {
         None
     };
-    Ok(state
+    let embed_ms = started.elapsed().as_millis();
+    let by_meaning = vector.is_some();
+    let hits = state
         .db
         .call(move |c| match vector {
-            Some(v) => retrieval::hybrid_search(c, &trimmed, &v, project_id.as_deref(), limit),
+            Some(v) => retrieval::hybrid_search(c, &trimmed, &v, identity, project_id.as_deref(), limit),
             None => {
                 let opts = SearchOptions { project_id: project_id.as_deref(), all_terms: true, prefix_last: true, limit };
                 repo::search_passages(c, &query, &opts)
             }
         })
-        .await?)
+        .await?;
+    log::info!(
+        "library search ({}): {} hits, embedding {} ms, total {} ms",
+        if by_meaning { "keyword + meaning" } else { "keyword only" },
+        hits.len(),
+        embed_ms,
+        started.elapsed().as_millis()
+    );
+    Ok(hits)
 }
 
 /// A passage with its line boxes, for opening it in the reader.

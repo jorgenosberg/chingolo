@@ -44,12 +44,50 @@ export function EmbeddingNotice() {
 
 	const download = () => {
 		setError(null);
-		api.downloadEmbeddingModel().catch((e) => setError(String(e.message ?? e)));
+		const start =
+			status.backend === "gemini"
+				? api.allowCloudEmbedding()
+				: api.downloadEmbeddingModel();
+		start.catch((e) => setError(String(e.message ?? e)));
+	};
+	const switchToLocal = () => {
+		setError(null);
+		api
+			.setEmbeddingBackend("local")
+			.catch((e) => setError(String(e.message ?? e)));
 	};
 	const dismiss = async () => {
 		await api.updateSettings({ embeddingNoticeDismissed: true });
 		await qc.invalidateQueries({ queryKey: keys.settings });
 	};
+
+	if (model.kind === "missing" && status.backend === "gemini") {
+		if (total === 0 || settings.embeddingNoticeDismissed) return null;
+		return (
+			<Banner
+				actions={
+					<>
+						<Button variant="ghost" onPress={switchToLocal}>
+							Use a local model
+						</Button>
+						<Button variant="ghost" onPress={dismiss}>
+							Not now
+						</Button>
+						<Button variant="primary" onPress={download}>
+							Allow
+						</Button>
+					</>
+				}
+			>
+				<p>
+					Meaning search sends the text of your papers to Google's Gemini
+					service to be indexed, using your API key. It costs well under a
+					dollar for a few hundred papers. Keyword search works without it.
+				</p>
+				{error && <p className="text-problem">{error}</p>}
+			</Banner>
+		);
+	}
 
 	if (model.kind === "missing") {
 		// Nothing to search yet, or the user said no.

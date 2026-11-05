@@ -211,7 +211,7 @@ fn usage(v: &Value) -> Option<GenerationEvent> {
     })
 }
 
-fn net_error(e: reqwest::Error) -> AppError {
+pub(crate) fn net_error(e: reqwest::Error) -> AppError {
     if e.is_timeout() {
         AppError::Provider("The request to Gemini timed out.".into())
     } else if e.is_connect() {

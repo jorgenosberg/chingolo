@@ -1,5 +1,8 @@
-//! Local embeddings: EmbeddingGemma 300M 4-bit run through fastembed (ONNX Runtime, CPU).
+//! Embeddings for meaning search. Two backends, both 768 dimensions: Gemini's embedding API
+//! (the default, needs the user's yes because passages leave the machine) and a local
+//! EmbeddingGemma 300M 4-bit run through fastembed (ONNX Runtime, CPU).
 
+pub mod cloud;
 pub mod engine;
 pub mod model;
 
@@ -9,15 +12,58 @@ use fastembed::{
     AutoDevicePolicy, InitOptionsUserDefined, OutputKey, Pooling, QuantizationMode, TextEmbedding,
     TokenizerFiles, UserDefinedEmbeddingModel,
 };
+use serde::{Deserialize, Serialize};
+use specta::Type;
 
 use crate::error::{AppError, Result};
 
 pub const MODEL_NAME: &str = "embeddinggemma-300m-q4";
-#[cfg(test)]
 pub const DIMENSIONS: usize = 768;
-/// EmbeddingGemma expects these prefixes (see the benchmark notes in docs/STATUS.md).
+/// Both models take these prefixes (EmbeddingGemma's, which `gemini-embedding-2` documents too).
 pub const QUERY_PREFIX: &str = "task: search result | query: ";
 pub const DOC_PREFIX: &str = "title: none | text: ";
+
+/// Which model makes the vectors. Switching re-indexes, because vectors from different models
+/// can't be compared.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum Backend {
+    Gemini,
+    Local,
+}
+
+impl Backend {
+    /// The model name and revision stored with each vector.
+    pub fn identity(self) -> (&'static str, &'static str) {
+        match self {
+            Backend::Gemini => (cloud::MODEL, cloud::REVISION),
+            Backend::Local => (MODEL_NAME, model::REVISION),
+        }
+    }
+
+    /// Passages per call. Local stays small so a search never waits long for the model.
+    pub fn batch(self) -> u32 {
+        match self {
+            Backend::Gemini => 32,
+            Backend::Local => 8,
+        }
+    }
+
+    pub fn as_setting(self) -> &'static str {
+        match self {
+            Backend::Gemini => "gemini",
+            Backend::Local => "local",
+        }
+    }
+
+    pub fn from_setting(s: &str) -> Option<Self> {
+        match s {
+            "gemini" => Some(Backend::Gemini),
+            "local" => Some(Backend::Local),
+            _ => None,
+        }
+    }
+}
 
 const ONNX_FILE: &str = "model_q4.onnx";
 const ONNX_DATA_FILE: &str = "model_q4.onnx_data";

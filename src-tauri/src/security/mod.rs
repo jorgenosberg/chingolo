@@ -10,7 +10,8 @@ fn entry(provider: &str) -> Result<keyring::Entry> {
         .map_err(|e| AppError::Keychain(e.to_string()))
 }
 
-fn get_key_blocking(provider: &str) -> Result<Option<String>> {
+/// For worker threads. Async code uses `get_key`.
+pub fn get_key_blocking(provider: &str) -> Result<Option<String>> {
     match entry(provider)?.get_password() {
         Ok(k) => Ok(Some(k)),
         Err(keyring::Error::NoEntry) => Ok(None),

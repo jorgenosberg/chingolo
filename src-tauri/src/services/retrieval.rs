@@ -10,7 +10,6 @@ use crate::domain::library::{MatchKind, SearchHit};
 use crate::error::Result;
 use crate::persistence::library::{self as repo, SearchOptions};
 use crate::persistence::vectors;
-use crate::services::embedding::{MODEL_NAME, model::REVISION};
 
 /// The constant from the original paper, and the one the benchmark used.
 const RRF_K: f32 = 60.0;
@@ -48,17 +47,18 @@ pub fn fuse(keyword: &[Id], meaning: &[Id]) -> Vec<(Id, MatchKind)> {
 }
 
 /// Passages that match the question's words or its meaning, best first. `query_vec` is the
-/// embedded query (already normalized).
+/// embedded query (already normalized). `identity` is the model and revision that made it.
 pub fn hybrid_search(
     conn: &Connection,
     query: &str,
     query_vec: &[f32],
+    identity: (&str, &str),
     project_id: Option<&str>,
     limit: u32,
 ) -> Result<Vec<SearchHit>> {
     let opts = SearchOptions { project_id, all_terms: false, prefix_last: false, limit: POOL };
     let keyword = repo::search_passages(conn, query, &opts)?;
-    let meaning = vectors::scan(conn, query_vec, MODEL_NAME, REVISION, project_id, POOL as usize)?;
+    let meaning = vectors::scan(conn, query_vec, identity.0, identity.1, project_id, POOL as usize)?;
 
     let keyword_ids: Vec<Id> = keyword.iter().map(|h| h.passage_id.clone()).collect();
     let meaning_ids: Vec<Id> = meaning.into_iter().map(|s| s.passage_id).collect();
@@ -95,6 +95,7 @@ mod tests {
     use crate::domain::library::{DocKind, DocStatus};
     use crate::persistence::library::{Extracted, NewPage, NewPassage};
     use crate::persistence::test_conn;
+    use crate::services::embedding::{MODEL_NAME, model::REVISION};
 
     fn ids(v: &[&str]) -> Vec<Id> {
         v.iter().map(|s| s.to_string()).collect()
@@ -160,12 +161,12 @@ mod tests {
         vectors::store_vectors(&mut conn, &items, MODEL_NAME, REVISION).unwrap();
 
         // no word of the question appears in either passage
-        let hits = hybrid_search(&conn, "why do reefs lose their colour", &[1.0, 0.0], None, 10).unwrap();
+        let hits = hybrid_search(&conn, "why do reefs lose their colour", &[1.0, 0.0], (MODEL_NAME, REVISION), None, 10).unwrap();
         assert_eq!(hits.first().map(|h| h.passage_id.as_str()), Some(a[0].as_str()));
         assert_eq!(hits[0].matched_by, MatchKind::Meaning);
 
         // a keyword hit that is also close in meaning is labelled Both and goes first
-        let hits = hybrid_search(&conn, "heat stress corals", &[1.0, 0.0], None, 10).unwrap();
+        let hits = hybrid_search(&conn, "heat stress corals", &[1.0, 0.0], (MODEL_NAME, REVISION), None, 10).unwrap();
         assert_eq!((hits[0].passage_id.as_str(), hits[0].matched_by), (a[0].as_str(), MatchKind::Both));
         assert_eq!(hits.len(), 2);
         assert_eq!(hits[1].matched_by, MatchKind::Meaning);
@@ -190,12 +191,12 @@ mod tests {
         let mut items: Vec<_> = a.iter().chain(&b).map(|id| (id.clone(), vec![1.0, 0.0])).collect();
         items[3].1 = vec![0.9, 0.1];
         vectors::store_vectors(&mut conn, &items, MODEL_NAME, REVISION).unwrap();
-        assert_eq!(hybrid_search(&conn, "text", &[1.0, 0.0], None, 2).unwrap().len(), 2);
+        assert_eq!(hybrid_search(&conn, "text", &[1.0, 0.0], (MODEL_NAME, REVISION), None, 2).unwrap().len(), 2);
 
         let p = crate::persistence::projects::create_project(&conn, "P").unwrap();
         let doc_b: String = conn.query_row("SELECT document_id FROM passages WHERE id = ?1", [&b[0]], |r| r.get(0)).unwrap();
         repo::attach(&conn, &p.id, &doc_b).unwrap();
-        let hits = hybrid_search(&conn, "text", &[1.0, 0.0], Some(&p.id), 10).unwrap();
+        let hits = hybrid_search(&conn, "text", &[1.0, 0.0], (MODEL_NAME, REVISION), Some(&p.id), 10).unwrap();
         assert_eq!(hits.iter().map(|h| h.passage_id.as_str()).collect::<Vec<_>>(), [b[0].as_str()]);
     }
 

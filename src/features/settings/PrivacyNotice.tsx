@@ -37,6 +37,11 @@ export function PrivacyNotice({
 					Hugging Face, after you agree. Your documents are not sent for it.
 				</li>
 				<li>
+					<strong className="font-medium text-foreground">Price list.</strong>{" "}
+					About once a week Chingui downloads a public price list from
+					models.dev to estimate costs. The request carries nothing of yours.
+				</li>
+				<li>
 					<strong className="font-medium text-foreground">No tracking.</strong>{" "}
 					Chingui doesn't send usage data or your text anywhere else.
 				</li>
