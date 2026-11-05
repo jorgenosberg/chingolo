@@ -15,7 +15,7 @@ import {
 	SearchIcon,
 	SettingsIcon,
 } from "../../components/icons";
-import { cx, focus, IconButton } from "../../components/ui";
+import { cx, focus, IconButton, Kbd, SHORTCUTS } from "../../components/ui";
 import { api } from "../../lib/api";
 import type { Conversation, Project } from "../../lib/bindings";
 import {
@@ -208,11 +208,11 @@ function ProjectItem({
 		},
 		{
 			id: "chapter",
-			label: "Add chapter…",
+			label: "Add folder…",
 			run: async () => {
 				const title = await prompt({
-					title: "Add chapter",
-					label: "Chapter title",
+					title: "Add folder",
+					label: "Folder name",
 					submitLabel: "Add",
 				});
 				if (title) {
@@ -244,7 +244,7 @@ function ProjectItem({
 			run: async () => {
 				const ok = await confirm({
 					title: "Delete project?",
-					message: `"${project.name}", its chapters and its ${inProject.length} conversation${inProject.length === 1 ? "" : "s"} will be deleted. This can't be undone.`,
+					message: `"${project.name}", its folders and its ${inProject.length} conversation${inProject.length === 1 ? "" : "s"} will be deleted. This can't be undone.`,
 					confirmLabel: "Delete project",
 					danger: true,
 				});
@@ -296,8 +296,8 @@ function ProjectItem({
 												label: "Rename…",
 												run: async () => {
 													const title = await prompt({
-														title: "Rename chapter",
-														label: "Chapter title",
+														title: "Rename folder",
+														label: "Folder name",
 														initial: ch.title,
 													});
 													if (title) {
@@ -312,9 +312,9 @@ function ProjectItem({
 												danger: true,
 												run: async () => {
 													const ok = await confirm({
-														title: "Delete chapter?",
+														title: "Delete folder?",
 														message: `"${ch.title}" is removed. Its conversations stay in the project.`,
-														confirmLabel: "Delete chapter",
+														confirmLabel: "Delete folder",
 														danger: true,
 													});
 													if (!ok) return;
@@ -392,10 +392,20 @@ export function Sidebar() {
 						value={query}
 						onChange={(e) => setQuery(e.target.value)}
 						onKeyDown={(e) => e.key === "Escape" && setQuery("")}
-						className="h-8 w-full rounded-lg border border-transparent bg-muted pl-8 pr-2 text-[13px] outline-none placeholder:text-muted-foreground focus:border-primary/50"
+						className="h-8 w-full rounded-lg border border-transparent bg-muted pl-8 pr-10 text-[13px] outline-none placeholder:text-muted-foreground focus:border-primary/50"
 					/>
+					{!query && (
+						<Kbd
+							keys={SHORTCUTS.search}
+							className="pointer-events-none absolute right-2.5 top-2"
+						/>
+					)}
 				</div>
-				<IconButton label="New conversation" onPress={() => newChat()}>
+				<IconButton
+					label="New conversation"
+					shortcut={SHORTCUTS.newChat}
+					onPress={() => newChat()}
+				>
 					<PlusIcon />
 				</IconButton>
 			</div>
@@ -481,6 +491,7 @@ export function Sidebar() {
 					)}
 				>
 					<SettingsIcon /> Settings
+					<Kbd keys={SHORTCUTS.settings} className="ml-auto" />
 				</RacButton>
 			</footer>
 		</nav>

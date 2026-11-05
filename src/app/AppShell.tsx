@@ -6,7 +6,7 @@ import {
 	useDefaultLayout,
 } from "react-resizable-panels";
 import { SidebarRightIcon } from "../components/icons";
-import { Button, IconButton } from "../components/ui";
+import { Button, IconButton, Kbd, SHORTCUTS } from "../components/ui";
 import { ChatView } from "../features/chat/ChatView";
 import { Sidebar } from "../features/projects/Sidebar";
 import { SettingsDialog } from "../features/settings/SettingsDialog";
@@ -45,9 +45,14 @@ function EmptyWorkspace() {
 				</div>
 				<Button variant="primary" onPress={() => newChat()}>
 					New conversation
+					<Kbd
+						keys={SHORTCUTS.newChat}
+						className="text-primary-foreground/70"
+					/>
 				</Button>
 				<p className="text-xs text-muted-foreground">
-					⌘N starts a conversation, ⌘K searches.
+					<Kbd keys={SHORTCUTS.search} /> searches,{" "}
+					<Kbd keys={SHORTCUTS.context} /> toggles the context pane.
 				</p>
 			</div>
 		</div>
@@ -63,7 +68,11 @@ function ContextPane() {
 				className="flex h-12 shrink-0 items-center justify-between px-4"
 			>
 				<h2 className="text-[13px] font-medium">Context</h2>
-				<IconButton label="Hide context pane" onPress={toggleContext}>
+				<IconButton
+					label="Hide context pane"
+					shortcut={SHORTCUTS.context}
+					onPress={toggleContext}
+				>
 					<SidebarRightIcon />
 				</IconButton>
 			</div>
@@ -89,16 +98,16 @@ export function AppShell() {
 			const current = conversations.data?.find(
 				(c) => c.id === nav.conversationId,
 			);
-			if (e.key === "n") {
+			if (e.key === SHORTCUTS.newChat) {
 				e.preventDefault();
 				nav.newChat(current?.projectId ?? null);
-			} else if (e.key === "k") {
+			} else if (e.key === SHORTCUTS.search) {
 				e.preventDefault();
 				document.getElementById("sidebar-search")?.focus();
-			} else if (e.key === ",") {
+			} else if (e.key === SHORTCUTS.settings) {
 				e.preventDefault();
 				nav.openSettings();
-			} else if (e.key === "\\") {
+			} else if (e.key === SHORTCUTS.context) {
 				e.preventDefault();
 				nav.toggleContext();
 			}

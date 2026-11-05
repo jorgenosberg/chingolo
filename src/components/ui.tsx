@@ -9,6 +9,8 @@ import {
 	Button as RacButton,
 	type ButtonProps as RacButtonProps,
 	TextField,
+	Tooltip,
+	TooltipTrigger,
 } from "react-aria-components";
 
 const cx = (...parts: (string | false | null | undefined)[]) =>
@@ -48,18 +50,43 @@ export function Button({
 	);
 }
 
+/** App shortcuts, all ⌘ + key. Keys are lowercase `KeyboardEvent.key` values. */
+export const SHORTCUTS = {
+	newChat: "n",
+	search: "k",
+	settings: ",",
+	context: "j",
+} as const;
+
+/** Shows ⌘ + key, e.g. `<Kbd keys="k" />` renders "⌘K". */
+export function Kbd({ keys, className }: { keys: string; className?: string }) {
+	return (
+		<kbd
+			className={cx(
+				"font-sans text-[11px] tracking-wide text-muted-foreground",
+				className,
+			)}
+		>
+			⌘{keys.toUpperCase()}
+		</kbd>
+	);
+}
+
 /** Icon-only button. `label` is required so screen readers have a name. */
 export function IconButton({
 	label,
+	shortcut,
 	className,
 	children,
 	...props
 }: Omit<RacButtonProps, "children"> & {
 	label: string;
+	/** Key of a ⌘ shortcut. Shown in a tooltip. */
+	shortcut?: string;
 	className?: string;
 	children: ReactNode;
 }) {
-	return (
+	const button = (
 		<RacButton
 			{...props}
 			aria-label={label}
@@ -73,6 +100,19 @@ export function IconButton({
 		>
 			{children}
 		</RacButton>
+	);
+	if (!shortcut) return button;
+	return (
+		<TooltipTrigger delay={500}>
+			{button}
+			<Tooltip
+				offset={6}
+				className="flex items-center gap-2 rounded-md border border-border bg-card px-2 py-1 text-xs shadow-md"
+			>
+				{label}
+				<Kbd keys={shortcut} />
+			</Tooltip>
+		</TooltipTrigger>
 	);
 }
 

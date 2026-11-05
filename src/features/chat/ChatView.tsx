@@ -11,7 +11,7 @@ import { ActionMenu } from "../../components/ActionMenu";
 import { useDialogs } from "../../components/dialogs";
 import { SidebarRightIcon } from "../../components/icons";
 import { ModelPopover } from "../../components/ModelPopover";
-import { Button, IconButton, Modal_ } from "../../components/ui";
+import { Button, IconButton, Modal_, SHORTCUTS } from "../../components/ui";
 import { api } from "../../lib/api";
 import type { Message } from "../../lib/bindings";
 import {
@@ -53,6 +53,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 	const [sending, setSending] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [askPrivacy, setAskPrivacy] = useState(false);
+	const [showEarlier, setShowEarlier] = useState(false);
 
 	const scroller = useRef<HTMLDivElement>(null);
 	const stick = useRef(true);
@@ -68,6 +69,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 	useLayoutEffect(() => {
 		stick.current = true;
 		setError(null);
+		setShowEarlier(false);
 	}, [conversationId]);
 
 	if (conversations.isSuccess && !conversation) {
@@ -152,6 +154,31 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 	// The model the conversation began with: its first reply's model, else the current choice.
 	const startModel =
 		list.find((m) => m.role === "assistant" && m.modelId)?.modelId ?? modelId;
+	// A fork's copied messages sit behind a collapsed row. They are still sent to the model.
+	const boundaryId = conversation?.forkBoundaryMessageId;
+	const boundary = boundaryId ? list.findIndex((m) => m.id === boundaryId) : -1;
+	const earlier = list.slice(0, boundary + 1);
+	const current = list.slice(boundary + 1);
+
+	const renderMessage = (m: Message) => {
+		const change = modelChanges.get(m.id);
+		return (
+			<Fragment key={m.id}>
+				{change && (
+					<div className="flex items-center gap-3 text-xs text-muted-foreground">
+						<span className="h-px flex-1 bg-border" />
+						<span>Switched to {modelName(change)}</span>
+						<span className="h-px flex-1 bg-border" />
+					</div>
+				)}
+				<MessageItem
+					message={m}
+					onFork={onFork}
+					liveText={live && live.messageId === m.id ? live.text : undefined}
+				/>
+			</Fragment>
+		);
+	};
 
 	return (
 		<div className="flex h-full min-h-0 flex-col">
@@ -191,7 +218,11 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 						/>
 					)}
 				</div>
-				<IconButton label="Toggle context pane" onPress={toggleContext}>
+				<IconButton
+					label="Toggle context pane"
+					shortcut={SHORTCUTS.context}
+					onPress={toggleContext}
+				>
 					<SidebarRightIcon />
 				</IconButton>
 			</header>
@@ -222,32 +253,33 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 							Couldn't load messages: {messages.error.message}
 						</p>
 					)}
-					{messages.isSuccess && list.length === 0 && (
+					{earlier.length > 0 && (
+						<>
+							<button
+								type="button"
+								aria-expanded={showEarlier}
+								onClick={() => setShowEarlier((v) => !v)}
+								className="mx-auto flex max-w-full items-center gap-2 rounded-md px-2 py-1 text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/60"
+							>
+								<span className="truncate">
+									Forked from “{conversation?.forkedFromTitle}”
+								</span>
+								<span className="shrink-0">
+									· {earlier.length} earlier message
+									{earlier.length === 1 ? "" : "s"} ·{" "}
+									{showEarlier ? "Hide" : "Show"}
+								</span>
+							</button>
+							{showEarlier && earlier.map(renderMessage)}
+							{showEarlier && <hr className="border-border" />}
+						</>
+					)}
+					{messages.isSuccess && current.length === 0 && (
 						<p className="py-16 text-center text-muted-foreground">
 							Ask a question to get started.
 						</p>
 					)}
-					{list.map((m) => {
-						const change = modelChanges.get(m.id);
-						return (
-							<Fragment key={m.id}>
-								{change && (
-									<div className="flex items-center gap-3 text-xs text-muted-foreground">
-										<span className="h-px flex-1 bg-border" />
-										<span>Switched to {modelName(change)}</span>
-										<span className="h-px flex-1 bg-border" />
-									</div>
-								)}
-								<MessageItem
-									message={m}
-									onFork={onFork}
-									liveText={
-										live && live.messageId === m.id ? live.text : undefined
-									}
-								/>
-							</Fragment>
-						);
-					})}
+					{current.map(renderMessage)}
 				</div>
 			</div>
 
