@@ -6,6 +6,7 @@ pub mod library;
 pub mod usage;
 pub mod projects;
 pub mod settings;
+pub mod sources;
 pub mod vectors;
 
 use std::path::Path;
@@ -23,6 +24,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../migrations/0004_library.sql"),
     include_str!("../../migrations/0005_embeddings.sql"),
     include_str!("../../migrations/0006_api_usage.sql"),
+    include_str!("../../migrations/0007_grounded_answers.sql"),
 ];
 
 #[derive(Clone)]

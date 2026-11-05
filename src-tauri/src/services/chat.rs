@@ -161,18 +161,31 @@ pub async fn send(
 }
 
 /// Finished messages only. Failed or cancelled replies are not fed back to the model.
+/// A reply that used tools is rebuilt from its stored turns (replay records included), anything
+/// else from its text.
 fn history(conn: &rusqlite::Connection, conversation_id: &str) -> Result<Vec<Turn>> {
-    Ok(repo::list_messages(conn, conversation_id)?
-        .into_iter()
-        .filter(|m| m.status == MessageStatus::Complete && !m.content.is_empty())
-        .map(|m| {
-            let role = match m.role {
-                Role::User => TurnRole::User,
-                Role::Assistant => TurnRole::Model,
-            };
-            Turn::text(role, m.content)
-        })
-        .collect())
+    let mut stored = repo::turns_by_message(conn, conversation_id)?;
+    let mut out = Vec::new();
+    for m in repo::list_messages(conn, conversation_id)? {
+        if m.status != MessageStatus::Complete || m.content.is_empty() {
+            continue;
+        }
+        if let Some(json) = stored.remove(&m.id) {
+            match serde_json::from_str::<Vec<Turn>>(&json) {
+                Ok(turns) => {
+                    out.extend(turns);
+                    continue;
+                }
+                Err(e) => log::warn!("stored turns of message {} are unreadable, using its text: {e}", m.id),
+            }
+        }
+        let role = match m.role {
+            Role::User => TurnRole::User,
+            Role::Assistant => TurnRole::Model,
+        };
+        out.push(Turn::text(role, m.content));
+    }
+    Ok(out)
 }
 
 enum Outcome {

@@ -1,4 +1,8 @@
+use std::collections::HashMap;
+
 use rusqlite::{Connection, OptionalExtension, Row, ToSql, params, params_from_iter};
+
+use super::sources;
 
 use crate::domain::{
     Conversation, ConversationFilter, DEFAULT_CONVERSATION_TITLE, Id, Message, MessageStatus,
@@ -190,8 +194,9 @@ pub fn fork_conversation(
     let (id, now) = (new_id(), now_ms());
     tx.execute(
         "INSERT INTO conversations
-           (id, project_id, chapter_id, title, provider, model_id, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
+           (id, project_id, chapter_id, title, provider, model_id, source_scope, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6,
+                 (SELECT source_scope FROM conversations WHERE id = ?8), ?7, ?7)",
         params![
             id,
             source.project_id,
@@ -199,7 +204,8 @@ pub fn fork_conversation(
             format!("{} (fork)", source.title),
             source.provider,
             source.model_id,
-            now
+            now,
+            source_id
         ],
     )?;
     let mut boundary: Option<Id> = None;
@@ -213,8 +219,18 @@ pub fn fork_conversation(
             m.provider.as_deref(),
             m.model_id.as_deref(),
         )?;
+        // Tool turns and citation checks come along, so the copy reads like the original.
+        tx.execute(
+            "UPDATE messages SET
+               turns = (SELECT turns FROM messages WHERE id = ?1),
+               citations = (SELECT citations FROM messages WHERE id = ?1)
+             WHERE id = ?2",
+            params![m.id, copy.id],
+        )?;
         boundary = Some(copy.id);
     }
+    // All handles, not only those up to the fork point: harmless, and numbering continues cleanly.
+    sources::copy_all(&tx, source_id, &id)?;
     if boundary.is_some() {
         tx.execute(
             "UPDATE conversations SET forked_from_title = ?1, fork_boundary_message_id = ?2 WHERE id = ?3",
@@ -333,6 +349,26 @@ pub fn finish_message(conn: &Connection, id: &str, f: Finish) -> Result<Message>
     Ok(msg)
 }
 
+/// Stores the turns of a reply as a JSON array (serialized by the caller, which owns the type).
+pub fn set_turns(conn: &Connection, id: &str, turns_json: &str) -> Result<()> {
+    conn.execute("UPDATE messages SET turns = ?1 WHERE id = ?2", params![turns_json, id])?;
+    Ok(())
+}
+
+pub fn set_citations(conn: &Connection, id: &str, citations_json: &str) -> Result<()> {
+    conn.execute("UPDATE messages SET citations = ?1 WHERE id = ?2", params![citations_json, id])?;
+    Ok(())
+}
+
+/// Stored turns (raw JSON) of the conversation's messages that have them, by message id.
+pub fn turns_by_message(conn: &Connection, conversation_id: &str) -> Result<HashMap<Id, String>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, turns FROM messages WHERE conversation_id = ?1 AND turns IS NOT NULL",
+    )?;
+    let rows = stmt.query_map([conversation_id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
 /// Called at startup: replies that were still streaming when the app stopped.
 pub fn recover_interrupted(conn: &Connection) -> Result<usize> {
     Ok(conn.execute(
@@ -431,6 +467,34 @@ mod tests {
         assert_eq!(c.fork_boundary_message_id, None);
         assert_eq!(list_messages(&conn, &c.id).unwrap().len(), 61, "the original is untouched");
         assert!(matches!(fork_conversation(&mut conn, &c.id, Some("nope")), Err(AppError::NotFound)));
+    }
+
+    #[test]
+    fn fork_keeps_tool_turns_citations_scope_and_handles() {
+        let mut conn = test_conn();
+        let c = conv(&conn);
+        conn.execute("UPDATE conversations SET source_scope = '{\"kind\":\"library\"}' WHERE id = ?1", [&c.id]).unwrap();
+        insert_message(&conn, &c.id, Role::User, "q", MessageStatus::Complete, None, None).unwrap();
+        let a = reply(&conn, &c.id, "answer [S1]", MessageStatus::Complete, Some(10));
+        set_turns(&conn, &a.id, "[{\"role\":\"model\",\"parts\":[]}]").unwrap();
+        set_citations(&conn, &a.id, "[{\"handle\":1,\"status\":\"ok\"}]").unwrap();
+        let s = sources::NewSource { passage_id: "p1", document_id: "d1", title: "T", page: 2, text: "x" };
+        sources::handle_for(&conn, &c.id, &s).unwrap();
+
+        let f = fork_conversation(&mut conn, &c.id, None).unwrap();
+        let copied = list_messages(&conn, &f.id).unwrap();
+        let turns = turns_by_message(&conn, &f.id).unwrap();
+        assert_eq!(turns.len(), 1, "only the reply had turns");
+        assert_eq!(turns[&copied[1].id], "[{\"role\":\"model\",\"parts\":[]}]");
+        let citations: Option<String> = conn
+            .query_row("SELECT citations FROM messages WHERE id = ?1", [&copied[1].id], |r| r.get(0))
+            .unwrap();
+        assert_eq!(citations.as_deref(), Some("[{\"handle\":1,\"status\":\"ok\"}]"));
+        let scope: Option<String> = conn
+            .query_row("SELECT source_scope FROM conversations WHERE id = ?1", [&f.id], |r| r.get(0))
+            .unwrap();
+        assert_eq!(scope.as_deref(), Some("{\"kind\":\"library\"}"));
+        assert_eq!(sources::list(&conn, &f.id).unwrap().len(), 1);
     }
 
     #[test]
