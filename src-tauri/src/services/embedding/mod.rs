@@ -1,5 +1,7 @@
 //! Local embeddings: EmbeddingGemma 300M 4-bit run through fastembed (ONNX Runtime, CPU).
 
+pub mod model;
+
 use std::path::Path;
 
 use fastembed::{
