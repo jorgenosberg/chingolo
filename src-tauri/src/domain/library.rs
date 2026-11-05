@@ -88,10 +88,33 @@ pub struct Document {
     /// Why the document failed, or a note such as how many pages could not be read.
     pub error: Option<String>,
     pub passage_count: u32,
+    /// Projects this document is attached to.
+    pub project_ids: Vec<Id>,
     #[specta(type = Number)]
     pub created_at: i64,
     #[specta(type = Number)]
     pub updated_at: i64,
+}
+
+/// Line boxes of a passage on one page, in PDF user space: `[left, bottom, right, top]`.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PageBoxes {
+    pub page: u32,
+    pub rects: Vec<[f32; 4]>,
+}
+
+/// A stored passage with what the reader needs to show it.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PassageView {
+    pub id: Id,
+    pub document_id: Id,
+    pub page_start: u32,
+    pub page_end: u32,
+    pub text: String,
+    /// Empty when the document has no boxes (DOCX) or they couldn't be read.
+    pub boxes: Vec<PageBoxes>,
 }
 
 /// Fields the user can correct. `None` leaves a field alone, an empty string clears it.

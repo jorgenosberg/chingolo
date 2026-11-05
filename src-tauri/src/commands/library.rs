@@ -5,7 +5,7 @@ use specta::Type;
 use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 
-use crate::domain::library::{DocStatus, Document, MetadataPatch, SearchHit};
+use crate::domain::library::{DocStatus, Document, MetadataPatch, PageBoxes, PassageView, SearchHit};
 use crate::error::{AppError, CmdResult};
 use crate::persistence::library::{self as repo, SearchOptions};
 use crate::services::ingestion::import::{self, ImportSummary};
@@ -133,4 +133,20 @@ pub async fn search_library(
             repo::search_passages(c, &query, &opts)
         })
         .await?)
+}
+
+/// A passage with its line boxes, for opening it in the reader.
+#[tauri::command]
+#[specta::specta]
+pub async fn get_passage(state: State<'_, AppState>, passage_id: String) -> CmdResult<PassageView> {
+    let p = state.db.call(move |c| repo::get_passage(c, &passage_id)).await?;
+    let boxes = p.boxes.and_then(|b| serde_json::from_str::<Vec<PageBoxes>>(&b).ok()).unwrap_or_default();
+    Ok(PassageView {
+        id: p.id,
+        document_id: p.document_id,
+        page_start: p.page_start,
+        page_end: p.page_end,
+        text: p.text,
+        boxes,
+    })
 }

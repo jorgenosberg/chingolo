@@ -10,12 +10,14 @@ use crate::error::{AppError, Result};
 
 const DOC_COLS: &str = "id, content_hash, original_name, kind, title, authors, year, doi, page_count,
     status, error, created_at, updated_at,
-    (SELECT count(*) FROM passages p WHERE p.document_id = documents.id)";
+    (SELECT count(*) FROM passages p WHERE p.document_id = documents.id),
+    (SELECT json_group_array(project_id) FROM project_documents pd WHERE pd.document_id = documents.id)";
 
 fn document_from_row(r: &Row) -> rusqlite::Result<Document> {
     let kind: String = r.get(3)?;
     let authors: String = r.get(5)?;
     let status: String = r.get(9)?;
+    let project_ids: String = r.get(14)?;
     Ok(Document {
         id: r.get(0)?,
         content_hash: r.get(1)?,
@@ -31,6 +33,7 @@ fn document_from_row(r: &Row) -> rusqlite::Result<Document> {
         created_at: r.get(11)?,
         updated_at: r.get(12)?,
         passage_count: r.get(13)?,
+        project_ids: serde_json::from_str(&project_ids).unwrap_or_default(),
     })
 }
 
@@ -415,7 +418,9 @@ mod tests {
         let a = ready_doc(&mut conn, "h1", "a.pdf", &["findable text"]);
         let p = projects::create_project(&conn, "P").unwrap();
         attach(&conn, &p.id, &a.id).unwrap();
+        assert_eq!(get_document(&conn, &a.id).unwrap().project_ids, vec![p.id.clone()]);
         projects::delete_project(&conn, &p.id).unwrap();
+        assert!(get_document(&conn, &a.id).unwrap().project_ids.is_empty());
         assert_eq!(list_documents(&conn, None).unwrap().len(), 1, "documents outlive projects");
         assert!(list_documents(&conn, Some(&p.id)).unwrap().is_empty());
 

@@ -14,6 +14,7 @@ use tauri_specta::{Builder, Event, collect_commands, collect_events};
 use crate::persistence::Db;
 use crate::commands::library::DropHover;
 use crate::services::ai::Providers;
+use crate::services::docfile;
 use crate::services::ingestion::import::{ImportSummary, import_paths};
 use crate::services::ingestion::queue::{DocumentChanged, Emit, Ingestor};
 use crate::state::{AppState, Generations};
@@ -57,6 +58,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
         commands::library::attach_document,
         commands::library::detach_document,
         commands::library::search_library,
+        commands::library::get_passage,
     ])
 }
 
@@ -109,6 +111,12 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .register_asynchronous_uri_scheme_protocol(docfile::SCHEME, |ctx, request, responder| {
+            let app = ctx.app_handle().clone();
+            tauri::async_runtime::spawn(async move {
+                responder.respond(docfile::handle(&app, request).await);
+            });
+        })
         .on_window_event(on_window_event)
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {

@@ -54,6 +54,8 @@ export const commands = {
 	detachDocument: (projectId: string, documentId: string) => typedError<null, CmdError>(__TAURI_INVOKE("detach_document", { projectId, documentId })),
 	/**  Keyword search over the text of documents that are ready. */
 	searchLibrary: (query: string, projectId: string | null, limit: number | null) => typedError<SearchHit[], CmdError>(__TAURI_INVOKE("search_library", { query, projectId, limit })),
+	/**  A passage with its line boxes, for opening it in the reader. */
+	getPassage: (passageId: string) => typedError<PassageView, CmdError>(__TAURI_INVOKE("get_passage", { passageId })),
 };
 
 /** Events */
@@ -138,6 +140,8 @@ export type Document = {
 	/**  Why the document failed, or a note such as how many pages could not be read. */
 	error: string | null,
 	passageCount: number,
+	/**  Projects this document is attached to. */
+	projectIds: string[],
 	createdAt: number,
 	updatedAt: number,
 };
@@ -193,6 +197,23 @@ export type ModelInfo = {
 	displayName: string,
 	inputTokenLimit: number | null,
 	outputTokenLimit: number | null,
+};
+
+/**  Line boxes of a passage on one page, in PDF user space: `[left, bottom, right, top]`. */
+export type PageBoxes = {
+	page: number,
+	rects: ([(number | null), (number | null), (number | null), (number | null)])[],
+};
+
+/**  A stored passage with what the reader needs to show it. */
+export type PassageView = {
+	id: string,
+	documentId: string,
+	pageStart: number,
+	pageEnd: number,
+	text: string,
+	/**  Empty when the document has no boxes (DOCX) or they couldn't be read. */
+	boxes: PageBoxes[],
 };
 
 export type Progress = {
