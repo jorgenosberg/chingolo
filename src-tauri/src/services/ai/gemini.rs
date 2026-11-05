@@ -14,6 +14,8 @@ use crate::error::{AppError, Result};
 const BASE: &str = "https://generativelanguage.googleapis.com/v1beta";
 /// Give up if the connection goes quiet this long mid-stream.
 const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
+const RETRIES_ON_503: u32 = 2;
+const RETRY_DELAY: Duration = Duration::from_secs(2);
 /// Models that accept generateContent but are not text chat models.
 const SKIP_IDS: &[&str] = &["-tts", "-image", "-live", "native-audio", "embedding", "robotics"];
 
@@ -96,15 +98,25 @@ async fn stream_inner(
     tx: &mpsc::Sender<Result<GenerationEvent>>,
 ) -> Result<()> {
     let url = format!("{BASE}/models/{}:streamGenerateContent", request.model);
-    let resp = client
-        .post(url)
-        .query(&[("alt", "sse")])
-        .header("x-goog-api-key", api_key)
-        .json(&build_body(&request))
-        .send()
-        .await
-        .map_err(net_error)?;
-    let resp = check_status(resp).await?;
+    let body = build_body(&request);
+    let mut attempt = 0;
+    let resp = loop {
+        let resp = client
+            .post(&url)
+            .query(&[("alt", "sse")])
+            .header("x-goog-api-key", api_key)
+            .json(&body)
+            .send()
+            .await
+            .map_err(net_error)?;
+        // "High demand" 503s are common and usually clear within seconds. Nothing has streamed yet.
+        if resp.status().as_u16() == 503 && attempt < RETRIES_ON_503 {
+            attempt += 1;
+            tokio::time::sleep(RETRY_DELAY).await;
+            continue;
+        }
+        break check_status(resp).await?;
+    };
 
     let mut parser = SseParser::default();
     let mut bytes = resp.bytes_stream();
@@ -195,6 +207,7 @@ fn usage(v: &Value) -> Option<GenerationEvent> {
     Some(GenerationEvent::Usage {
         input_tokens: n("promptTokenCount"),
         output_tokens: n("candidatesTokenCount") + n("thoughtsTokenCount"),
+        cached_tokens: n("cachedContentTokenCount"),
     })
 }
 
@@ -320,7 +333,7 @@ mod tests {
             })
             .collect();
         assert_eq!(text, "Hello");
-        assert!(ev.contains(&GenerationEvent::Usage { input_tokens: 7, output_tokens: 5 }));
+        assert!(ev.contains(&GenerationEvent::Usage { input_tokens: 7, output_tokens: 5, cached_tokens: 0 }));
         assert_eq!(ev.last(), Some(&GenerationEvent::Finished("STOP".into())));
     }
 

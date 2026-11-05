@@ -13,7 +13,11 @@ use rusqlite::Connection;
 use crate::error::{AppError, Result};
 
 /// Applied in order. The number of applied entries is stored in `PRAGMA user_version`.
-const MIGRATIONS: &[&str] = &[include_str!("../../migrations/0001_init.sql")];
+const MIGRATIONS: &[&str] = &[
+    include_str!("../../migrations/0001_init.sql"),
+    include_str!("../../migrations/0002_cached_tokens.sql"),
+    include_str!("../../migrations/0003_fork_marker.sql"),
+];
 
 #[derive(Clone)]
 pub struct Db(Arc<Mutex<Connection>>);

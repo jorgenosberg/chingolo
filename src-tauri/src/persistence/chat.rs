@@ -9,8 +9,9 @@ use crate::error::{AppError, Result};
 const CONV_COLS: &str = "id, project_id, chapter_id, title, provider, model_id, archived_at, created_at, updated_at,
     (SELECT CASE WHEN m.status <> 'error' THEN NULLIF(m.input_tokens, 0) END
        FROM messages m WHERE m.conversation_id = conversations.id AND m.role = 'assistant'
-       ORDER BY m.id DESC LIMIT 1)";
-const MSG_COLS: &str = "id, conversation_id, role, content, status, provider, model_id, input_tokens, output_tokens, error, created_at, updated_at";
+       ORDER BY m.id DESC LIMIT 1),
+    forked_from_title, fork_boundary_message_id";
+const MSG_COLS: &str = "id, conversation_id, role, content, status, provider, model_id, input_tokens, output_tokens, error, created_at, updated_at, cached_input_tokens";
 
 fn conversation_from_row(r: &Row) -> rusqlite::Result<Conversation> {
     Ok(Conversation {
@@ -24,6 +25,8 @@ fn conversation_from_row(r: &Row) -> rusqlite::Result<Conversation> {
         created_at: r.get(7)?,
         updated_at: r.get(8)?,
         switch_cost_tokens: r.get(9)?,
+        forked_from_title: r.get(10)?,
+        fork_boundary_message_id: r.get(11)?,
     })
 }
 
@@ -43,6 +46,7 @@ fn message_from_row(r: &Row) -> rusqlite::Result<Message> {
         error: r.get(9)?,
         created_at: r.get(10)?,
         updated_at: r.get(11)?,
+        cached_input_tokens: r.get(12)?,
     })
 }
 
@@ -198,8 +202,9 @@ pub fn fork_conversation(
             now
         ],
     )?;
+    let mut boundary: Option<Id> = None;
     for m in &messages {
-        insert_message(
+        let copy = insert_message(
             &tx,
             &id,
             m.role,
@@ -207,6 +212,13 @@ pub fn fork_conversation(
             MessageStatus::Complete,
             m.provider.as_deref(),
             m.model_id.as_deref(),
+        )?;
+        boundary = Some(copy.id);
+    }
+    if boundary.is_some() {
+        tx.execute(
+            "UPDATE conversations SET forked_from_title = ?1, fork_boundary_message_id = ?2 WHERE id = ?3",
+            params![source.title, boundary, id],
         )?;
     }
     tx.commit()?;
@@ -295,6 +307,7 @@ pub struct Finish<'a> {
     pub status: MessageStatus,
     pub input_tokens: Option<u32>,
     pub output_tokens: Option<u32>,
+    pub cached_input_tokens: Option<u32>,
     pub error: Option<&'a str>,
 }
 
@@ -302,9 +315,18 @@ pub fn finish_message(conn: &Connection, id: &str, f: Finish) -> Result<Message>
     conn.execute(
         "UPDATE messages
             SET content = ?1, status = ?2, input_tokens = ?3, output_tokens = ?4,
-                error = ?5, updated_at = ?6
-          WHERE id = ?7",
-        params![f.content, f.status.as_str(), f.input_tokens, f.output_tokens, f.error, now_ms(), id],
+                cached_input_tokens = ?5, error = ?6, updated_at = ?7
+          WHERE id = ?8",
+        params![
+            f.content,
+            f.status.as_str(),
+            f.input_tokens,
+            f.output_tokens,
+            f.cached_input_tokens,
+            f.error,
+            now_ms(),
+            id
+        ],
     )?;
     let msg = get_message(conn, id)?;
     touch_conversation(conn, &msg.conversation_id)?;
@@ -352,7 +374,7 @@ mod tests {
 
     fn reply(conn: &Connection, conv: &str, text: &str, status: MessageStatus, input: Option<u32>) -> Message {
         let m = insert_message(conn, conv, Role::Assistant, "", MessageStatus::Streaming, Some("gemini"), Some("m")).unwrap();
-        finish_message(conn, &m.id, Finish { content: text, status, input_tokens: input, output_tokens: Some(5), error: None }).unwrap()
+        finish_message(conn, &m.id, Finish { content: text, status, input_tokens: input, output_tokens: Some(5), cached_input_tokens: None, error: None }).unwrap()
     }
 
     #[test]
@@ -398,6 +420,14 @@ mod tests {
         let partial = fork_conversation(&mut conn, &c.id, Some(&ids[1].1)).unwrap();
         let texts: Vec<_> = list_messages(&conn, &partial.id).unwrap().into_iter().map(|m| m.content).collect();
         assert_eq!(texts, ["q0", "a0", "q1", "a1"]);
+        let copied = list_messages(&conn, &partial.id).unwrap();
+        assert_eq!(partial.forked_from_title.as_deref(), Some("Topic"));
+        assert_eq!(
+            partial.fork_boundary_message_id.as_deref(),
+            Some(copied.last().unwrap().id.as_str()),
+            "the marker points at the last copied message"
+        );
+        assert_eq!(c.fork_boundary_message_id, None);
         assert_eq!(list_messages(&conn, &c.id).unwrap().len(), 61, "the original is untouched");
         assert!(matches!(fork_conversation(&mut conn, &c.id, Some("nope")), Err(AppError::NotFound)));
     }
@@ -445,7 +475,7 @@ mod tests {
         flush_content(&conn, &m.id, "partial answer about entropy").unwrap();
         let f = ConversationFilter { query: Some("entropy".into()), ..Default::default() };
         assert_eq!(list_conversations(&conn, &f).unwrap().len(), 1);
-        finish_message(&conn, &m.id, Finish { content: "final answer about enthalpy", status: MessageStatus::Complete, input_tokens: Some(3), output_tokens: Some(5), error: None }).unwrap();
+        finish_message(&conn, &m.id, Finish { content: "final answer about enthalpy", status: MessageStatus::Complete, input_tokens: Some(3), output_tokens: Some(5), cached_input_tokens: None, error: None }).unwrap();
         assert!(list_conversations(&conn, &f).unwrap().is_empty());
         let f = ConversationFilter { query: Some("enthalpy".into()), ..Default::default() };
         assert_eq!(list_conversations(&conn, &f).unwrap().len(), 1);

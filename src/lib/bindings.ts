@@ -71,6 +71,10 @@ export type Conversation = {
 	 *  without cached input. None if there is no reply, or the latest one failed.
 	 */
 	switchCostTokens: number | null,
+	/**  Title of the conversation this one was forked from, as it was at fork time. */
+	forkedFromTitle: string | null,
+	/**  Last copied message of a fork. Messages up to and including it are shown collapsed. */
+	forkBoundaryMessageId: string | null,
 	archivedAt: number | null,
 	createdAt: number,
 	updatedAt: number,
@@ -96,6 +100,7 @@ export type Message = {
 	modelId: string | null,
 	inputTokens: number | null,
 	outputTokens: number | null,
+	cachedInputTokens: number | null,
 	error: string | null,
 	createdAt: number,
 	updatedAt: number,

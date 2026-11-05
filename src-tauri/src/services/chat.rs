@@ -158,7 +158,7 @@ async fn run_generation(
 ) {
     let mut stream = provider.generate(api_key, request);
     let mut content = String::new();
-    let (mut input_tokens, mut output_tokens) = (None, None);
+    let (mut input_tokens, mut output_tokens, mut cached_input_tokens) = (None, None, None);
     let mut finish_reason: Option<String> = None;
     let mut last_flush = Instant::now();
 
@@ -176,9 +176,10 @@ async fn run_generation(
                         let _ = db.call(move |c| repo::flush_content(c, &id, &snapshot)).await;
                     }
                 }
-                Some(Ok(GenerationEvent::Usage { input_tokens: i, output_tokens: o })) => {
+                Some(Ok(GenerationEvent::Usage { input_tokens: i, output_tokens: o, cached_tokens: c })) => {
                     input_tokens = Some(i);
                     output_tokens = Some(o);
+                    cached_input_tokens = Some(c);
                 }
                 Some(Ok(GenerationEvent::Finished(reason))) => finish_reason = Some(reason),
                 Some(Err(e)) => break Outcome::Failed(e.to_string()),
@@ -214,6 +215,7 @@ async fn run_generation(
                     status,
                     input_tokens,
                     output_tokens,
+                    cached_input_tokens,
                     error: note.as_deref(),
                 },
             )

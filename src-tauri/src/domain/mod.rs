@@ -69,6 +69,10 @@ pub struct Conversation {
     /// Input tokens of the latest reply: roughly how much a different model would have to re-read
     /// without cached input. None if there is no reply, or the latest one failed.
     pub switch_cost_tokens: Option<u32>,
+    /// Title of the conversation this one was forked from, as it was at fork time.
+    pub forked_from_title: Option<String>,
+    /// Last copied message of a fork. Messages up to and including it are shown collapsed.
+    pub fork_boundary_message_id: Option<Id>,
     #[specta(type = Option<Number>)]
     pub archived_at: Option<i64>,
     #[specta(type = Number)]
@@ -146,6 +150,7 @@ pub struct Message {
     pub model_id: Option<String>,
     pub input_tokens: Option<u32>,
     pub output_tokens: Option<u32>,
+    pub cached_input_tokens: Option<u32>,
     pub error: Option<String>,
     #[specta(type = Number)]
     pub created_at: i64,

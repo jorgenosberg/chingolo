@@ -35,7 +35,12 @@ pub struct GenerationRequest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GenerationEvent {
     Text(String),
-    Usage { input_tokens: u32, output_tokens: u32 },
+    Usage {
+        input_tokens: u32,
+        output_tokens: u32,
+        /// Part of `input_tokens` served from the provider's prompt cache.
+        cached_tokens: u32,
+    },
     /// The provider's finish reason, e.g. "STOP" or "MAX_TOKENS".
     Finished(String),
 }
