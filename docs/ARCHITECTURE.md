@@ -42,7 +42,9 @@ src-tauri/
 
 ## AI providers
 
-- `Provider` trait: `list_models`, `generate` (stream of events), `generate_structured`, `capabilities` (context window, caching, vision, tools).
+- `Provider` trait: `list_models`, `generate` (stream of events) and `capabilities` (tools, implicit caching, vision). `generate_structured` is not built. Context windows come from `ModelInfo.input_token_limit` (the provider's list, or the price table for OpenAI).
+- A conversation is a list of `Turn`s made of `Part`s (text, tool call, tool result). Providers emit `GenerationEvent::ToolCall` (complete) and a `Replay` record of the finished model turn (Gemini parts with thought signatures, OpenAI output items with encrypted reasoning). The record goes back untouched to the same provider and is ignored by another. Both are serde types so they can be stored with messages.
+- Gemini uses `generateContent`. OpenAI uses the Responses API with `store: false`, so nothing is kept on their side.
 - Features are gated on capabilities, not on provider names.
 - API keys live in macOS Keychain and never reach the frontend, the DB, logs or exports.
 - Streaming messages are written as `streaming`, flushed periodically, then finalized. Leftover `streaming` rows are marked interrupted on startup.
