@@ -74,6 +74,7 @@ function textOf(children: ReactNode): string {
 
 type Ctx = {
 	byHandle: Map<number, Citation>;
+	conversationId: string;
 	open: (target: ReaderTarget) => void;
 };
 const CiteContext = createContext<Ctx | null>(null);
@@ -81,18 +82,21 @@ const CiteContext = createContext<Ctx | null>(null);
 /** Gives the chips of one reply their checked citations. Wrap the reply's Markdown in it. */
 export function CiteProvider({
 	citations,
+	conversationId,
 	children,
 }: {
 	citations: Citation[];
+	conversationId: string;
 	children: ReactNode;
 }) {
 	const { openCitation } = useNav();
 	const value = useMemo(
 		() => ({
 			byHandle: new Map(citations.map((c) => [c.handle, c])),
+			conversationId,
 			open: openCitation,
 		}),
-		[citations, openCitation],
+		[citations, conversationId, openCitation],
 	);
 	return <CiteContext.Provider value={value}>{children}</CiteContext.Provider>;
 }
@@ -120,6 +124,7 @@ function Cite({ children }: { children?: ReactNode }) {
 					documentId: c.documentId,
 					page: Math.max(c.page, 1),
 					passageId: c.passageId,
+					source: { conversationId: ctx.conversationId, handle: c.handle },
 				})
 			}
 			className={`${base} cursor-pointer transition-colors ${

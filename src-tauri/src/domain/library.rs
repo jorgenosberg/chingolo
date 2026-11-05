@@ -120,6 +120,17 @@ pub struct PassageView {
     pub boxes: Vec<PageBoxes>,
 }
 
+/// What the app saved when it first showed a passage in a conversation. It outlives the document.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceView {
+    pub handle: u32,
+    pub title: String,
+    /// First page, 0 for Word documents.
+    pub page: u32,
+    pub text: String,
+}
+
 /// Fields the user can correct. `None` leaves a field alone, an empty string clears it.
 #[derive(Debug, Clone, Default, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]

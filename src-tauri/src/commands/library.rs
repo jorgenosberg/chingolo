@@ -5,7 +5,7 @@ use specta::Type;
 use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 
-use crate::domain::library::{DocStatus, Document, MetadataPatch, PageBoxes, PassageView, SearchHit};
+use crate::domain::library::{DocStatus, Document, MetadataPatch, PageBoxes, PassageView, SearchHit, SourceView};
 use crate::error::{AppError, CmdResult};
 use crate::persistence::library::{self as repo, SearchOptions};
 use crate::services::ingestion::import::{self, ImportSummary};
@@ -174,6 +174,18 @@ pub async fn search_library(
         started.elapsed().as_millis()
     );
     Ok(hits)
+}
+
+/// The saved copy of a cited passage, for when its document was deleted or read again.
+#[tauri::command]
+#[specta::specta]
+pub async fn get_source(state: State<'_, AppState>, conversation_id: String, handle: u32) -> CmdResult<SourceView> {
+    let s = state
+        .db
+        .call(move |c| crate::persistence::sources::get(c, &conversation_id, handle))
+        .await?
+        .ok_or(AppError::NotFound)?;
+    Ok(SourceView { handle: s.handle, title: s.title, page: s.page, text: s.text })
 }
 
 /// A passage with its line boxes, for opening it in the reader.

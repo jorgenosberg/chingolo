@@ -95,6 +95,8 @@ export const api = {
 	detachDocument: (projectId: string, documentId: string) =>
 		unwrap(commands.detachDocument(projectId, documentId)),
 	getPassage: (passageId: string) => unwrap(commands.getPassage(passageId)),
+	getSource: (conversationId: string, handle: number) =>
+		unwrap(commands.getSource(conversationId, handle)),
 	searchLibrary: (query: string, projectId: string | null, meaning: boolean) =>
 		unwrap(commands.searchLibrary(query, projectId, 30, meaning)),
 

@@ -12,6 +12,7 @@ import {
 	Tooltip,
 	TooltipTrigger,
 } from "react-aria-components";
+import { InfoIcon } from "./icons";
 
 const cx = (...parts: (string | false | null | undefined)[]) =>
 	parts.filter(Boolean).join(" ");
@@ -195,6 +196,33 @@ export function Modal_({
 				</Dialog>
 			</Modal>
 		</ModalOverlay>
+	);
+}
+
+/** A neutral info box: one short message, with an optional title line. */
+export function Note({
+	title,
+	children,
+	className,
+}: {
+	title?: string;
+	children: ReactNode;
+	className?: string;
+}) {
+	return (
+		<div
+			role="status"
+			className={cx(
+				"flex items-start gap-2.5 rounded-lg border border-border bg-muted px-3 py-2.5 text-[13px] text-muted-foreground",
+				className,
+			)}
+		>
+			<InfoIcon className="mt-px size-4 shrink-0" />
+			<div className="min-w-0">
+				{title && <p className="font-medium text-foreground">{title}</p>}
+				<p>{children}</p>
+			</div>
+		</div>
 	);
 }
 

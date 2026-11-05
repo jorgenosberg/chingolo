@@ -59,7 +59,10 @@ export const MessageItem = memo(function MessageItem({
 		<div className="group flex flex-col gap-1.5">
 			{text ? (
 				<div className="selectable chat-prose">
-					<CiteProvider citations={message.citations ?? NO_CITATIONS}>
+					<CiteProvider
+						citations={message.citations ?? NO_CITATIONS}
+						conversationId={message.conversationId}
+					>
 						<Streamdown
 							plugins={plugins}
 							remarkPlugins={citePlugins}

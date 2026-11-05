@@ -63,6 +63,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
         commands::library::detach_document,
         commands::library::search_library,
         commands::library::get_passage,
+        commands::library::get_source,
         commands::embedding::embedding_status,
         commands::embedding::download_embedding_model,
         commands::embedding::allow_cloud_embedding,

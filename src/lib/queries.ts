@@ -20,6 +20,8 @@ export const keys = {
 	documents: ["documents"] as const,
 	documentsIn: (scope: string | null) => ["documents", scope] as const,
 	passage: (id: string) => ["passage", id] as const,
+	source: (conversationId: string, handle: number) =>
+		["source", conversationId, handle] as const,
 	librarySearch: (q: string, scope: string | null, meaning: boolean) =>
 		["library-search", scope, meaning, q] as const,
 };
@@ -101,6 +103,23 @@ export function useLibrarySearch(
 }
 
 /** A stored passage with its line boxes. Passages never change, so it is cached for good. */
+/** The saved copy of a cited passage. Only asked for when the document or passage is gone. */
+export function useSource(
+	source: { conversationId: string; handle: number } | null,
+	enabled: boolean,
+) {
+	return useQuery({
+		queryKey: keys.source(source?.conversationId ?? "", source?.handle ?? 0),
+		queryFn: () =>
+			api.getSource(
+				(source as { conversationId: string }).conversationId,
+				(source as { handle: number }).handle,
+			),
+		enabled: enabled && source !== null,
+		staleTime: Number.POSITIVE_INFINITY,
+	});
+}
+
 export function usePassage(passageId: string | null) {
 	return useQuery({
 		queryKey: keys.passage(passageId ?? ""),

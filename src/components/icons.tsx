@@ -95,6 +95,12 @@ export const SparkleIcon = (p: P) => (
 		<path d="M8 2.5c.45 3 1.6 4.05 4.5 5.5-2.9 1.45-4.05 2.5-4.5 5.5-.45-3-1.6-4.05-4.5-5.5C6.4 6.55 7.55 5.5 8 2.5Z" />
 	</Icon>
 );
+export const InfoIcon = (p: P) => (
+	<Icon {...p}>
+		<circle cx="8" cy="8" r="6" />
+		<path d="M8 7.25v3.5M8 5.2v.05" />
+	</Icon>
+);
 export const CheckIcon = (p: P) => (
 	<Icon {...p}>
 		<path d="m3.5 8.5 3 3 6-7" />

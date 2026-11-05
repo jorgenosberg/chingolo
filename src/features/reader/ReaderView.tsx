@@ -1,8 +1,8 @@
 import { useEffect, useMemo } from "react";
 import type { ReaderTarget } from "../../app/nav";
 import { ChevronIcon } from "../../components/icons";
-import { Button, Spinner } from "../../components/ui";
-import { useDocuments, usePassage } from "../../lib/queries";
+import { Button, Note, Spinner } from "../../components/ui";
+import { useDocuments, usePassage, useSource } from "../../lib/queries";
 import { type Highlight, PdfReader } from "./PdfReader";
 
 const NO_BOXES: Highlight["boxes"] = [];
@@ -27,9 +27,15 @@ export default function ReaderView({
 
 	const doc = docs.data?.find((d) => d.id === reader?.documentId);
 	const removed = docs.isSuccess && reader && !doc;
+	// A citation keeps a saved copy of its passage, so it still opens after the document is gone
+	// or was read again (which gives its passages new ids).
+	const saved = useSource(
+		reader?.source ?? null,
+		Boolean(removed) || passage.isError,
+	);
 	useEffect(() => {
-		if (removed) closeReader();
-	}, [removed, closeReader]);
+		if (removed && !reader?.source) closeReader();
+	}, [removed, reader?.source, closeReader]);
 
 	// Stable identity: the reader moves the view whenever this object changes.
 	const boxes = passage.data?.boxes ?? NO_BOXES;
@@ -40,8 +46,11 @@ export default function ReaderView({
 		reader?.passageId && passage.isSuccess && boxes.length === 0
 			? `Couldn't find the exact spot, so this is the start of page ${page}.`
 			: reader?.passageId && passage.isError
-				? `Couldn't load the passage: ${passage.error.message}`
+				? saved.data
+					? `This passage was replaced when the document was read again, so this is the start of page ${page}.`
+					: `Couldn't load the passage: ${passage.error.message}`
 				: null;
+	const passageText = passage.data?.text ?? saved.data?.text;
 
 	return (
 		<div className="flex h-full flex-col">
@@ -54,36 +63,49 @@ export default function ReaderView({
 					{backLabel}
 				</Button>
 				<h1 className="min-w-0 truncate text-[15px] font-semibold">
-					{doc ? doc.title || doc.originalName : ""}
+					{doc ? doc.title || doc.originalName : (saved.data?.title ?? "")}
 				</h1>
 			</header>
 
-			{!reader || !doc ? (
+			{removed && reader?.source ? (
+				<div className="selectable min-h-0 flex-1 overflow-y-auto px-6 pb-6 text-sm">
+					<Note
+						title="This document is no longer in your library"
+						className="mb-3"
+					>
+						{saved.isError
+							? "The saved passage couldn't be loaded."
+							: `Here is the passage as it was cited${
+									saved.data && saved.data.page > 0
+										? `, from page ${saved.data.page}`
+										: ""
+								}.`}
+					</Note>
+					{saved.data && (
+						<blockquote className="max-w-prose border-l-2 border-primary/50 pl-3">
+							{saved.data.text}
+						</blockquote>
+					)}
+				</div>
+			) : !reader || !doc ? (
 				<div className="flex flex-1 items-center justify-center">
 					<Spinner />
 				</div>
 			) : doc.kind !== "pdf" ? (
 				<div className="selectable min-h-0 flex-1 overflow-y-auto px-6 pb-6 text-sm">
-					<p className="mb-3 text-xs text-muted-foreground">
+					<Note className="mb-3">
 						Word documents can't be previewed yet.
-						{passage.data ? " Here is the passage that matched." : ""}
-					</p>
-					{passage.data && (
+						{passageText ? " Here is the passage that matched." : ""}
+					</Note>
+					{passageText && (
 						<blockquote className="max-w-prose border-l-2 border-primary/50 pl-3">
-							{passage.data.text}
+							{passageText}
 						</blockquote>
 					)}
 				</div>
 			) : (
 				<>
-					{notice && (
-						<p
-							role="status"
-							className="mx-6 mb-2 rounded-md bg-muted px-2.5 py-1.5 text-xs text-muted-foreground"
-						>
-							{notice}
-						</p>
-					)}
+					{notice && <Note className="mx-6 mb-2">{notice}</Note>}
 					<PdfReader key={doc.id} documentId={doc.id} highlight={highlight} />
 				</>
 			)}

@@ -65,6 +65,8 @@ export const commands = {
 	searchLibrary: (query: string, projectId: string | null, limit: number | null, meaning: boolean) => typedError<SearchHit[], CmdError>(__TAURI_INVOKE("search_library", { query, projectId, limit, meaning })),
 	/**  A passage with its line boxes, for opening it in the reader. */
 	getPassage: (passageId: string) => typedError<PassageView, CmdError>(__TAURI_INVOKE("get_passage", { passageId })),
+	/**  The saved copy of a cited passage, for when its document was deleted or read again. */
+	getSource: (conversationId: string, handle: number) => typedError<SourceView, CmdError>(__TAURI_INVOKE("get_source", { conversationId, handle })),
 	embeddingStatus: () => __TAURI_INVOKE<EmbeddingStatus>("embedding_status"),
 	/**
 	 *  Starts (or resumes) the local model download, or retries loading the model if the files are
@@ -371,6 +373,15 @@ export type SettingsPatch = {
 export type SkippedFile = {
 	name: string,
 	reason: string,
+};
+
+/**  What the app saved when it first showed a passage in a conversation. It outlives the document. */
+export type SourceView = {
+	handle: number,
+	title: string,
+	/**  First page, 0 for Word documents. */
+	page: number,
+	text: string,
 };
 
 export type UsagePeriod = "day" | "week" | "all";

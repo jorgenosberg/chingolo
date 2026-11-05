@@ -25,6 +25,8 @@ export type ReaderTarget = {
 	documentId: string;
 	page: number;
 	passageId: string | null;
+	/** Set by a citation: the saved copy to show if the document or passage is gone. */
+	source?: { conversationId: string; handle: number };
 };
 
 /** Width the split reader opens at when a citation is clicked. */
