@@ -565,6 +565,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-dialog",
  "tauri-specta",
+ "tempfile",
  "thiserror 2.0.21",
  "tokio",
  "tokio-util",

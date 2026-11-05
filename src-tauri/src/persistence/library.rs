@@ -168,6 +168,7 @@ pub fn requeue_unfinished(conn: &Connection) -> Result<Vec<Document>> {
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
+#[derive(Debug)]
 pub struct NewPage {
     pub page_no: u32,
     pub width: f32,

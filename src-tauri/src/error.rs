@@ -15,6 +15,8 @@ pub enum AppError {
     Keychain(String),
     #[error("{0}")]
     Provider(String),
+    #[error("Cancelled")]
+    Cancelled,
     #[error("Internal error: {0}")]
     Internal(String),
 }
