@@ -184,6 +184,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 					message={m}
 					onFork={onFork}
 					liveText={live && live.messageId === m.id ? live.text : undefined}
+					liveStatus={live && live.messageId === m.id ? live.status : null}
 				/>
 			</Fragment>
 		);

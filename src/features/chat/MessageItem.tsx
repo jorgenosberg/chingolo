@@ -10,6 +10,7 @@ const plugins = { math };
 export const MessageItem = memo(function MessageItem({
 	message,
 	liveText,
+	liveStatus,
 	onFork,
 }: {
 	message: Message;
@@ -17,6 +18,8 @@ export const MessageItem = memo(function MessageItem({
 	onFork?: (messageId: string) => void;
 	/** Text received so far while this reply is streaming; overrides the saved text. */
 	liveText?: string;
+	/** What the model is doing while it streams, such as a library search. */
+	liveStatus?: string | null;
 }) {
 	if (message.role === "user") {
 		return (
@@ -55,9 +58,14 @@ export const MessageItem = memo(function MessageItem({
 				</div>
 			) : streaming ? (
 				<p className="text-sm text-muted-foreground" aria-live="polite">
-					Thinking…
+					{liveStatus ?? "Thinking…"}
 				</p>
 			) : null}
+			{text && streaming && liveStatus && (
+				<p className="text-sm text-muted-foreground" aria-live="polite">
+					{liveStatus}
+				</p>
+			)}
 
 			{note && (
 				<p

@@ -6,7 +6,7 @@ import {
 } from "@tanstack/react-query";
 import { api, Channel, sendMessageRaw } from "./api";
 import type { ChatEvent, Message } from "./bindings";
-import { appendDelta, bindMessage, endStream } from "./streams";
+import { appendDelta, bindMessage, endStream, setStatus } from "./streams";
 
 export const keys = {
 	settings: ["settings"] as const,
@@ -158,6 +158,10 @@ export async function sendMessage(
 					pending = "";
 				});
 			}
+			return;
+		}
+		if (ev.type === "tool") {
+			setStatus(conversationId, ev.summary);
 			return;
 		}
 		cancelAnimationFrame(frame);
