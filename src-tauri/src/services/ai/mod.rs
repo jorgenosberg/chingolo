@@ -1,6 +1,7 @@
 //! Provider abstraction. Providers get the API key per call and never store it.
 
 pub mod gemini;
+pub mod openai;
 pub mod sse;
 
 use std::collections::HashMap;
@@ -124,6 +125,8 @@ impl Providers {
         let mut map: HashMap<&'static str, Arc<dyn Provider>> = HashMap::new();
         let gemini: Arc<dyn Provider> = Arc::new(gemini::Gemini::new());
         map.insert(gemini.id(), gemini);
+        let openai: Arc<dyn Provider> = Arc::new(openai::OpenAi::new());
+        map.insert(openai.id(), openai);
         Providers(Arc::new(map))
     }
 
@@ -205,5 +208,6 @@ mod tests {
     fn unknown_provider_is_an_error() {
         assert!(Providers::new().get("nope").is_err());
         assert!(Providers::new().get("gemini").is_ok());
+        assert!(Providers::new().get("openai").is_ok());
     }
 }

@@ -44,6 +44,9 @@ struct Price {
     cache_read: Option<f64>,
     #[serde(default)]
     tiers: Vec<Tier>,
+    /// Context window in tokens, when the feed has one.
+    #[serde(default)]
+    context: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -77,6 +80,11 @@ impl Table {
             .map(|(_, p)| p)
     }
 
+    /// The model's context window, for providers whose model list doesn't say.
+    pub fn context_limit(&self, provider: &str, model: &str) -> Option<u32> {
+        self.find(provider, model)?.context.and_then(|c| u32::try_from(c).ok())
+    }
+
     /// `input` includes the cached part. `output` includes thinking tokens.
     pub fn cost(&self, provider: &str, model: &str, input: u32, output: u32, cached: u32) -> Option<f64> {
         let price = self.find(provider, model)?;
@@ -102,6 +110,11 @@ static FRESH: RwLock<Option<Arc<Table>>> = RwLock::new(None);
 /// The newest prices we have: a refreshed copy if there is one, else the bundled one.
 pub fn current() -> Arc<Table> {
     FRESH.read().ok().and_then(|g| g.clone()).unwrap_or_else(bundled)
+}
+
+/// The model's context window from the price table, if known.
+pub fn context_limit(provider: &str, model: &str) -> Option<u32> {
+    current().context_limit(provider, model)
 }
 
 /// Estimated cost in USD, or `None` when the model has no price in the table.
@@ -136,7 +149,13 @@ fn trim_provider(provider: &Value) -> Value {
             .unwrap_or_default();
         out.insert(
             id.clone(),
-            json!({ "input": input, "output": num(cost, "output").unwrap_or(0.0), "cache_read": num(cost, "cache_read"), "tiers": tiers }),
+            json!({
+                "input": input,
+                "output": num(cost, "output").unwrap_or(0.0),
+                "cache_read": num(cost, "cache_read"),
+                "tiers": tiers,
+                "context": model.pointer("/limit/context").and_then(Value::as_u64),
+            }),
         );
     }
     Value::Object(out)
@@ -414,6 +433,20 @@ mod tests {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("data/prices.json");
         std::fs::write(&path, text).expect("write prices.json");
         println!("wrote {} (fetched {})", path.display(), table.fetched_at);
+    }
+
+    #[test]
+    fn context_limits_come_from_the_table() {
+        let t = Table::parse(
+            r#"{ "source": "s", "fetchedAt": "d", "providers": { "openai": {
+                "gpt-x": { "input": 1.0, "output": 2.0, "context": 400000 },
+                "gpt-y": { "input": 1.0, "output": 2.0 } } } }"#,
+        )
+        .unwrap();
+        assert_eq!(t.context_limit("openai", "gpt-x"), Some(400_000));
+        assert_eq!(t.context_limit("openai", "gpt-x-2026-01-01"), Some(400_000));
+        assert_eq!(t.context_limit("openai", "gpt-y"), None);
+        assert_eq!(t.context_limit("openai", "nope"), None);
     }
 
     #[test]

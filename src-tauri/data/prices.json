@@ -1,649 +1,731 @@
 {
-	"fetchedAt": "2026-11-05",
-	"providers": {
-		"gemini": {
-			"deep-research-max-preview-04-2026": {
-				"cache_read": 0.2,
-				"input": 2.0,
-				"output": 12.0,
-				"tiers": [
-					{
-						"cache_read": 0.4,
-						"input": 4.0,
-						"output": 18.0,
-						"over": 200000
-					}
-				]
-			},
-			"deep-research-preview-04-2026": {
-				"cache_read": 0.2,
-				"input": 2.0,
-				"output": 12.0,
-				"tiers": [
-					{
-						"cache_read": 0.4,
-						"input": 4.0,
-						"output": 18.0,
-						"over": 200000
-					}
-				]
-			},
-			"gemini-2.5-computer-use-preview-10-2025": {
-				"cache_read": null,
-				"input": 1.25,
-				"output": 10.0,
-				"tiers": [
-					{
-						"cache_read": null,
-						"input": 2.5,
-						"output": 15.0,
-						"over": 200000
-					}
-				]
-			},
-			"gemini-2.5-flash": {
-				"cache_read": 0.03,
-				"input": 0.3,
-				"output": 2.5,
-				"tiers": []
-			},
-			"gemini-2.5-flash-image": {
-				"cache_read": 0.075,
-				"input": 0.3,
-				"output": 30.0,
-				"tiers": []
-			},
-			"gemini-2.5-flash-lite": {
-				"cache_read": 0.01,
-				"input": 0.1,
-				"output": 0.4,
-				"tiers": []
-			},
-			"gemini-2.5-flash-preview-tts": {
-				"cache_read": null,
-				"input": 0.5,
-				"output": 10.0,
-				"tiers": []
-			},
-			"gemini-2.5-pro": {
-				"cache_read": 0.125,
-				"input": 1.25,
-				"output": 10.0,
-				"tiers": [
-					{
-						"cache_read": 0.25,
-						"input": 2.5,
-						"output": 15.0,
-						"over": 200000
-					}
-				]
-			},
-			"gemini-2.5-pro-preview-tts": {
-				"cache_read": null,
-				"input": 1.0,
-				"output": 20.0,
-				"tiers": []
-			},
-			"gemini-3-flash-preview": {
-				"cache_read": 0.05,
-				"input": 0.5,
-				"output": 3.0,
-				"tiers": []
-			},
-			"gemini-3-pro-image": {
-				"cache_read": null,
-				"input": 2.0,
-				"output": 120.0,
-				"tiers": []
-			},
-			"gemini-3.1-flash-image": {
-				"cache_read": null,
-				"input": 0.5,
-				"output": 60.0,
-				"tiers": []
-			},
-			"gemini-3.1-flash-lite": {
-				"cache_read": 0.025,
-				"input": 0.25,
-				"output": 1.5,
-				"tiers": []
-			},
-			"gemini-3.1-flash-lite-image": {
-				"cache_read": null,
-				"input": 0.25,
-				"output": 30.0,
-				"tiers": []
-			},
-			"gemini-3.1-flash-lite-preview": {
-				"cache_read": 0.025,
-				"input": 0.25,
-				"output": 1.5,
-				"tiers": []
-			},
-			"gemini-3.1-flash-live-preview": {
-				"cache_read": null,
-				"input": 0.75,
-				"output": 4.5,
-				"tiers": []
-			},
-			"gemini-3.1-flash-tts-preview": {
-				"cache_read": null,
-				"input": 1.0,
-				"output": 20.0,
-				"tiers": []
-			},
-			"gemini-3.1-pro-preview": {
-				"cache_read": 0.2,
-				"input": 2.0,
-				"output": 12.0,
-				"tiers": [
-					{
-						"cache_read": 0.4,
-						"input": 4.0,
-						"output": 18.0,
-						"over": 200000
-					}
-				]
-			},
-			"gemini-3.1-pro-preview-customtools": {
-				"cache_read": 0.2,
-				"input": 2.0,
-				"output": 12.0,
-				"tiers": [
-					{
-						"cache_read": 0.4,
-						"input": 4.0,
-						"output": 18.0,
-						"over": 200000
-					}
-				]
-			},
-			"gemini-3.5-flash": {
-				"cache_read": 0.15,
-				"input": 1.5,
-				"output": 9.0,
-				"tiers": []
-			},
-			"gemini-3.5-flash-lite": {
-				"cache_read": 0.03,
-				"input": 0.3,
-				"output": 2.5,
-				"tiers": []
-			},
-			"gemini-3.5-live-translate-preview": {
-				"cache_read": null,
-				"input": 3.5,
-				"output": 21.0,
-				"tiers": []
-			},
-			"gemini-3.6-flash": {
-				"cache_read": 0.075,
-				"input": 0.75,
-				"output": 3.75,
-				"tiers": []
-			},
-			"gemini-3.7-flash": {
-				"cache_read": 0.075,
-				"input": 0.75,
-				"output": 3.75,
-				"tiers": []
-			},
-			"gemini-3.8-flash": {
-				"cache_read": 0.075,
-				"input": 0.75,
-				"output": 3.75,
-				"tiers": []
-			},
-			"gemini-4-argon": {
-				"cache_read": 0.1,
-				"input": 2.0,
-				"output": 10.0,
-				"tiers": []
-			},
-			"gemini-embedding-001": {
-				"cache_read": null,
-				"input": 0.15,
-				"output": 0.0,
-				"tiers": []
-			},
-			"gemini-embedding-2": {
-				"cache_read": null,
-				"input": 0.2,
-				"output": 0.0,
-				"tiers": []
-			},
-			"gemini-flash-latest": {
-				"cache_read": 0.075,
-				"input": 0.75,
-				"output": 3.75,
-				"tiers": []
-			},
-			"gemini-flash-lite-latest": {
-				"cache_read": 0.03,
-				"input": 0.3,
-				"output": 2.5,
-				"tiers": []
-			},
-			"gemini-omni-flash-preview": {
-				"cache_read": null,
-				"input": 1.5,
-				"output": 17.5,
-				"tiers": []
-			},
-			"gemini-pro-latest": {
-				"cache_read": 0.2,
-				"input": 2.0,
-				"output": 12.0,
-				"tiers": [
-					{
-						"cache_read": 0.4,
-						"input": 4.0,
-						"output": 18.0,
-						"over": 200000
-					}
-				]
-			},
-			"lyria-3-clip-preview": {
-				"cache_read": null,
-				"input": 0.0,
-				"output": 0.0,
-				"tiers": []
-			},
-			"lyria-3-pro-preview": {
-				"cache_read": null,
-				"input": 0.0,
-				"output": 0.0,
-				"tiers": []
-			}
-		},
-		"openai": {
-			"gpt-3.5-turbo": {
-				"cache_read": 0.0,
-				"input": 0.5,
-				"output": 1.5,
-				"tiers": []
-			},
-			"gpt-4": {
-				"cache_read": null,
-				"input": 30.0,
-				"output": 60.0,
-				"tiers": []
-			},
-			"gpt-4-turbo": {
-				"cache_read": null,
-				"input": 10.0,
-				"output": 30.0,
-				"tiers": []
-			},
-			"gpt-4.1": {
-				"cache_read": 0.5,
-				"input": 2.0,
-				"output": 8.0,
-				"tiers": []
-			},
-			"gpt-4.1-mini": {
-				"cache_read": 0.1,
-				"input": 0.4,
-				"output": 1.6,
-				"tiers": []
-			},
-			"gpt-4.1-nano": {
-				"cache_read": 0.025,
-				"input": 0.1,
-				"output": 0.4,
-				"tiers": []
-			},
-			"gpt-4o": {
-				"cache_read": 1.25,
-				"input": 2.5,
-				"output": 10.0,
-				"tiers": []
-			},
-			"gpt-4o-2024-05-13": {
-				"cache_read": null,
-				"input": 5.0,
-				"output": 15.0,
-				"tiers": []
-			},
-			"gpt-4o-2024-08-06": {
-				"cache_read": 1.25,
-				"input": 2.5,
-				"output": 10.0,
-				"tiers": []
-			},
-			"gpt-4o-2024-11-20": {
-				"cache_read": 1.25,
-				"input": 2.5,
-				"output": 10.0,
-				"tiers": []
-			},
-			"gpt-4o-mini": {
-				"cache_read": 0.075,
-				"input": 0.15,
-				"output": 0.6,
-				"tiers": []
-			},
-			"gpt-5": {
-				"cache_read": 0.125,
-				"input": 1.25,
-				"output": 10.0,
-				"tiers": []
-			},
-			"gpt-5-mini": {
-				"cache_read": 0.025,
-				"input": 0.25,
-				"output": 2.0,
-				"tiers": []
-			},
-			"gpt-5-nano": {
-				"cache_read": 0.005,
-				"input": 0.05,
-				"output": 0.4,
-				"tiers": []
-			},
-			"gpt-5-pro": {
-				"cache_read": null,
-				"input": 15.0,
-				"output": 120.0,
-				"tiers": []
-			},
-			"gpt-5.1": {
-				"cache_read": 0.125,
-				"input": 1.25,
-				"output": 10.0,
-				"tiers": []
-			},
-			"gpt-5.2": {
-				"cache_read": 0.175,
-				"input": 1.75,
-				"output": 14.0,
-				"tiers": []
-			},
-			"gpt-5.2-pro": {
-				"cache_read": null,
-				"input": 21.0,
-				"output": 168.0,
-				"tiers": []
-			},
-			"gpt-5.3-codex": {
-				"cache_read": 0.175,
-				"input": 1.75,
-				"output": 14.0,
-				"tiers": []
-			},
-			"gpt-5.3-codex-spark": {
-				"cache_read": 0.175,
-				"input": 1.75,
-				"output": 14.0,
-				"tiers": []
-			},
-			"gpt-5.4": {
-				"cache_read": 0.25,
-				"input": 2.5,
-				"output": 15.0,
-				"tiers": [
-					{
-						"cache_read": 0.5,
-						"input": 5.0,
-						"output": 22.5,
-						"over": 272000
-					}
-				]
-			},
-			"gpt-5.4-mini": {
-				"cache_read": 0.075,
-				"input": 0.75,
-				"output": 4.5,
-				"tiers": []
-			},
-			"gpt-5.4-nano": {
-				"cache_read": 0.02,
-				"input": 0.2,
-				"output": 1.25,
-				"tiers": []
-			},
-			"gpt-5.4-pro": {
-				"cache_read": null,
-				"input": 30.0,
-				"output": 180.0,
-				"tiers": [
-					{
-						"cache_read": null,
-						"input": 60.0,
-						"output": 270.0,
-						"over": 272000
-					}
-				]
-			},
-			"gpt-5.5": {
-				"cache_read": 0.5,
-				"input": 5.0,
-				"output": 30.0,
-				"tiers": [
-					{
-						"cache_read": 1.0,
-						"input": 10.0,
-						"output": 45.0,
-						"over": 272000
-					}
-				]
-			},
-			"gpt-5.5-pro": {
-				"cache_read": null,
-				"input": 30.0,
-				"output": 180.0,
-				"tiers": [
-					{
-						"cache_read": null,
-						"input": 60.0,
-						"output": 270.0,
-						"over": 272000
-					}
-				]
-			},
-			"gpt-5.6": {
-				"cache_read": 0.4,
-				"input": 4.0,
-				"output": 20.0,
-				"tiers": [
-					{
-						"cache_read": 0.8,
-						"input": 8.0,
-						"output": 30.0,
-						"over": 272000
-					}
-				]
-			},
-			"gpt-5.6-luna": {
-				"cache_read": 0.02,
-				"input": 0.2,
-				"output": 1.2,
-				"tiers": [
-					{
-						"cache_read": 0.04,
-						"input": 0.4,
-						"output": 1.8,
-						"over": 272000
-					}
-				]
-			},
-			"gpt-5.6-sol": {
-				"cache_read": 0.4,
-				"input": 4.0,
-				"output": 20.0,
-				"tiers": [
-					{
-						"cache_read": 0.8,
-						"input": 8.0,
-						"output": 30.0,
-						"over": 272000
-					}
-				]
-			},
-			"gpt-5.6-terra": {
-				"cache_read": 0.2,
-				"input": 2.0,
-				"output": 12.0,
-				"tiers": [
-					{
-						"cache_read": 0.4,
-						"input": 4.0,
-						"output": 18.0,
-						"over": 272000
-					}
-				]
-			},
-			"gpt-6-astra": {
-				"cache_read": 1.0,
-				"input": 10.0,
-				"output": 50.0,
-				"tiers": [
-					{
-						"cache_read": 2.0,
-						"input": 20.0,
-						"output": 75.0,
-						"over": 272000
-					}
-				]
-			},
-			"gpt-6-luna": {
-				"cache_read": 0.01,
-				"input": 0.1,
-				"output": 0.5,
-				"tiers": [
-					{
-						"cache_read": 0.02,
-						"input": 0.2,
-						"output": 0.75,
-						"over": 272000
-					}
-				]
-			},
-			"gpt-6-sol": {
-				"cache_read": 0.2,
-				"input": 2.0,
-				"output": 10.0,
-				"tiers": [
-					{
-						"cache_read": 0.4,
-						"input": 4.0,
-						"output": 15.0,
-						"over": 272000
-					}
-				]
-			},
-			"gpt-6.1-sol": {
-				"cache_read": 0.1,
-				"input": 2.0,
-				"output": 10.0,
-				"tiers": [
-					{
-						"cache_read": 0.2,
-						"input": 4.0,
-						"output": 15.0,
-						"over": 272000
-					}
-				]
-			},
-			"gpt-6.1-terra": {
-				"cache_read": 0.05,
-				"input": 1.0,
-				"output": 5.0,
-				"tiers": [
-					{
-						"cache_read": 0.1,
-						"input": 2.0,
-						"output": 7.5,
-						"over": 272000
-					}
-				]
-			},
-			"gpt-daybreak-blue-latest": {
-				"cache_read": 0.4,
-				"input": 4.0,
-				"output": 20.0,
-				"tiers": [
-					{
-						"cache_read": 0.8,
-						"input": 8.0,
-						"output": 30.0,
-						"over": 272000
-					}
-				]
-			},
-			"gpt-daybreak-red-latest": {
-				"cache_read": 1.25,
-				"input": 12.5,
-				"output": 75.0,
-				"tiers": []
-			},
-			"gpt-image-2": {
-				"cache_read": 1.25,
-				"input": 5.0,
-				"output": 30.0,
-				"tiers": []
-			},
-			"gpt-realtime-2.1": {
-				"cache_read": 0.4,
-				"input": 4.0,
-				"output": 24.0,
-				"tiers": []
-			},
-			"o1": {
-				"cache_read": 7.5,
-				"input": 15.0,
-				"output": 60.0,
-				"tiers": []
-			},
-			"o1-pro": {
-				"cache_read": null,
-				"input": 150.0,
-				"output": 600.0,
-				"tiers": []
-			},
-			"o3": {
-				"cache_read": 0.5,
-				"input": 2.0,
-				"output": 8.0,
-				"tiers": []
-			},
-			"o3-mini": {
-				"cache_read": 0.55,
-				"input": 1.1,
-				"output": 4.4,
-				"tiers": []
-			},
-			"o3-pro": {
-				"cache_read": null,
-				"input": 20.0,
-				"output": 80.0,
-				"tiers": []
-			},
-			"o4-mini": {
-				"cache_read": 0.275,
-				"input": 1.1,
-				"output": 4.4,
-				"tiers": []
-			},
-			"text-embedding-3-large": {
-				"cache_read": null,
-				"input": 0.13,
-				"output": 0.0,
-				"tiers": []
-			},
-			"text-embedding-3-small": {
-				"cache_read": null,
-				"input": 0.02,
-				"output": 0.0,
-				"tiers": []
-			},
-			"text-embedding-ada-002": {
-				"cache_read": null,
-				"input": 0.1,
-				"output": 0.0,
-				"tiers": []
-			}
-		}
-	},
-	"source": "https://models.dev/api.json"
+  "fetchedAt": "2026-11-05",
+  "providers": {
+    "gemini": {
+      "deep-research-max-preview-04-2026": {
+        "cache_read": 0.2,
+        "context": 131072,
+        "input": 2.0,
+        "output": 12.0,
+        "tiers": [
+          {
+            "cache_read": 0.4,
+            "input": 4.0,
+            "output": 18.0,
+            "over": 200000
+          }
+        ]
+      },
+      "deep-research-preview-04-2026": {
+        "cache_read": 0.2,
+        "context": 131072,
+        "input": 2.0,
+        "output": 12.0,
+        "tiers": [
+          {
+            "cache_read": 0.4,
+            "input": 4.0,
+            "output": 18.0,
+            "over": 200000
+          }
+        ]
+      },
+      "gemini-2.5-computer-use-preview-10-2025": {
+        "cache_read": null,
+        "context": 128000,
+        "input": 1.25,
+        "output": 10.0,
+        "tiers": [
+          {
+            "cache_read": null,
+            "input": 2.5,
+            "output": 15.0,
+            "over": 200000
+          }
+        ]
+      },
+      "gemini-2.5-flash": {
+        "cache_read": 0.03,
+        "context": 1048576,
+        "input": 0.3,
+        "output": 2.5,
+        "tiers": []
+      },
+      "gemini-2.5-flash-image": {
+        "cache_read": 0.075,
+        "context": 32768,
+        "input": 0.3,
+        "output": 30.0,
+        "tiers": []
+      },
+      "gemini-2.5-flash-lite": {
+        "cache_read": 0.01,
+        "context": 1048576,
+        "input": 0.1,
+        "output": 0.4,
+        "tiers": []
+      },
+      "gemini-2.5-flash-preview-tts": {
+        "cache_read": null,
+        "context": 8192,
+        "input": 0.5,
+        "output": 10.0,
+        "tiers": []
+      },
+      "gemini-2.5-pro": {
+        "cache_read": 0.125,
+        "context": 1048576,
+        "input": 1.25,
+        "output": 10.0,
+        "tiers": [
+          {
+            "cache_read": 0.25,
+            "input": 2.5,
+            "output": 15.0,
+            "over": 200000
+          }
+        ]
+      },
+      "gemini-2.5-pro-preview-tts": {
+        "cache_read": null,
+        "context": 8192,
+        "input": 1.0,
+        "output": 20.0,
+        "tiers": []
+      },
+      "gemini-3-flash-preview": {
+        "cache_read": 0.05,
+        "context": 1048576,
+        "input": 0.5,
+        "output": 3.0,
+        "tiers": []
+      },
+      "gemini-3-pro-image": {
+        "cache_read": null,
+        "context": 65536,
+        "input": 2.0,
+        "output": 120.0,
+        "tiers": []
+      },
+      "gemini-3.1-flash-image": {
+        "cache_read": null,
+        "context": 131072,
+        "input": 0.5,
+        "output": 60.0,
+        "tiers": []
+      },
+      "gemini-3.1-flash-lite": {
+        "cache_read": 0.025,
+        "context": 1048576,
+        "input": 0.25,
+        "output": 1.5,
+        "tiers": []
+      },
+      "gemini-3.1-flash-lite-image": {
+        "cache_read": null,
+        "context": 65536,
+        "input": 0.25,
+        "output": 30.0,
+        "tiers": []
+      },
+      "gemini-3.1-flash-lite-preview": {
+        "cache_read": 0.025,
+        "context": 1048576,
+        "input": 0.25,
+        "output": 1.5,
+        "tiers": []
+      },
+      "gemini-3.1-flash-live-preview": {
+        "cache_read": null,
+        "context": 131072,
+        "input": 0.75,
+        "output": 4.5,
+        "tiers": []
+      },
+      "gemini-3.1-flash-tts-preview": {
+        "cache_read": null,
+        "context": 8192,
+        "input": 1.0,
+        "output": 20.0,
+        "tiers": []
+      },
+      "gemini-3.1-pro-preview": {
+        "cache_read": 0.2,
+        "context": 1048576,
+        "input": 2.0,
+        "output": 12.0,
+        "tiers": [
+          {
+            "cache_read": 0.4,
+            "input": 4.0,
+            "output": 18.0,
+            "over": 200000
+          }
+        ]
+      },
+      "gemini-3.1-pro-preview-customtools": {
+        "cache_read": 0.2,
+        "context": 1048576,
+        "input": 2.0,
+        "output": 12.0,
+        "tiers": [
+          {
+            "cache_read": 0.4,
+            "input": 4.0,
+            "output": 18.0,
+            "over": 200000
+          }
+        ]
+      },
+      "gemini-3.5-flash": {
+        "cache_read": 0.15,
+        "context": 1048576,
+        "input": 1.5,
+        "output": 9.0,
+        "tiers": []
+      },
+      "gemini-3.5-flash-lite": {
+        "cache_read": 0.03,
+        "context": 1048576,
+        "input": 0.3,
+        "output": 2.5,
+        "tiers": []
+      },
+      "gemini-3.5-live-translate-preview": {
+        "cache_read": null,
+        "context": 16384,
+        "input": 3.5,
+        "output": 21.0,
+        "tiers": []
+      },
+      "gemini-3.6-flash": {
+        "cache_read": 0.075,
+        "context": 1048576,
+        "input": 0.75,
+        "output": 3.75,
+        "tiers": []
+      },
+      "gemini-3.7-flash": {
+        "cache_read": 0.075,
+        "context": 1048576,
+        "input": 0.75,
+        "output": 3.75,
+        "tiers": []
+      },
+      "gemini-3.8-flash": {
+        "cache_read": 0.075,
+        "context": 1048576,
+        "input": 0.75,
+        "output": 3.75,
+        "tiers": []
+      },
+      "gemini-4-argon": {
+        "cache_read": 0.1,
+        "context": 1048576,
+        "input": 2.0,
+        "output": 10.0,
+        "tiers": []
+      },
+      "gemini-embedding-001": {
+        "cache_read": null,
+        "context": 2048,
+        "input": 0.15,
+        "output": 0.0,
+        "tiers": []
+      },
+      "gemini-embedding-2": {
+        "cache_read": null,
+        "context": 8192,
+        "input": 0.2,
+        "output": 0.0,
+        "tiers": []
+      },
+      "gemini-flash-latest": {
+        "cache_read": 0.075,
+        "context": 1048576,
+        "input": 0.75,
+        "output": 3.75,
+        "tiers": []
+      },
+      "gemini-flash-lite-latest": {
+        "cache_read": 0.03,
+        "context": 1048576,
+        "input": 0.3,
+        "output": 2.5,
+        "tiers": []
+      },
+      "gemini-omni-flash-preview": {
+        "cache_read": null,
+        "context": 131072,
+        "input": 1.5,
+        "output": 17.5,
+        "tiers": []
+      },
+      "gemini-pro-latest": {
+        "cache_read": 0.2,
+        "context": 1048576,
+        "input": 2.0,
+        "output": 12.0,
+        "tiers": [
+          {
+            "cache_read": 0.4,
+            "input": 4.0,
+            "output": 18.0,
+            "over": 200000
+          }
+        ]
+      },
+      "lyria-3-clip-preview": {
+        "cache_read": null,
+        "context": 1048576,
+        "input": 0.0,
+        "output": 0.0,
+        "tiers": []
+      },
+      "lyria-3-pro-preview": {
+        "cache_read": null,
+        "context": 1048576,
+        "input": 0.0,
+        "output": 0.0,
+        "tiers": []
+      }
+    },
+    "openai": {
+      "gpt-3.5-turbo": {
+        "cache_read": 0.0,
+        "context": 16385,
+        "input": 0.5,
+        "output": 1.5,
+        "tiers": []
+      },
+      "gpt-4": {
+        "cache_read": null,
+        "context": 8192,
+        "input": 30.0,
+        "output": 60.0,
+        "tiers": []
+      },
+      "gpt-4-turbo": {
+        "cache_read": null,
+        "context": 128000,
+        "input": 10.0,
+        "output": 30.0,
+        "tiers": []
+      },
+      "gpt-4.1": {
+        "cache_read": 0.5,
+        "context": 1047576,
+        "input": 2.0,
+        "output": 8.0,
+        "tiers": []
+      },
+      "gpt-4.1-mini": {
+        "cache_read": 0.1,
+        "context": 1047576,
+        "input": 0.4,
+        "output": 1.6,
+        "tiers": []
+      },
+      "gpt-4.1-nano": {
+        "cache_read": 0.025,
+        "context": 1047576,
+        "input": 0.1,
+        "output": 0.4,
+        "tiers": []
+      },
+      "gpt-4o": {
+        "cache_read": 1.25,
+        "context": 128000,
+        "input": 2.5,
+        "output": 10.0,
+        "tiers": []
+      },
+      "gpt-4o-2024-05-13": {
+        "cache_read": null,
+        "context": 128000,
+        "input": 5.0,
+        "output": 15.0,
+        "tiers": []
+      },
+      "gpt-4o-2024-08-06": {
+        "cache_read": 1.25,
+        "context": 128000,
+        "input": 2.5,
+        "output": 10.0,
+        "tiers": []
+      },
+      "gpt-4o-2024-11-20": {
+        "cache_read": 1.25,
+        "context": 128000,
+        "input": 2.5,
+        "output": 10.0,
+        "tiers": []
+      },
+      "gpt-4o-mini": {
+        "cache_read": 0.075,
+        "context": 128000,
+        "input": 0.15,
+        "output": 0.6,
+        "tiers": []
+      },
+      "gpt-5": {
+        "cache_read": 0.125,
+        "context": 400000,
+        "input": 1.25,
+        "output": 10.0,
+        "tiers": []
+      },
+      "gpt-5-mini": {
+        "cache_read": 0.025,
+        "context": 400000,
+        "input": 0.25,
+        "output": 2.0,
+        "tiers": []
+      },
+      "gpt-5-nano": {
+        "cache_read": 0.005,
+        "context": 400000,
+        "input": 0.05,
+        "output": 0.4,
+        "tiers": []
+      },
+      "gpt-5-pro": {
+        "cache_read": null,
+        "context": 400000,
+        "input": 15.0,
+        "output": 120.0,
+        "tiers": []
+      },
+      "gpt-5.1": {
+        "cache_read": 0.125,
+        "context": 400000,
+        "input": 1.25,
+        "output": 10.0,
+        "tiers": []
+      },
+      "gpt-5.2": {
+        "cache_read": 0.175,
+        "context": 400000,
+        "input": 1.75,
+        "output": 14.0,
+        "tiers": []
+      },
+      "gpt-5.2-pro": {
+        "cache_read": null,
+        "context": 400000,
+        "input": 21.0,
+        "output": 168.0,
+        "tiers": []
+      },
+      "gpt-5.3-codex": {
+        "cache_read": 0.175,
+        "context": 400000,
+        "input": 1.75,
+        "output": 14.0,
+        "tiers": []
+      },
+      "gpt-5.3-codex-spark": {
+        "cache_read": 0.175,
+        "context": 128000,
+        "input": 1.75,
+        "output": 14.0,
+        "tiers": []
+      },
+      "gpt-5.4": {
+        "cache_read": 0.25,
+        "context": 1050000,
+        "input": 2.5,
+        "output": 15.0,
+        "tiers": [
+          {
+            "cache_read": 0.5,
+            "input": 5.0,
+            "output": 22.5,
+            "over": 272000
+          }
+        ]
+      },
+      "gpt-5.4-mini": {
+        "cache_read": 0.075,
+        "context": 400000,
+        "input": 0.75,
+        "output": 4.5,
+        "tiers": []
+      },
+      "gpt-5.4-nano": {
+        "cache_read": 0.02,
+        "context": 400000,
+        "input": 0.2,
+        "output": 1.25,
+        "tiers": []
+      },
+      "gpt-5.4-pro": {
+        "cache_read": null,
+        "context": 1050000,
+        "input": 30.0,
+        "output": 180.0,
+        "tiers": [
+          {
+            "cache_read": null,
+            "input": 60.0,
+            "output": 270.0,
+            "over": 272000
+          }
+        ]
+      },
+      "gpt-5.5": {
+        "cache_read": 0.5,
+        "context": 1050000,
+        "input": 5.0,
+        "output": 30.0,
+        "tiers": [
+          {
+            "cache_read": 1.0,
+            "input": 10.0,
+            "output": 45.0,
+            "over": 272000
+          }
+        ]
+      },
+      "gpt-5.5-pro": {
+        "cache_read": null,
+        "context": 1050000,
+        "input": 30.0,
+        "output": 180.0,
+        "tiers": [
+          {
+            "cache_read": null,
+            "input": 60.0,
+            "output": 270.0,
+            "over": 272000
+          }
+        ]
+      },
+      "gpt-5.6": {
+        "cache_read": 0.4,
+        "context": 1050000,
+        "input": 4.0,
+        "output": 20.0,
+        "tiers": [
+          {
+            "cache_read": 0.8,
+            "input": 8.0,
+            "output": 30.0,
+            "over": 272000
+          }
+        ]
+      },
+      "gpt-5.6-luna": {
+        "cache_read": 0.02,
+        "context": 1050000,
+        "input": 0.2,
+        "output": 1.2,
+        "tiers": [
+          {
+            "cache_read": 0.04,
+            "input": 0.4,
+            "output": 1.8,
+            "over": 272000
+          }
+        ]
+      },
+      "gpt-5.6-sol": {
+        "cache_read": 0.4,
+        "context": 1050000,
+        "input": 4.0,
+        "output": 20.0,
+        "tiers": [
+          {
+            "cache_read": 0.8,
+            "input": 8.0,
+            "output": 30.0,
+            "over": 272000
+          }
+        ]
+      },
+      "gpt-5.6-terra": {
+        "cache_read": 0.2,
+        "context": 1050000,
+        "input": 2.0,
+        "output": 12.0,
+        "tiers": [
+          {
+            "cache_read": 0.4,
+            "input": 4.0,
+            "output": 18.0,
+            "over": 272000
+          }
+        ]
+      },
+      "gpt-6-astra": {
+        "cache_read": 1.0,
+        "context": 1050000,
+        "input": 10.0,
+        "output": 50.0,
+        "tiers": [
+          {
+            "cache_read": 2.0,
+            "input": 20.0,
+            "output": 75.0,
+            "over": 272000
+          }
+        ]
+      },
+      "gpt-6-luna": {
+        "cache_read": 0.01,
+        "context": 1050000,
+        "input": 0.1,
+        "output": 0.5,
+        "tiers": [
+          {
+            "cache_read": 0.02,
+            "input": 0.2,
+            "output": 0.75,
+            "over": 272000
+          }
+        ]
+      },
+      "gpt-6-sol": {
+        "cache_read": 0.2,
+        "context": 1050000,
+        "input": 2.0,
+        "output": 10.0,
+        "tiers": [
+          {
+            "cache_read": 0.4,
+            "input": 4.0,
+            "output": 15.0,
+            "over": 272000
+          }
+        ]
+      },
+      "gpt-6.1-sol": {
+        "cache_read": 0.1,
+        "context": 1050000,
+        "input": 2.0,
+        "output": 10.0,
+        "tiers": [
+          {
+            "cache_read": 0.2,
+            "input": 4.0,
+            "output": 15.0,
+            "over": 272000
+          }
+        ]
+      },
+      "gpt-6.1-terra": {
+        "cache_read": 0.05,
+        "context": 1050000,
+        "input": 1.0,
+        "output": 5.0,
+        "tiers": [
+          {
+            "cache_read": 0.1,
+            "input": 2.0,
+            "output": 7.5,
+            "over": 272000
+          }
+        ]
+      },
+      "gpt-daybreak-blue-latest": {
+        "cache_read": 0.4,
+        "context": 1050000,
+        "input": 4.0,
+        "output": 20.0,
+        "tiers": [
+          {
+            "cache_read": 0.8,
+            "input": 8.0,
+            "output": 30.0,
+            "over": 272000
+          }
+        ]
+      },
+      "gpt-daybreak-red-latest": {
+        "cache_read": 1.25,
+        "context": 400000,
+        "input": 12.5,
+        "output": 75.0,
+        "tiers": []
+      },
+      "gpt-image-2": {
+        "cache_read": 1.25,
+        "context": 0,
+        "input": 5.0,
+        "output": 30.0,
+        "tiers": []
+      },
+      "gpt-realtime-2.1": {
+        "cache_read": 0.4,
+        "context": 128000,
+        "input": 4.0,
+        "output": 24.0,
+        "tiers": []
+      },
+      "o1": {
+        "cache_read": 7.5,
+        "context": 200000,
+        "input": 15.0,
+        "output": 60.0,
+        "tiers": []
+      },
+      "o1-pro": {
+        "cache_read": null,
+        "context": 200000,
+        "input": 150.0,
+        "output": 600.0,
+        "tiers": []
+      },
+      "o3": {
+        "cache_read": 0.5,
+        "context": 200000,
+        "input": 2.0,
+        "output": 8.0,
+        "tiers": []
+      },
+      "o3-mini": {
+        "cache_read": 0.55,
+        "context": 200000,
+        "input": 1.1,
+        "output": 4.4,
+        "tiers": []
+      },
+      "o3-pro": {
+        "cache_read": null,
+        "context": 200000,
+        "input": 20.0,
+        "output": 80.0,
+        "tiers": []
+      },
+      "o4-mini": {
+        "cache_read": 0.275,
+        "context": 200000,
+        "input": 1.1,
+        "output": 4.4,
+        "tiers": []
+      },
+      "text-embedding-3-large": {
+        "cache_read": null,
+        "context": 8191,
+        "input": 0.13,
+        "output": 0.0,
+        "tiers": []
+      },
+      "text-embedding-3-small": {
+        "cache_read": null,
+        "context": 8191,
+        "input": 0.02,
+        "output": 0.0,
+        "tiers": []
+      },
+      "text-embedding-ada-002": {
+        "cache_read": null,
+        "context": 8192,
+        "input": 0.1,
+        "output": 0.0,
+        "tiers": []
+      }
+    }
+  },
+  "source": "https://models.dev/api.json"
 }
