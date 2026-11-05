@@ -233,6 +233,9 @@ pub fn build_body(req: &GenerationRequest) -> Value {
             })
             .collect();
         body["tools"] = json!(tools);
+        if req.no_tool_calls {
+            body["tool_choice"] = json!("none");
+        }
     }
     body
 }
@@ -513,7 +516,7 @@ mod tests {
     }
 
     fn request(turns: Vec<Turn>) -> GenerationRequest {
-        GenerationRequest { model: "m".into(), system: None, turns, tools: Vec::new() }
+        GenerationRequest { model: "m".into(), system: None, turns, tools: Vec::new(), no_tool_calls: false }
     }
 
     fn add_tool() -> ToolSpec {
@@ -615,6 +618,11 @@ mod tests {
         assert_eq!(b["tools"][0]["name"], "add");
         assert!(b["tools"][0]["parameters"].is_object());
         assert!(build_body(&request(vec![]))["tools"].is_null());
+        assert!(b.get("tool_choice").is_none());
+        req.no_tool_calls = true;
+        let b = build_body(&req);
+        assert_eq!(b["tool_choice"], "none");
+        assert_eq!(b["tools"][0]["name"], "add");
     }
 
     #[test]
@@ -810,6 +818,7 @@ mod tests {
                     "additionalProperties": false
                 }),
             }],
+            no_tool_calls: false,
         };
         let mut call = None;
         let mut replay = None;

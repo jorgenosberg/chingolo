@@ -195,6 +195,9 @@ pub fn build_body(req: &GenerationRequest) -> Value {
             .map(|t| json!({ "name": t.name, "description": t.description, "parametersJsonSchema": t.parameters }))
             .collect();
         body["tools"] = json!([{ "functionDeclarations": declarations }]);
+        if req.no_tool_calls {
+            body["toolConfig"] = json!({ "functionCallingConfig": { "mode": "NONE" } });
+        }
     }
     body
 }
@@ -435,7 +438,7 @@ mod tests {
     }
 
     fn request(turns: Vec<Turn>) -> GenerationRequest {
-        GenerationRequest { model: "m".into(), system: None, turns, tools: Vec::new() }
+        GenerationRequest { model: "m".into(), system: None, turns, tools: Vec::new(), no_tool_calls: false }
     }
 
     fn add_tool() -> ToolSpec {
@@ -526,6 +529,11 @@ mod tests {
         req.tools = vec![add_tool()];
         let b = build_body(&req);
         assert_eq!(b["tools"][0]["functionDeclarations"][0]["name"], "add");
+        assert!(b.get("toolConfig").is_none());
+        req.no_tool_calls = true;
+        let b = build_body(&req);
+        assert_eq!(b["toolConfig"]["functionCallingConfig"]["mode"], "NONE");
+        assert!(b["tools"][0]["functionDeclarations"][0].is_object());
         assert!(b["tools"][0]["functionDeclarations"][0].get("parametersJsonSchema").is_some());
         assert_eq!(b["contents"][1]["parts"], signed, "model turn replayed as received");
         // The call comes before its response, and a plain value is wrapped in an object.
@@ -668,6 +676,7 @@ mod tests {
                     "required": ["a", "b"]
                 }),
             }],
+            no_tool_calls: false,
         };
         let mut call = None;
         let mut replay = None;

@@ -70,6 +70,8 @@ pub struct GenerationRequest {
     pub turns: Vec<Turn>,
     /// Empty means no tools are sent.
     pub tools: Vec<ToolSpec>,
+    /// Keep `tools` declared (the history has calls) but forbid the model from calling any.
+    pub no_tool_calls: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
