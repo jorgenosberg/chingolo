@@ -88,6 +88,9 @@ pub struct Document {
     /// Why the document failed, or a note such as how many pages could not be read.
     pub error: Option<String>,
     pub passage_count: u32,
+    /// Passages that have a vector for meaning search. Stale vectors are purged when the
+    /// model changes, so this counts the current ones.
+    pub embedded_count: u32,
     /// Projects this document is attached to.
     pub project_ids: Vec<Id>,
     #[specta(type = Number)]

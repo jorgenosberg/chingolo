@@ -11,7 +11,8 @@ use crate::error::{AppError, Result};
 const DOC_COLS: &str = "id, content_hash, original_name, kind, title, authors, year, doi, page_count,
     status, error, created_at, updated_at,
     (SELECT count(*) FROM passages p WHERE p.document_id = documents.id),
-    (SELECT json_group_array(project_id) FROM project_documents pd WHERE pd.document_id = documents.id)";
+    (SELECT json_group_array(project_id) FROM project_documents pd WHERE pd.document_id = documents.id),
+    (SELECT count(*) FROM passage_vectors v JOIN passages p ON p.id = v.passage_id WHERE p.document_id = documents.id)";
 
 fn document_from_row(r: &Row) -> rusqlite::Result<Document> {
     let kind: String = r.get(3)?;
@@ -34,6 +35,7 @@ fn document_from_row(r: &Row) -> rusqlite::Result<Document> {
         updated_at: r.get(12)?,
         passage_count: r.get(13)?,
         project_ids: serde_json::from_str(&project_ids).unwrap_or_default(),
+        embedded_count: r.get(15)?,
     })
 }
 

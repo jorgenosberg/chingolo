@@ -5,6 +5,7 @@ pub mod chat;
 pub mod library;
 pub mod projects;
 pub mod settings;
+pub mod vectors;
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -19,6 +20,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../migrations/0002_cached_tokens.sql"),
     include_str!("../../migrations/0003_fork_marker.sql"),
     include_str!("../../migrations/0004_library.sql"),
+    include_str!("../../migrations/0005_embeddings.sql"),
 ];
 
 #[derive(Clone)]

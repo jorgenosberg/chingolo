@@ -140,6 +140,11 @@ export type Document = {
 	/**  Why the document failed, or a note such as how many pages could not be read. */
 	error: string | null,
 	passageCount: number,
+	/**
+	 *  Passages that have a vector for meaning search. Stale vectors are purged when the
+	 *  model changes, so this counts the current ones.
+	 */
+	embeddedCount: number,
 	/**  Projects this document is attached to. */
 	projectIds: string[],
 	createdAt: number,
