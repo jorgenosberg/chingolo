@@ -96,6 +96,10 @@ export const api = {
 	getPassage: (passageId: string) => unwrap(commands.getPassage(passageId)),
 	searchLibrary: (query: string, projectId: string | null) =>
 		unwrap(commands.searchLibrary(query, projectId, 30)),
+
+	embeddingStatus: () => commands.embeddingStatus(),
+	downloadEmbeddingModel: () => unwrap(commands.downloadEmbeddingModel()),
+	setEmbeddingPaused: (paused: boolean) => commands.setEmbeddingPaused(paused),
 };
 
 export function sendMessageRaw(

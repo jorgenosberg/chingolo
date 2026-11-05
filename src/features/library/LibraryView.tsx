@@ -20,6 +20,7 @@ import { api } from "../../lib/api";
 import type { DocStatus, Document, ImportSummary } from "../../lib/bindings";
 import {
 	setImportSummary,
+	useEmbeddingStatus,
 	useImportSummary,
 	useProgress,
 } from "../../lib/library";
@@ -29,6 +30,7 @@ import {
 	useLibrarySearch,
 	useProjects,
 } from "../../lib/queries";
+import { EmbeddingNotice } from "./EmbeddingNotice";
 import { MetadataDialog } from "./MetadataDialog";
 import { ProjectsDialog } from "./ProjectsDialog";
 
@@ -136,6 +138,11 @@ function DocumentRow({
 	onOpen?: () => void;
 }) {
 	const progress = useProgress(doc.id);
+	const embedding = useEmbeddingStatus();
+	const indexing =
+		doc.status === "ready" &&
+		embedding?.model.kind === "ready" &&
+		doc.embeddedCount < doc.passageCount;
 	const pct = progress?.total ? (progress.done / progress.total) * 100 : 0;
 	const byline = [
 		doc.authors.length > 2
@@ -170,6 +177,12 @@ function DocumentRow({
 				</div>
 				{byline && (
 					<p className="truncate text-xs text-muted-foreground">{byline}</p>
+				)}
+				{indexing && (
+					<p className="text-xs text-muted-foreground">
+						Indexing for meaning search: {doc.embeddedCount} of{" "}
+						{doc.passageCount}
+					</p>
 				)}
 				{doc.status === "processing" && (
 					<div className="mt-1.5 flex items-center gap-2">
@@ -440,6 +453,7 @@ export function LibraryView() {
 			</div>
 
 			{summary && <SummaryBanner summary={summary} scopeName={scopeName} />}
+			<EmbeddingNotice />
 
 			<div className="min-h-0 flex-1 overflow-y-auto">
 				{docs.isPending && (
@@ -530,6 +544,11 @@ export function LibraryView() {
 													? `Page ${h.pageStart}`
 													: `Pages ${h.pageStart} to ${h.pageEnd}`}
 											</span>
+											{h.matchedBy === "meaning" && (
+												<span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-[11px] font-normal text-muted-foreground">
+													Related by meaning
+												</span>
+											)}
 										</p>
 										<p className="mt-0.5 line-clamp-3 text-xs text-muted-foreground">
 											{h.text}

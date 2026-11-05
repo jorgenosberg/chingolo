@@ -1,7 +1,10 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { useEffect, useSyncExternalStore } from "react";
+import { api } from "./api";
 import {
+	type DocStatus,
 	type Document,
+	type EmbeddingStatus,
 	events,
 	type ImportSummary,
 	type Progress,
@@ -10,15 +13,22 @@ import { keys } from "./queries";
 
 /**
  * Live import state that doesn't belong in the query cache: page progress, the drop
- * highlight and the last import summary. Lives outside React like `streams.ts`.
+ * highlight, the last import summary and the search model's state. Lives outside React
+ * like `streams.ts`.
  */
 type State = {
 	progress: ReadonlyMap<string, Progress>;
 	dropActive: boolean;
 	summary: ImportSummary | null;
+	embedding: EmbeddingStatus | null;
 };
 
-let state: State = { progress: new Map(), dropActive: false, summary: null };
+let state: State = {
+	progress: new Map(),
+	dropActive: false,
+	summary: null,
+	embedding: null,
+};
 const listeners = new Set<() => void>();
 
 function set(patch: Partial<State>) {
@@ -39,6 +49,8 @@ export const useProgress = (id: string) =>
 	useStore((s) => s.progress.get(id) ?? null);
 export const useDropActive = () => useStore((s) => s.dropActive);
 export const useImportSummary = () => useStore((s) => s.summary);
+export const useEmbeddingStatus = () => useStore((s) => s.embedding);
+export const setEmbedding = (embedding: EmbeddingStatus) => set({ embedding });
 export const setImportSummary = (summary: ImportSummary | null) =>
 	set({ summary });
 
@@ -62,6 +74,23 @@ function patchLists(qc: QueryClient, doc: Document) {
 	if (!found) qc.invalidateQueries({ queryKey: keys.documents });
 }
 
+const lastStatus = new Map<string, DocStatus>();
+
+/** Search results change when the model becomes ready and when indexing finishes. */
+function embeddingFinishedSomething(
+	before: EmbeddingStatus | null,
+	after: EmbeddingStatus,
+) {
+	if (!before) return false;
+	const becameReady =
+		before.model.kind !== "ready" && after.model.kind === "ready";
+	const allIndexed =
+		before.indexed < before.total &&
+		after.total > 0 &&
+		after.indexed === after.total;
+	return becameReady || allIndexed;
+}
+
 /** Listens for library events for the life of the component. Mount once. */
 export function useLibraryEvents(qc: QueryClient, onSummary: () => void) {
 	useEffect(() => {
@@ -78,9 +107,21 @@ export function useLibraryEvents(qc: QueryClient, onSummary: () => void) {
 					document.id,
 					document.status === "processing" ? progress : null,
 				);
-				if (document.status === "ready") {
+				// The embedding worker sends ready documents again as vectors arrive.
+				// Only a change to ready makes new text searchable.
+				const before = lastStatus.get(document.id);
+				lastStatus.set(document.id, document.status);
+				if (document.status === "ready" && before !== "ready") {
 					qc.invalidateQueries({ queryKey: ["library-search"] });
 				}
+			}),
+		);
+		keep(
+			events.embeddingStatus.listen(({ payload }) => {
+				if (embeddingFinishedSomething(state.embedding, payload)) {
+					qc.invalidateQueries({ queryKey: ["library-search"] });
+				}
+				set({ embedding: payload });
 			}),
 		);
 		keep(
@@ -96,6 +137,11 @@ export function useLibraryEvents(qc: QueryClient, onSummary: () => void) {
 				set({ dropActive: payload.active }),
 			),
 		);
+
+		// Events may have arrived first, and they are newer.
+		api.embeddingStatus().then((s) => {
+			if (!disposed && !state.embedding) set({ embedding: s });
+		});
 
 		return () => {
 			disposed = true;

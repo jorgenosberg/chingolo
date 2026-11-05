@@ -12,8 +12,10 @@ import {
 	TextInput,
 } from "../../components/ui";
 import { api } from "../../lib/api";
+import { useEmbeddingStatus } from "../../lib/library";
 import { keys, useModels, useSettings } from "../../lib/queries";
 import { setTheme, type ThemePref, useTheme } from "../../lib/theme";
+import { mb } from "../library/EmbeddingNotice";
 
 const THEMES: { id: ThemePref; label: string }[] = [
 	{ id: "system", label: "System" },
@@ -33,6 +35,54 @@ function Section({
 			<h3 className="text-[13px] font-semibold">{title}</h3>
 			{children}
 		</section>
+	);
+}
+
+/** State of the local model behind meaning search, with the download button. */
+function SearchModel() {
+	const status = useEmbeddingStatus();
+	const [error, setError] = useState<string | null>(null);
+	if (!status) return null;
+	const { model, indexed, total } = status;
+	const download = () => {
+		setError(null);
+		api.downloadEmbeddingModel().catch((e) => setError(String(e.message ?? e)));
+	};
+
+	if (model.kind === "ready") {
+		return (
+			<p className="text-sm text-muted-foreground">
+				Ready. {indexed.toLocaleString()} of {total.toLocaleString()} passages
+				are indexed for meaning search.
+			</p>
+		);
+	}
+	if (model.kind === "downloading") {
+		return (
+			<p className="text-sm text-muted-foreground">
+				Downloading: {mb(model.done)} of {mb(model.total)}.
+			</p>
+		);
+	}
+	return (
+		<div className="flex items-start justify-between gap-3">
+			<div className="text-sm text-muted-foreground">
+				{model.kind === "failed" ? (
+					<p role="alert" className="text-problem">
+						{model.message}
+					</p>
+				) : (
+					<p>
+						Not downloaded. Meaning search needs a one-time download of about
+						200 MB from Hugging Face. Keyword search works without it.
+					</p>
+				)}
+				{error && <p className="text-problem">{error}</p>}
+			</div>
+			<Button className="shrink-0" onPress={download}>
+				{model.kind === "failed" ? "Try again" : "Download"}
+			</Button>
+		</div>
 	);
 }
 
@@ -173,6 +223,10 @@ export function SettingsDialog({
 				)}
 			</Section>
 
+			<Section title="Search model">
+				<SearchModel />
+			</Section>
+
 			<Section title="Appearance">
 				<RadioGroup
 					aria-label="Theme"
@@ -200,8 +254,9 @@ export function SettingsDialog({
 			<Section title="Privacy">
 				<p className="text-sm leading-relaxed text-muted-foreground">
 					Projects and chats are stored on this Mac. Messages you send go to
-					Google's Gemini service with your own API key. Nothing else is sent
-					anywhere.
+					Google's Gemini service with your own API key. The only other network
+					use is the one-time search model download from Hugging Face, and only
+					if you agree. Your documents are never sent for it.
 				</p>
 			</Section>
 

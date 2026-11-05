@@ -32,6 +32,11 @@ export function PrivacyNotice({
 					It is kept in the macOS Keychain, not in a file.
 				</li>
 				<li>
+					<strong className="font-medium text-foreground">One download.</strong>{" "}
+					Meaning search uses a 200 MB model that Chingui downloads once from
+					Hugging Face, after you agree. Your documents are not sent for it.
+				</li>
+				<li>
 					<strong className="font-medium text-foreground">No tracking.</strong>{" "}
 					Chingui doesn't send usage data or your text anywhere else.
 				</li>
