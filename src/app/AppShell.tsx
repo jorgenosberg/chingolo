@@ -189,7 +189,11 @@ export function AppShell() {
 									</div>
 								}
 							>
-								<ReaderView />
+								<ReaderView
+									target={nav.reader}
+									onBack={nav.closeReader}
+									backLabel="Library"
+								/>
 							</Suspense>
 						) : nav.view === "library" ? (
 							<LibraryView />
@@ -211,9 +215,26 @@ export function AppShell() {
 					collapsedSize="0px"
 					defaultSize="300px"
 					minSize="240px"
-					maxSize="560px"
+					maxSize="75%"
 				>
-					<ContextPane />
+					{nav.citation ? (
+						<Suspense
+							fallback={
+								<div className="flex h-full items-center justify-center">
+									<Spinner />
+								</div>
+							}
+						>
+							<ReaderView
+								target={nav.citation}
+								onBack={nav.closeCitation}
+								backLabel="Close"
+								compact
+							/>
+						</Suspense>
+					) : (
+						<ContextPane />
+					)}
 				</Panel>
 			</Group>
 			<DropOverlay

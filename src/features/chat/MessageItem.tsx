@@ -3,9 +3,16 @@ import { memo, useState } from "react";
 import { Streamdown } from "streamdown";
 import { CheckIcon, CopyIcon, ForkIcon } from "../../components/icons";
 import { IconButton } from "../../components/ui";
-import type { Message } from "../../lib/bindings";
+import type { Citation, Message } from "../../lib/bindings";
+import {
+	CiteProvider,
+	citeComponents,
+	citePlugins,
+	citeTags,
+} from "./citations";
 
 const plugins = { math };
+const NO_CITATIONS: Citation[] = [];
 
 export const MessageItem = memo(function MessageItem({
 	message,
@@ -52,9 +59,17 @@ export const MessageItem = memo(function MessageItem({
 		<div className="group flex flex-col gap-1.5">
 			{text ? (
 				<div className="selectable chat-prose">
-					<Streamdown plugins={plugins} isAnimating={streaming}>
-						{text}
-					</Streamdown>
+					<CiteProvider citations={message.citations ?? NO_CITATIONS}>
+						<Streamdown
+							plugins={plugins}
+							remarkPlugins={citePlugins}
+							components={citeComponents}
+							allowedTags={citeTags}
+							isAnimating={streaming}
+						>
+							{text}
+						</Streamdown>
+					</CiteProvider>
 				</div>
 			) : streaming ? (
 				<p className="text-sm text-muted-foreground" aria-live="polite">

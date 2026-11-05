@@ -27,7 +27,14 @@ export type ReaderTarget = {
 	passageId: string | null;
 };
 
+/** Width the split reader opens at when a citation is clicked. */
+const CITATION_PANE_PX = 560;
+
 type Nav = {
+	/** A cited source, open beside the chat in the right pane. */
+	citation: ReaderTarget | null;
+	openCitation: (target: ReaderTarget) => void;
+	closeCitation: () => void;
 	reader: ReaderTarget | null;
 	/** Opens a document in the main pane. `closeReader` goes back to where it came from. */
 	openReader: (target: ReaderTarget) => void;
@@ -75,6 +82,7 @@ export function NavProvider({ children }: { children: ReactNode }) {
 	const [view, setView] = useState<View>("chat");
 	const [libraryScope, setLibraryScope] = useState<string | null>(null);
 	const [reader, setReader] = useState<ReaderTarget | null>(null);
+	const [citation, setCitation] = useState<ReaderTarget | null>(null);
 	const contextPanel = usePanelRef();
 
 	const returnView = useRef<View>("library");
@@ -106,6 +114,7 @@ export function NavProvider({ children }: { children: ReactNode }) {
 
 	const select = useCallback((id: string | null) => {
 		setConversationId(id);
+		setCitation(null);
 		setView("chat");
 		try {
 			if (id) localStorage.setItem(STORAGE_KEY, id);
@@ -127,6 +136,19 @@ export function NavProvider({ children }: { children: ReactNode }) {
 		[qc, select],
 	);
 
+	const openCitation = useCallback(
+		(target: ReaderTarget) => {
+			setCitation(target);
+			const p = contextPanel.current;
+			if (!p) return;
+			if (p.isCollapsed()) p.expand();
+			if (p.getSize().inPixels < CITATION_PANE_PX)
+				p.resize(`${CITATION_PANE_PX}px`);
+		},
+		[contextPanel],
+	);
+	const closeCitation = useCallback(() => setCitation(null), []);
+
 	const toggleContext = useCallback(() => {
 		const p = contextPanel.current;
 		if (!p) return;
@@ -136,6 +158,9 @@ export function NavProvider({ children }: { children: ReactNode }) {
 
 	const value = useMemo<Nav>(
 		() => ({
+			citation,
+			openCitation,
+			closeCitation,
 			reader,
 			openReader,
 			closeReader,
@@ -152,6 +177,9 @@ export function NavProvider({ children }: { children: ReactNode }) {
 			toggleContext,
 		}),
 		[
+			citation,
+			openCitation,
+			closeCitation,
 			reader,
 			openReader,
 			closeReader,

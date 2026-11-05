@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from "react";
-import { useNav } from "../../app/nav";
+import type { ReaderTarget } from "../../app/nav";
 import { ChevronIcon } from "../../components/icons";
 import { Button, Spinner } from "../../components/ui";
 import { useDocuments, usePassage } from "../../lib/queries";
@@ -7,9 +7,21 @@ import { type Highlight, PdfReader } from "./PdfReader";
 
 const NO_BOXES: Highlight["boxes"] = [];
 
-/** A document in the main pane, opened from the library. */
-export default function ReaderView() {
-	const { reader, closeReader } = useNav();
+/**
+ * A document with an optional passage highlighted. Fills the main pane when opened from the
+ * library, or the right pane (`compact`) when opened from a citation.
+ */
+export default function ReaderView({
+	target: reader,
+	onBack: closeReader,
+	backLabel,
+	compact = false,
+}: {
+	target: ReaderTarget | null;
+	onBack: () => void;
+	backLabel: string;
+	compact?: boolean;
+}) {
 	const docs = useDocuments(null);
 	const passage = usePassage(reader?.passageId ?? null);
 
@@ -35,10 +47,11 @@ export default function ReaderView() {
 		<div className="flex h-full flex-col">
 			<header
 				data-tauri-drag-region
-				className="flex h-12 shrink-0 items-center gap-3 px-6"
+				className={`flex h-12 shrink-0 items-center gap-3 ${compact ? "px-4" : "px-6"}`}
 			>
 				<Button variant="ghost" className="-ml-2 px-2" onPress={closeReader}>
-					<ChevronIcon className="size-3.5 rotate-180" /> Library
+					{!compact && <ChevronIcon className="size-3.5 rotate-180" />}
+					{backLabel}
 				</Button>
 				<h1 className="min-w-0 truncate text-[15px] font-semibold">
 					{doc ? doc.title || doc.originalName : ""}
