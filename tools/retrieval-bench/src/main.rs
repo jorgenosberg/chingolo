@@ -3,8 +3,14 @@
 //! Env: CHINGUI_BENCH_DIR  folder holding bench.json (the question set, next to the test papers)
 //!      CHINGUI_BENCH_WORK scratch folder with spike-out/ (from `cargo run --example pdf_spike`),
 //!                         models/ (model cache, models/granite97 for Granite) and bench-out/
-//! Usage: retrieval-bench <bm25|e5s|e5b|gemma|gemma4|granite|hybrid:<model>> [out_dir]
+//! Usage: retrieval-bench <bm25|e5s|e5b|gemma|gemma4|granite|hybrid:<model>|app> [out_dir]
 //! Dense runs save rankings, so run `bm25` and the model before `hybrid:<model>`.
+//!
+//! `app` measures what the app built: passages and stored vectors come from its own database
+//! (CHINGUI_BENCH_DB=<path to chingui.sqlite>, read only), so the real segmenter is used.
+//! Queries are embedded with the same model. It reports BM25, vectors and hybrid. The papers
+//! must have been imported and fully indexed in the app, and the file names must match the
+//! ones in bench.json. CHINGUI_BENCH_WORK still names the model cache and output folder.
 
 use std::collections::HashSet;
 use std::fs;
@@ -26,7 +32,11 @@ const PASSAGE_CHARS: usize = 1200;
 struct Passage {
     file: String,
     page: u64,
+    /// Last page of the passage (the same as `page` for the spike output).
+    page_end: u64,
     text: String,
+    /// Stored vector, only for passages read from the app database.
+    vec: Option<Vec<f32>>,
 }
 
 fn load_passages() -> Vec<Passage> {
@@ -53,15 +63,43 @@ fn load_passages() -> Vec<Passage> {
                 }
                 cur.push_str(l["text"].as_str().unwrap());
                 if cur.len() >= PASSAGE_CHARS {
-                    out.push(Passage { file: file.clone(), page, text: std::mem::take(&mut cur) });
+                    out.push(Passage { file: file.clone(), page, page_end: page, text: std::mem::take(&mut cur), vec: None });
                 }
             }
             if cur.trim().len() >= 40 {
-                out.push(Passage { file: file.clone(), page, text: cur });
+                out.push(Passage { file: file.clone(), page, page_end: page, text: cur, vec: None });
             }
         }
     }
     out
+}
+
+/// Passages of ready documents from the app database, in reading order, with their vectors.
+fn load_passages_db() -> Vec<Passage> {
+    let path = std::env::var("CHINGUI_BENCH_DB").expect("set CHINGUI_BENCH_DB");
+    let conn = rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+    let mut st = conn
+        .prepare(
+            "SELECT d.original_name, p.page_start, p.page_end, p.text, v.vec
+               FROM passages p
+               JOIN documents d ON d.id = p.document_id AND d.status = 'ready'
+               LEFT JOIN passage_vectors v ON v.passage_id = p.id
+              ORDER BY d.created_at, d.id, p.ordinal",
+        )
+        .unwrap();
+    st.query_map([], |r| {
+        let blob: Option<Vec<u8>> = r.get(4)?;
+        Ok(Passage {
+            file: r.get(0)?,
+            page: r.get::<_, i64>(1)? as u64,
+            page_end: r.get::<_, i64>(2)? as u64,
+            text: r.get(3)?,
+            vec: blob.map(|b| b.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect()),
+        })
+    })
+    .unwrap()
+    .map(|x| x.unwrap())
+    .collect()
 }
 
 type Ranking = Vec<(usize, f32)>;
@@ -125,9 +163,12 @@ fn embedder(name: &str) -> (TextEmbedding, &'static str, &'static str) {
 /// Reciprocal rank fusion of the saved BM25 and dense rankings.
 fn hybrid(out_dir: &str, dense_name: &str) -> Vec<Ranking> {
     let load = |n: &str| -> Vec<Ranking> { serde_json::from_slice(&fs::read(format!("{out_dir}/{n}.rank.json")).unwrap()).unwrap() };
-    let (a, b) = (load("bm25"), load(dense_name));
+    fuse(&load("bm25"), &load(dense_name))
+}
+
+fn fuse(a: &[Ranking], b: &[Ranking]) -> Vec<Ranking> {
     a.iter()
-        .zip(&b)
+        .zip(b)
         .map(|(x, y)| {
             let mut s: std::collections::HashMap<usize, f32> = Default::default();
             for r in [x, y] {
@@ -182,13 +223,18 @@ fn main() {
     let out_dir = args.next().unwrap_or_else(|| format!("{base}/bench-out"));
     fs::create_dir_all(&out_dir).unwrap();
 
-    let passages = load_passages();
     let bench: Value = serde_json::from_slice(&fs::read(&bench_path).unwrap()).unwrap();
     let qs = bench["questions"].as_array().unwrap();
     let queries: Vec<String> = qs.iter().map(|q| q["question"].as_str().unwrap().to_string()).collect();
+
+    if name == "app" {
+        return run_app(qs, &queries, &out_dir);
+    }
+
+    let passages = load_passages();
     println!("{name}: {} passages, {} questions", passages.len(), qs.len());
 
-    let (mut rankings, dim, secs) = if name == "bm25" {
+    let (rankings, dim, secs) = if name == "bm25" {
         (bm25(&passages, &queries), 0, 0.0)
     } else if let Some(m) = name.strip_prefix("hybrid:") {
         (hybrid(&out_dir, m), 0, 0.0)
@@ -198,6 +244,55 @@ fn main() {
     if !name.starts_with("hybrid:") {
         fs::write(format!("{out_dir}/{name}.rank.json"), serde_json::to_vec(&rankings).unwrap()).unwrap();
     }
+    let timing = (name != "bm25" && !name.starts_with("hybrid:")).then_some((dim, secs));
+    report(&name, &passages, qs, rankings, &out_dir, timing);
+}
+
+/// BM25, stored vectors and their fusion over the passages the app built.
+fn run_app(qs: &[Value], queries: &[String], out_dir: &str) {
+    let passages = load_passages_db();
+    let embedded = passages.iter().filter(|p| p.vec.is_some()).count();
+    println!("app: {} passages ({embedded} with a vector), {} questions", passages.len(), qs.len());
+    assert!(embedded > 0, "no vectors in the database: let the app finish indexing first");
+    if embedded < passages.len() {
+        println!("  warning: {} passages have no vector yet, the vector ranking ignores them", passages.len() - embedded);
+    }
+
+    let (mut model, qp, _) = embedder("gemma4");
+    let qs_text: Vec<String> = queries.iter().map(|q| format!("{qp}{q}")).collect();
+    let qvecs: Vec<Vec<f32>> = model.embed(&qs_text, Some(32)).unwrap().into_iter().map(normalize).collect();
+    let vector: Vec<Ranking> = qvecs
+        .iter()
+        .map(|q| {
+            let mut s: Vec<(usize, f32)> = passages
+                .iter()
+                .enumerate()
+                .filter_map(|(i, p)| p.vec.as_ref().map(|d| (i, d.iter().zip(q).map(|(a, b)| a * b).sum())))
+                .collect();
+            s.sort_by(|a, b| b.1.total_cmp(&a.1));
+            s.truncate(50);
+            s
+        })
+        .collect();
+    let keyword = bm25(&passages, queries);
+    let both = fuse(&keyword, &vector);
+
+    for (label, rankings) in [("app-bm25", keyword), ("app-vector", vector), ("app-hybrid", both)] {
+        println!("{label}");
+        report(label, &passages, qs, rankings, out_dir, None);
+    }
+}
+
+/// Prints the metrics for one ranking per question and saves each question's top 10.
+fn report(
+    name: &str,
+    passages: &[Passage],
+    qs: &[Value],
+    rankings: Vec<Ranking>,
+    out_dir: &str,
+    timing: Option<(usize, f32)>,
+) {
+    let mut rankings = rankings;
     rankings.iter_mut().for_each(|r| r.truncate(20));
 
     // type -> (n, hit1, hit5, hit10, rr_sum)
@@ -219,7 +314,7 @@ fn main() {
             let ok = |i: usize| {
                 let p = &passages[i];
                 exp.iter().any(|e| {
-                    e["file"] == p.file.as_str() && e["pages"].as_array().unwrap().iter().any(|n| n.as_u64() == Some(p.page))
+                    e["file"] == p.file.as_str() && e["pages"].as_array().unwrap().iter().any(|n| n.as_u64().is_some_and(|n| (p.page..=p.page_end).contains(&n)))
                 }) || also.contains(&p.file.as_str())
             };
             let rank = r.iter().position(|(i, _)| ok(*i));
@@ -260,7 +355,7 @@ fn main() {
             println!("  none {}: top-1 {:.3} -> {} p{}", q["id"].as_str().unwrap(), s, &passages[i].file[..passages[i].file.len().min(30)], passages[i].page);
         }
     }
-    if name != "bm25" {
+    if let Some((dim, secs)) = timing {
         println!("  dim {dim}, embedded {} passages in {secs:.0}s ({:.1}/s)", passages.len(), passages.len() as f32 / secs);
     }
     fs::write(format!("{out_dir}/{name}.json"), serde_json::to_vec_pretty(&per_q).unwrap()).unwrap();

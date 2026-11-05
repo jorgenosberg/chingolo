@@ -474,4 +474,98 @@ mod tests {
             (s.indexed, s.total) == (0, 0)
         });
     }
+
+    /// Imports a folder of papers through the real import worker, embeds them with the real
+    /// model, and prints the timings. `CHINGUI_KEEP_DB` keeps the database for
+    /// `tools/retrieval-bench app`.
+    /// Run: CHINGUI_TEST_PAPERS=<folder> CHINGUI_EMBED_MODEL_DIR=<model folder> \
+    ///      CHINGUI_KEEP_DB=<file> cargo test corpus_embed -- --ignored --nocapture
+    #[tokio::test]
+    #[ignore]
+    async fn corpus_embed() {
+        use crate::services::ingestion::import::import_paths;
+        use crate::services::ingestion::queue::Ingestor;
+        use std::time::Instant;
+
+        let papers = std::path::PathBuf::from(std::env::var("CHINGUI_TEST_PAPERS").expect("set CHINGUI_TEST_PAPERS"));
+        let model_dir = std::path::PathBuf::from(std::env::var("CHINGUI_EMBED_MODEL_DIR").expect("set CHINGUI_EMBED_MODEL_DIR"));
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = match std::env::var("CHINGUI_KEEP_DB") {
+            Ok(p) => {
+                let p = std::path::PathBuf::from(p);
+                for ext in ["", "-wal", "-shm"] {
+                    let _ = std::fs::remove_file(format!("{}{ext}", p.display()));
+                }
+                p
+            }
+            Err(_) => tmp.path().join("t.sqlite"),
+        };
+        let db = Db::open(&db_path).unwrap();
+        let docs_changed = Arc::new(AtomicUsize::new(0));
+        let counter = docs_changed.clone();
+        let embedder = Embedder::start_with(
+            &db_path,
+            model_dir,
+            true,
+            gemma_loader(),
+            Arc::new(|_| {}),
+            Arc::new(move |_| {
+                counter.fetch_add(1, Ordering::SeqCst);
+            }),
+        )
+        .unwrap();
+        let wake = embedder.clone();
+        let ingest = Ingestor::start(
+            &db_path,
+            tmp.path().join("library"),
+            Arc::new(move |e| {
+                if e.document.status == DocStatus::Ready {
+                    wake.wake();
+                }
+            }),
+        )
+        .unwrap();
+
+        let t = Instant::now();
+        import_paths(&db, &ingest, vec![papers], None).await.unwrap();
+        loop {
+            let docs = db.call(|c| repo::list_documents(c, None)).await.unwrap();
+            if docs.iter().all(|d| !matches!(d.status, DocStatus::Queued | DocStatus::Processing)) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        println!("all documents read after {:.1}s, keyword search can be used from here", t.elapsed().as_secs_f32());
+        embedder.wake();
+        let started = Instant::now();
+        let mut last = 0;
+        loop {
+            let st = embedder.status();
+            assert!(!matches!(st.model, ModelState::Failed { .. }), "{:?}", st.model);
+            if st.indexed != last {
+                last = st.indexed;
+                if last % 200 < 8 {
+                    println!("  indexed {} of {} ({:.0}s)", st.indexed, st.total, started.elapsed().as_secs_f32());
+                }
+            }
+            if st.total > 0 && st.indexed == st.total {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+        let secs = started.elapsed().as_secs_f32();
+        let st = embedder.status();
+        println!("embedded {} passages in {secs:.0}s ({:.1}/s)", st.total, st.total as f32 / secs);
+
+        // keyword search worked before and after; a quick meaning query for the record
+        let q = embedder.embed_query("why do some marine algae produce toxins").unwrap().unwrap();
+        let hits = db
+            .call(move |c| crate::services::retrieval::hybrid_search(c, "why do some marine algae produce toxins", &q, None, 5))
+            .await
+            .unwrap();
+        for h in &hits {
+            println!("  {:?} {} p{}", h.matched_by, h.document_title.chars().take(40).collect::<String>(), h.page_start);
+        }
+        db.call(|c| Ok(c.pragma_update(None, "wal_checkpoint", "TRUNCATE")?)).await.ok();
+    }
 }
