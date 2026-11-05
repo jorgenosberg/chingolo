@@ -11,6 +11,7 @@ import {
 	ChatIcon,
 	ChevronIcon,
 	FolderIcon,
+	LibraryIcon,
 	PlusIcon,
 	SearchIcon,
 	SettingsIcon,
@@ -23,6 +24,7 @@ import {
 	useChapters,
 	useConversationSearch,
 	useConversations,
+	useDocuments,
 	useProjects,
 } from "../../lib/queries";
 import { useConversationFlows } from "../chat/flows";
@@ -35,7 +37,9 @@ function Row({
 	label,
 	menu,
 	expanded,
+	shortcut,
 }: {
+	shortcut?: string;
 	depth?: number;
 	selected?: boolean;
 	onPress: () => void;
@@ -60,6 +64,7 @@ function Row({
 			>
 				<span className="shrink-0 text-muted-foreground">{icon}</span>
 				<span className="truncate">{label}</span>
+				{shortcut && <Kbd keys={shortcut} className="ml-auto" />}
 			</RacButton>
 			{menu && (
 				<div className="absolute right-1 top-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 has-[[data-pressed]]:opacity-100">
@@ -348,7 +353,8 @@ function ProjectItem({
 }
 
 export function Sidebar() {
-	const { newChat, openSettings } = useNav();
+	const { newChat, openSettings, view, openLibrary } = useNav();
+	const documents = useDocuments(null);
 	const { prompt } = useDialogs();
 	const qc = useQueryClient();
 	const projects = useProjects();
@@ -431,6 +437,19 @@ export function Sidebar() {
 					</>
 				) : (
 					<>
+						<div className="pt-2">
+							<Row
+								icon={<LibraryIcon className="size-3.5" />}
+								label={
+									documents.data?.length
+										? `Library (${documents.data.length})`
+										: "Library"
+								}
+								selected={view === "library"}
+								onPress={() => openLibrary()}
+								shortcut={SHORTCUTS.library}
+							/>
+						</div>
 						<SectionHeader
 							title="Projects"
 							onAdd={addProject}

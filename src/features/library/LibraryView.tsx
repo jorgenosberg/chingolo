@@ -1,0 +1,562 @@
+import { useQueryClient } from "@tanstack/react-query";
+import { useDeferredValue, useMemo, useState } from "react";
+import {
+	ListBox,
+	ListBoxItem,
+	Menu,
+	MenuItem,
+	MenuTrigger,
+	Popover,
+	Button as RacButton,
+	Select,
+	SelectValue,
+} from "react-aria-components";
+import { useNav } from "../../app/nav";
+import { type Action, ActionMenu } from "../../components/ActionMenu";
+import { useDialogs } from "../../components/dialogs";
+import { ChevronIcon, PlusIcon, SearchIcon } from "../../components/icons";
+import { Button, cx, focus, Spinner } from "../../components/ui";
+import { api } from "../../lib/api";
+import type { DocStatus, Document, ImportSummary } from "../../lib/bindings";
+import {
+	setImportSummary,
+	useImportSummary,
+	useProgress,
+} from "../../lib/library";
+import {
+	keys,
+	useDocuments,
+	useLibrarySearch,
+	useProjects,
+} from "../../lib/queries";
+import { MetadataDialog } from "./MetadataDialog";
+import { ProjectsDialog } from "./ProjectsDialog";
+
+const ALL = "__all__";
+
+const STATUS_LABEL: Record<DocStatus, string> = {
+	queued: "Waiting",
+	processing: "Reading",
+	ready: "Ready",
+	no_text: "No text found",
+	error: "Failed",
+	cancelled: "Cancelled",
+};
+
+const STATUS_STYLE: Record<DocStatus, string> = {
+	queued: "text-muted-foreground",
+	processing: "text-primary",
+	ready: "text-muted-foreground",
+	no_text: "text-muted-foreground",
+	error: "text-problem",
+	cancelled: "text-muted-foreground",
+};
+
+function matches(d: Document, q: string) {
+	const hay = [
+		d.title,
+		d.originalName,
+		d.authors.join(" "),
+		d.doi,
+		d.year ? String(d.year) : "",
+	]
+		.join(" ")
+		.toLowerCase();
+	return q
+		.toLowerCase()
+		.split(/\s+/)
+		.filter(Boolean)
+		.every((t) => hay.includes(t));
+}
+
+function errorText(e: unknown) {
+	return e instanceof Error ? e.message : String(e);
+}
+
+function plural(n: number, one: string, many = `${one}s`) {
+	return `${n} ${n === 1 ? one : many}`;
+}
+
+function SummaryBanner({
+	summary,
+	scopeName,
+}: {
+	summary: ImportSummary;
+	scopeName: string | null;
+}) {
+	const { added, duplicates, skipped } = summary;
+	const parts: string[] = [];
+	if (added.length) parts.push(`${plural(added.length, "file")} added.`);
+	if (duplicates.length) {
+		const where = scopeName ? ` (now in ${scopeName})` : "";
+		parts.push(
+			`${plural(duplicates.length, "file was", "files were")} already in the library${where}.`,
+		);
+	}
+	if (!parts.length && !skipped.length) parts.push("Nothing to import.");
+	return (
+		<div
+			role="status"
+			className="mx-6 mb-3 flex items-start justify-between gap-3 rounded-lg border border-border bg-muted px-3 py-2 text-[13px]"
+		>
+			<div className="min-w-0">
+				{parts.length > 0 && <p>{parts.join(" ")}</p>}
+				{skipped.length > 0 && (
+					<div className="text-muted-foreground">
+						<p>{plural(skipped.length, "file")} skipped:</p>
+						<ul className="ml-4 list-disc">
+							{skipped.slice(0, 5).map((s) => (
+								<li key={`${s.name}:${s.reason}`} className="truncate">
+									{s.name}: {s.reason}
+								</li>
+							))}
+							{skipped.length > 5 && <li>and {skipped.length - 5} more</li>}
+						</ul>
+					</div>
+				)}
+			</div>
+			<RacButton
+				onPress={() => setImportSummary(null)}
+				className={cx("shrink-0 text-xs text-muted-foreground", focus)}
+			>
+				Dismiss
+			</RacButton>
+		</div>
+	);
+}
+
+function DocumentRow({
+	doc,
+	actions,
+	onOpen,
+}: {
+	doc: Document;
+	actions: Action[];
+	/** Set when the document can be opened in the reader. */
+	onOpen?: () => void;
+}) {
+	const progress = useProgress(doc.id);
+	const pct = progress?.total ? (progress.done / progress.total) * 100 : 0;
+	const byline = [
+		doc.authors.length > 2
+			? `${doc.authors[0]} et al.`
+			: doc.authors.join(", "),
+		doc.year ? String(doc.year) : "",
+	]
+		.filter(Boolean)
+		.join(" · ");
+
+	return (
+		<li className="flex items-start gap-3 border-b border-border px-6 py-3">
+			<div className="min-w-0 flex-1">
+				<div className="flex items-baseline gap-2">
+					<RacButton
+						onPress={onOpen}
+						isDisabled={!onOpen}
+						className={cx(
+							"truncate text-left text-sm data-[disabled]:cursor-default",
+							onOpen && "data-[hovered]:underline",
+							doc.title ? "font-medium" : "text-muted-foreground",
+							focus,
+						)}
+					>
+						{doc.title || doc.originalName}
+					</RacButton>
+					{!doc.title && (
+						<span className="shrink-0 text-xs text-muted-foreground">
+							No title found
+						</span>
+					)}
+				</div>
+				{byline && (
+					<p className="truncate text-xs text-muted-foreground">{byline}</p>
+				)}
+				{doc.status === "processing" && (
+					<div className="mt-1.5 flex items-center gap-2">
+						{progress && progress.total > 0 ? (
+							<>
+								<div
+									role="progressbar"
+									aria-label={`Reading ${doc.originalName}`}
+									aria-valuemin={0}
+									aria-valuemax={progress.total}
+									aria-valuenow={progress.done}
+									className="h-1 w-40 overflow-hidden rounded-full bg-border"
+								>
+									<div
+										className="h-full bg-primary transition-[width]"
+										style={{ width: `${pct}%` }}
+									/>
+								</div>
+								<span className="text-xs text-muted-foreground">
+									Page {progress.done} of {progress.total}
+								</span>
+							</>
+						) : (
+							<Spinner className="size-3" />
+						)}
+					</div>
+				)}
+				{doc.status === "no_text" && (
+					<p className="mt-1 text-xs text-muted-foreground">
+						This looks like a scanned document. Chingui can't read scans yet, so
+						it can't search or cite it.
+					</p>
+				)}
+				{doc.error && (
+					<p
+						className={cx(
+							"mt-1 text-xs",
+							doc.status === "error" ? "text-problem" : "text-muted-foreground",
+						)}
+					>
+						{doc.error}
+					</p>
+				)}
+			</div>
+			<div className="flex shrink-0 items-center gap-3">
+				<span className={cx("text-xs", STATUS_STYLE[doc.status])}>
+					{STATUS_LABEL[doc.status]}
+					{doc.status === "ready" && doc.pageCount
+						? ` · ${plural(doc.pageCount, "page")}`
+						: ""}
+				</span>
+				<ActionMenu
+					label={`Actions for ${doc.title || doc.originalName}`}
+					actions={actions}
+				/>
+			</div>
+		</li>
+	);
+}
+
+function ImportMenu({
+	onPick,
+	isDisabled,
+}: {
+	onPick: (folder: boolean) => void;
+	isDisabled: boolean;
+}) {
+	return (
+		<MenuTrigger>
+			<Button variant="primary" isDisabled={isDisabled}>
+				<PlusIcon className="size-3.5" /> Import
+			</Button>
+			<Popover
+				placement="bottom end"
+				className="min-w-40 rounded-xl border border-border bg-card p-1 shadow-lg"
+			>
+				<Menu
+					aria-label="Import"
+					onAction={(k) => onPick(k === "folder")}
+					className="outline-none"
+				>
+					<MenuItem
+						id="files"
+						className="cursor-default rounded-md px-2.5 py-1.5 text-[13px] outline-none data-[focused]:bg-muted"
+					>
+						Files…
+					</MenuItem>
+					<MenuItem
+						id="folder"
+						className="cursor-default rounded-md px-2.5 py-1.5 text-[13px] outline-none data-[focused]:bg-muted"
+					>
+						Folder…
+					</MenuItem>
+				</Menu>
+			</Popover>
+		</MenuTrigger>
+	);
+}
+
+function ScopeSelect({
+	value,
+	onChange,
+}: {
+	value: string | null;
+	onChange: (scope: string | null) => void;
+}) {
+	const projects = useProjects();
+	const items = [
+		{ id: ALL, name: "All documents" },
+		...(projects.data ?? []).map((p) => ({ id: p.id, name: p.name })),
+	];
+	return (
+		<Select
+			aria-label="Show documents from"
+			selectedKey={value ?? ALL}
+			onSelectionChange={(k) => k && onChange(k === ALL ? null : String(k))}
+		>
+			<RacButton
+				className={cx(
+					"flex h-8 items-center gap-2 rounded-lg border border-input bg-card px-2.5 text-[13px] data-[hovered]:bg-muted",
+					focus,
+				)}
+			>
+				<SelectValue className="max-w-48 truncate" />
+				<ChevronIcon className="size-3.5 shrink-0 rotate-90 text-muted-foreground" />
+			</RacButton>
+			<Popover className="max-h-72 min-w-(--trigger-width) overflow-auto rounded-xl border border-border bg-card p-1 shadow-lg">
+				<ListBox items={items} className="outline-none">
+					{(i) => (
+						<ListBoxItem
+							id={i.id}
+							textValue={i.name}
+							className="cursor-default truncate rounded-md px-2.5 py-1.5 text-[13px] outline-none data-[focused]:bg-muted data-[selected]:font-medium"
+						>
+							{i.name}
+						</ListBoxItem>
+					)}
+				</ListBox>
+			</Popover>
+		</Select>
+	);
+}
+
+export function LibraryView() {
+	const qc = useQueryClient();
+	const { libraryScope: scope, setLibraryScope, openReader } = useNav();
+	const { confirm, alert } = useDialogs();
+	const projects = useProjects();
+	const docs = useDocuments(scope);
+	const summary = useImportSummary();
+	const [query, setQuery] = useState("");
+	const deferred = useDeferredValue(query);
+	const textHits = useLibrarySearch(deferred, scope);
+	const [importing, setImporting] = useState(false);
+	const [editing, setEditing] = useState<Document | null>(null);
+	const [projectsFor, setProjectsFor] = useState<string | null>(null);
+
+	const scopeName = projects.data?.find((p) => p.id === scope)?.name ?? null;
+	const refresh = () => qc.invalidateQueries({ queryKey: keys.documents });
+	const fail = (title: string) => (e: unknown) =>
+		alert({ title, message: errorText(e) });
+
+	const shown = useMemo(
+		() =>
+			query.trim()
+				? (docs.data ?? []).filter((d) => matches(d, query))
+				: (docs.data ?? []),
+		[docs.data, query],
+	);
+	const projectsDoc = docs.data?.find((d) => d.id === projectsFor) ?? null;
+
+	const pick = async (folder: boolean) => {
+		setImporting(true);
+		try {
+			setImportSummary(await api.pickAndImport(folder, scope));
+			refresh();
+		} catch (e) {
+			await fail("Import failed")(e);
+		} finally {
+			setImporting(false);
+		}
+	};
+
+	const open = (d: Document) =>
+		openReader({ documentId: d.id, page: 1, passageId: null });
+
+	const actionsFor = (d: Document): Action[] => {
+		const name = d.title || d.originalName;
+		const list: Action[] = [
+			...(d.kind === "pdf"
+				? [{ id: "open", label: "Open", run: () => open(d) }]
+				: []),
+			{ id: "edit", label: "Edit details…", run: () => setEditing(d) },
+			{ id: "projects", label: "Projects…", run: () => setProjectsFor(d.id) },
+		];
+		if (d.status === "queued" || d.status === "processing") {
+			list.push({
+				id: "cancel",
+				label: "Cancel reading",
+				run: () => api.cancelImport(d.id),
+			});
+		}
+		if (d.status === "error" || d.status === "cancelled") {
+			list.push({
+				id: "retry",
+				label: "Try again",
+				run: () => api.retryImport(d.id).catch(fail("Couldn't retry")),
+			});
+		}
+		if (scope) {
+			list.push({
+				id: "detach",
+				label: scopeName ? `Remove from ${scopeName}` : "Remove from project",
+				run: async () => {
+					await api.detachDocument(scope, d.id).catch(fail("Couldn't remove"));
+					refresh();
+				},
+			});
+		}
+		list.push({
+			id: "delete",
+			label: "Delete…",
+			danger: true,
+			run: async () => {
+				const ok = await confirm({
+					title: "Delete document?",
+					message: `"${name}" is removed from the library, along with Chingui's copy and its search index. Your original file is not touched.`,
+					confirmLabel: "Delete",
+					danger: true,
+				});
+				if (!ok) return;
+				await api.deleteDocument(d.id).catch(fail("Couldn't delete"));
+				refresh();
+				qc.invalidateQueries({ queryKey: ["library-search"] });
+			},
+		});
+		return list;
+	};
+
+	const searching = query.trim().length > 0;
+
+	return (
+		<div className="flex h-full flex-col">
+			<header
+				data-tauri-drag-region
+				className="flex h-12 shrink-0 items-center justify-between gap-3 px-6"
+			>
+				<div className="flex items-center gap-3">
+					<h1 className="text-[15px] font-semibold">Library</h1>
+					<ScopeSelect value={scope} onChange={setLibraryScope} />
+				</div>
+				<ImportMenu onPick={pick} isDisabled={importing} />
+			</header>
+
+			<div className="px-6 pb-3">
+				<div className="relative">
+					<SearchIcon className="pointer-events-none absolute left-2.5 top-2 size-4 text-muted-foreground" />
+					<input
+						type="search"
+						aria-label="Search documents"
+						placeholder="Search titles, authors and text"
+						value={query}
+						onChange={(e) => setQuery(e.target.value)}
+						onKeyDown={(e) => e.key === "Escape" && setQuery("")}
+						className="h-8 w-full rounded-lg border border-transparent bg-muted pl-8 pr-3 text-[13px] outline-none placeholder:text-muted-foreground focus:border-primary/50"
+					/>
+				</div>
+			</div>
+
+			{summary && <SummaryBanner summary={summary} scopeName={scopeName} />}
+
+			<div className="min-h-0 flex-1 overflow-y-auto">
+				{docs.isPending && (
+					<div className="flex justify-center py-10">
+						<Spinner />
+					</div>
+				)}
+				{docs.isError && (
+					<p role="alert" className="px-6 text-sm text-problem">
+						{docs.error.message}
+					</p>
+				)}
+				{docs.isSuccess && docs.data.length === 0 && (
+					<div className="mx-auto max-w-sm px-6 py-16 text-center">
+						<p className="font-medium">
+							{scopeName ? `No documents in ${scopeName}` : "No documents yet"}
+						</p>
+						<p className="mt-1 text-sm text-muted-foreground">
+							Drop PDF or Word files, or a whole folder, anywhere on this
+							window. You can also use Import.
+							{scopeName ? ` They will be added to ${scopeName}.` : ""}
+						</p>
+					</div>
+				)}
+				{docs.isSuccess && docs.data.length > 0 && (
+					<>
+						{searching && (
+							<h2 className="px-6 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+								Documents
+							</h2>
+						)}
+						<ul>
+							{shown.map((d) => (
+								<DocumentRow
+									key={d.id}
+									doc={d}
+									actions={actionsFor(d)}
+									onOpen={d.kind === "pdf" ? () => open(d) : undefined}
+								/>
+							))}
+						</ul>
+						{searching && shown.length === 0 && (
+							<p className="px-6 py-2 text-sm text-muted-foreground">
+								No titles or authors match.
+							</p>
+						)}
+					</>
+				)}
+
+				{searching && (
+					<section className="pb-6">
+						<h2 className="px-6 pb-1 pt-4 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+							In the text
+						</h2>
+						{textHits.isPending && (
+							<p className="px-6 text-sm text-muted-foreground">Searching…</p>
+						)}
+						{textHits.isError && (
+							<p role="alert" className="px-6 text-sm text-problem">
+								{textHits.error.message}
+							</p>
+						)}
+						{textHits.isSuccess && textHits.data.length === 0 && (
+							<p className="px-6 text-sm text-muted-foreground">
+								No passages match. Only documents marked Ready are searched.
+							</p>
+						)}
+						<ul>
+							{textHits.data?.map((h) => (
+								<li key={h.passageId} className="border-b border-border">
+									<RacButton
+										onPress={() =>
+											openReader({
+												documentId: h.documentId,
+												page: h.pageStart,
+												passageId: h.passageId,
+											})
+										}
+										className={cx(
+											"block w-full px-6 py-3 text-left data-[hovered]:bg-muted",
+											focus,
+										)}
+									>
+										<p className="text-[13px] font-medium">
+											{h.documentTitle}
+											<span className="ml-2 font-normal text-muted-foreground">
+												{h.pageStart === h.pageEnd
+													? `Page ${h.pageStart}`
+													: `Pages ${h.pageStart} to ${h.pageEnd}`}
+											</span>
+										</p>
+										<p className="mt-0.5 line-clamp-3 text-xs text-muted-foreground">
+											{h.text}
+										</p>
+									</RacButton>
+								</li>
+							))}
+						</ul>
+					</section>
+				)}
+			</div>
+
+			{editing && (
+				<MetadataDialog
+					key={editing.id}
+					doc={editing}
+					onClose={() => setEditing(null)}
+					onSaved={refresh}
+				/>
+			)}
+			{projectsDoc && (
+				<ProjectsDialog
+					doc={projectsDoc}
+					onClose={() => setProjectsFor(null)}
+					onError={(message) => alert({ title: "Couldn't update", message })}
+				/>
+			)}
+		</div>
+	);
+}

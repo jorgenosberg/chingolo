@@ -100,3 +100,9 @@ export const CheckIcon = (p: P) => (
 		<path d="m3.5 8.5 3 3 6-7" />
 	</Icon>
 );
+export const LibraryIcon = (p: P) => (
+	<Icon {...p}>
+		<path d="M3.5 2.5h3v11h-3zM6.5 2.5h3v11h-3z" />
+		<path d="m10.6 3.4 2.8-.7 2.1 9.7-2.8.7z" transform="translate(-1 .4)" />
+	</Icon>
+);

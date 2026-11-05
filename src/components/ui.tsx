@@ -56,6 +56,7 @@ export const SHORTCUTS = {
 	search: "k",
 	settings: ",",
 	context: "j",
+	library: "l",
 } as const;
 
 /** Shows ⌘ + key, e.g. `<Kbd keys="k" />` renders "⌘K". */

@@ -1,4 +1,5 @@
-import { useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { lazy, Suspense, useCallback, useEffect, useRef } from "react";
 import {
 	Group,
 	Panel,
@@ -6,12 +7,18 @@ import {
 	useDefaultLayout,
 } from "react-resizable-panels";
 import { SidebarRightIcon } from "../components/icons";
-import { Button, IconButton, Kbd, SHORTCUTS } from "../components/ui";
+import { Button, IconButton, Kbd, SHORTCUTS, Spinner } from "../components/ui";
 import { ChatView } from "../features/chat/ChatView";
+import { LibraryView } from "../features/library/LibraryView";
 import { Sidebar } from "../features/projects/Sidebar";
 import { SettingsDialog } from "../features/settings/SettingsDialog";
-import { useConversations } from "../lib/queries";
+import { api } from "../lib/api";
+import { useDropActive, useLibraryEvents } from "../lib/library";
+import { useConversations, useProjects } from "../lib/queries";
 import { useNav } from "./nav";
+
+// The reader pulls in PDF.js, so it loads the first time a document is opened.
+const ReaderView = lazy(() => import("../features/reader/ReaderView"));
 
 function layoutStorage() {
 	// localStorage can throw in restricted contexts; fall back to no persistence.
@@ -77,19 +84,58 @@ function ContextPane() {
 				</IconButton>
 			</div>
 			<p className="px-4 text-sm text-muted-foreground">
-				Sources and the PDF reader will appear here once you import papers.
+				Sources cited in a conversation will open here.
 			</p>
 		</aside>
 	);
 }
 
+function DropOverlay({ targetName }: { targetName: string | null }) {
+	const active = useDropActive();
+	if (!active) return null;
+	return (
+		<div
+			aria-hidden="true"
+			className="pointer-events-none fixed inset-2 z-40 flex items-center justify-center rounded-2xl border-2 border-dashed border-primary bg-background/80"
+		>
+			<p className="text-sm font-medium">
+				Drop to add to {targetName ?? "the library"}
+			</p>
+		</div>
+	);
+}
+
 export function AppShell() {
 	const nav = useNav();
+	const qc = useQueryClient();
 	const conversations = useConversations();
+	const projects = useProjects();
 	const layout = useDefaultLayout({
 		id: "chingui-main",
 		storage: layoutStorage(),
 	});
+
+	// Dropped files go to the project in view: the library's scope, or the open chat's project.
+	const currentChat = conversations.data?.find(
+		(c) => c.id === nav.conversationId,
+	);
+	const importTarget =
+		nav.view === "library" || nav.view === "reader"
+			? nav.libraryScope
+			: (currentChat?.projectId ?? null);
+	useEffect(() => {
+		api.setImportTarget(importTarget).catch(() => {});
+	}, [importTarget]);
+
+	// A drop opens the library on the project it went to.
+	const targetRef = useRef(importTarget);
+	targetRef.current = importTarget;
+	const { openLibrary } = nav;
+	const onSummary = useCallback(
+		() => openLibrary(targetRef.current),
+		[openLibrary],
+	);
+	useLibraryEvents(qc, onSummary);
 
 	// Keyboard shortcuts.
 	useEffect(() => {
@@ -107,6 +153,9 @@ export function AppShell() {
 			} else if (e.key === SHORTCUTS.settings) {
 				e.preventDefault();
 				nav.openSettings();
+			} else if (e.key === SHORTCUTS.library) {
+				e.preventDefault();
+				nav.openLibrary();
 			} else if (e.key === SHORTCUTS.context) {
 				e.preventDefault();
 				nav.toggleContext();
@@ -130,7 +179,19 @@ export function AppShell() {
 				<Divider />
 				<Panel id="main" minSize="420px">
 					<main className="relative h-full bg-background">
-						{nav.conversationId ? (
+						{nav.view === "reader" ? (
+							<Suspense
+								fallback={
+									<div className="flex h-full items-center justify-center">
+										<Spinner />
+									</div>
+								}
+							>
+								<ReaderView />
+							</Suspense>
+						) : nav.view === "library" ? (
+							<LibraryView />
+						) : nav.conversationId ? (
 							<ChatView
 								key={nav.conversationId}
 								conversationId={nav.conversationId}
@@ -153,6 +214,11 @@ export function AppShell() {
 					<ContextPane />
 				</Panel>
 			</Group>
+			<DropOverlay
+				targetName={
+					projects.data?.find((p) => p.id === importTarget)?.name ?? null
+				}
+			/>
 			<SettingsDialog
 				isOpen={nav.settingsOpen}
 				onOpenChange={nav.setSettingsOpen}

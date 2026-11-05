@@ -6,6 +6,7 @@ import {
 	useCallback,
 	useContext,
 	useMemo,
+	useRef,
 	useState,
 } from "react";
 import {
@@ -17,7 +18,25 @@ import { keys } from "../lib/queries";
 
 const STORAGE_KEY = "chingui.conversation";
 
+/** What the reader shows: a document, a page, and optionally a passage to highlight. */
+type View = "chat" | "library" | "reader";
+
+export type ReaderTarget = {
+	documentId: string;
+	page: number;
+	passageId: string | null;
+};
+
 type Nav = {
+	reader: ReaderTarget | null;
+	/** Opens a document in the main pane. `closeReader` goes back to where it came from. */
+	openReader: (target: ReaderTarget) => void;
+	closeReader: () => void;
+	view: View;
+	/** Project the library view is scoped to, or null for every document. */
+	libraryScope: string | null;
+	openLibrary: (scope?: string | null) => void;
+	setLibraryScope: (scope: string | null) => void;
 	conversationId: string | null;
 	select: (id: string | null) => void;
 	/** Creates a conversation, optionally inside a project or chapter, and opens it. */
@@ -54,10 +73,32 @@ export function NavProvider({ children }: { children: ReactNode }) {
 		readSaved,
 	);
 	const [settingsOpen, setSettingsOpen] = useState(false);
+	const [view, setView] = useState<View>("chat");
+	const [libraryScope, setLibraryScope] = useState<string | null>(null);
+	const [reader, setReader] = useState<ReaderTarget | null>(null);
 	const contextPanel = usePanelRef();
+
+	const returnView = useRef<View>("library");
+	const openReader = useCallback((target: ReaderTarget) => {
+		setView((v) => {
+			if (v !== "reader") returnView.current = v;
+			return "reader";
+		});
+		setReader(target);
+	}, []);
+	const closeReader = useCallback(() => {
+		setReader(null);
+		setView(returnView.current);
+	}, []);
+
+	const openLibrary = useCallback((scope?: string | null) => {
+		if (scope !== undefined) setLibraryScope(scope);
+		setView("library");
+	}, []);
 
 	const select = useCallback((id: string | null) => {
 		setConversationId(id);
+		setView("chat");
 		try {
 			if (id) localStorage.setItem(STORAGE_KEY, id);
 			else localStorage.removeItem(STORAGE_KEY);
@@ -87,6 +128,13 @@ export function NavProvider({ children }: { children: ReactNode }) {
 
 	const value = useMemo<Nav>(
 		() => ({
+			reader,
+			openReader,
+			closeReader,
+			view,
+			libraryScope,
+			openLibrary,
+			setLibraryScope,
 			conversationId,
 			select,
 			newChat,
@@ -97,6 +145,12 @@ export function NavProvider({ children }: { children: ReactNode }) {
 			toggleContext,
 		}),
 		[
+			reader,
+			openReader,
+			closeReader,
+			view,
+			libraryScope,
+			openLibrary,
 			conversationId,
 			select,
 			newChat,

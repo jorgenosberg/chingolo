@@ -16,6 +16,12 @@ export const keys = {
 	conversations: ["conversations"] as const,
 	search: (q: string) => ["conversations", "search", q] as const,
 	messages: (conversationId: string) => ["messages", conversationId] as const,
+	/** Prefix of every document list, whatever the scope. */
+	documents: ["documents"] as const,
+	documentsIn: (scope: string | null) => ["documents", scope] as const,
+	passage: (id: string) => ["passage", id] as const,
+	librarySearch: (q: string, scope: string | null) =>
+		["library-search", scope, q] as const,
 };
 
 export function useSettings() {
@@ -64,6 +70,34 @@ export function useMessages(conversationId: string | null) {
 		queryKey: keys.messages(conversationId ?? ""),
 		queryFn: () => api.listMessages(conversationId as string),
 		enabled: conversationId !== null,
+	});
+}
+
+/** Documents in a project, or the whole library when `scope` is null. */
+export function useDocuments(scope: string | null) {
+	return useQuery({
+		queryKey: keys.documentsIn(scope),
+		queryFn: () => api.listDocuments(scope),
+	});
+}
+
+/** Keyword search over document text. Pass an already deferred query. */
+export function useLibrarySearch(query: string, scope: string | null) {
+	const q = query.trim();
+	return useQuery({
+		queryKey: keys.librarySearch(q, scope),
+		queryFn: () => api.searchLibrary(q, scope),
+		enabled: q.length > 0,
+	});
+}
+
+/** A stored passage with its line boxes. Passages never change, so it is cached for good. */
+export function usePassage(passageId: string | null) {
+	return useQuery({
+		queryKey: keys.passage(passageId ?? ""),
+		queryFn: () => api.getPassage(passageId as string),
+		enabled: passageId !== null,
+		staleTime: Number.POSITIVE_INFINITY,
 	});
 }
 

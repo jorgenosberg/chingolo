@@ -3,6 +3,7 @@ import {
 	type ChatEvent,
 	type ConversationFilter,
 	commands,
+	type MetadataPatch,
 	type SettingsPatch,
 } from "./bindings";
 
@@ -67,6 +68,33 @@ export const api = {
 	saveApiKey: (key: string) => unwrap(commands.saveApiKey(PROVIDER, key)),
 	deleteApiKey: () => unwrap(commands.deleteApiKey(PROVIDER)),
 	listModels: () => unwrap(commands.listModels(PROVIDER)),
+
+	pickAndImport: (folder: boolean, projectId: string | null) =>
+		unwrap(commands.pickAndImport(folder, projectId)),
+	setImportTarget: (projectId: string | null) =>
+		unwrap(commands.setImportTarget(projectId)),
+	listDocuments: (projectId: string | null) =>
+		unwrap(commands.listDocuments(projectId)),
+	updateDocumentMetadata: (id: string, patch: Partial<MetadataPatch>) =>
+		unwrap(
+			commands.updateDocumentMetadata(id, {
+				title: null,
+				authors: null,
+				year: null,
+				doi: null,
+				...patch,
+			}),
+		),
+	deleteDocument: (id: string) => unwrap(commands.deleteDocument(id)),
+	cancelImport: (id: string) => commands.cancelImport(id),
+	retryImport: (id: string) => unwrap(commands.retryImport(id)),
+	attachDocument: (projectId: string, documentId: string) =>
+		unwrap(commands.attachDocument(projectId, documentId)),
+	detachDocument: (projectId: string, documentId: string) =>
+		unwrap(commands.detachDocument(projectId, documentId)),
+	getPassage: (passageId: string) => unwrap(commands.getPassage(passageId)),
+	searchLibrary: (query: string, projectId: string | null) =>
+		unwrap(commands.searchLibrary(query, projectId, 30)),
 };
 
 export function sendMessageRaw(

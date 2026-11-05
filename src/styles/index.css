@@ -121,3 +121,25 @@
 .chat-prose pre {
 	overflow-x: auto;
 }
+
+/* Passage highlight drawn over a PDF.js page. Boxes are positioned in percent of the page. */
+.passage-highlight {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	mix-blend-mode: multiply;
+}
+.passage-highlight-box {
+	position: absolute;
+	background: oklch(0.88 0.15 90 / 0.6);
+	border-radius: 2px;
+}
+
+/*
+ * PDF.js sizes a page for content-box, with a 9px border outside it. Tailwind's border-box
+ * default shrinks the canvas inside that border while the text layer keeps the full size, so
+ * text, find highlights and selection drift away from the glyphs.
+ */
+.pdfViewer .page {
+	box-sizing: content-box;
+}
