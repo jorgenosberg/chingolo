@@ -18,6 +18,7 @@ async fn read_settings(state: &AppState) -> crate::error::Result<AppSettings> {
                 privacy_acknowledged: repo::get_bool(c, "privacy_acknowledged")?,
                 default_model: repo::get(c, "default_model")?,
                 has_api_key,
+                embedding_notice_dismissed: repo::get_bool(c, "embedding_notice_dismissed")?,
             })
         })
         .await
@@ -46,6 +47,9 @@ pub async fn update_settings(
             }
             if let Some(v) = patch.default_model {
                 repo::set(c, "default_model", &v)?;
+            }
+            if let Some(v) = patch.embedding_notice_dismissed {
+                repo::set_bool(c, "embedding_notice_dismissed", v)?;
             }
             Ok(())
         })

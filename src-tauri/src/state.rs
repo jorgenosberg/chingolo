@@ -6,6 +6,7 @@ use tokio_util::sync::CancellationToken;
 use crate::domain::Id;
 use crate::persistence::Db;
 use crate::services::ai::Providers;
+use crate::services::embedding::engine::Embedder;
 use crate::services::ingestion::queue::Ingestor;
 
 /// Running generations, keyed by the assistant message id.
@@ -45,6 +46,7 @@ pub struct AppState {
     pub providers: Providers,
     pub generations: Generations,
     pub ingest: Ingestor,
+    pub embedder: Embedder,
     /// Project that dropped files are added to, set by the UI.
     pub import_target: Arc<Mutex<Option<Id>>>,
 }

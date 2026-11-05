@@ -15,6 +15,8 @@ use crate::persistence::Db;
 use crate::commands::library::DropHover;
 use crate::services::ai::Providers;
 use crate::services::docfile;
+use crate::domain::library::DocStatus;
+use crate::services::embedding::engine::{Embedder, EmbeddingStatus, StatusEmit};
 use crate::services::ingestion::import::{ImportSummary, import_paths};
 use crate::services::ingestion::queue::{DocumentChanged, Emit, Ingestor};
 use crate::state::{AppState, Generations};
@@ -22,7 +24,7 @@ use crate::state::{AppState, Generations};
 fn specta_builder() -> Builder<tauri::Wry> {
     Builder::<tauri::Wry>::new()
         .disable_serde_phases()
-        .events(collect_events![DocumentChanged, ImportSummary, DropHover])
+        .events(collect_events![DocumentChanged, ImportSummary, DropHover, EmbeddingStatus])
         .commands(collect_commands![
         commands::projects::list_projects,
         commands::projects::create_project,
@@ -59,6 +61,9 @@ fn specta_builder() -> Builder<tauri::Wry> {
         commands::library::detach_document,
         commands::library::search_library,
         commands::library::get_passage,
+        commands::embedding::embedding_status,
+        commands::embedding::download_embedding_model,
+        commands::embedding::set_embedding_paused,
     ])
 }
 
@@ -129,17 +134,44 @@ pub fn run() {
             let emit: Emit = Arc::new(move |e| {
                 let _ = e.emit(&handle);
             });
-            let ingest = Ingestor::start(&db_path, dir.join("library"), emit)?;
+            let status_handle = app.handle().clone();
+            let status_emit: StatusEmit = Arc::new(move |s| {
+                let _ = s.emit(&status_handle);
+            });
+            let embedder = Embedder::start(&db_path, &dir, status_emit, emit.clone())?;
+            // A document that becomes ready wakes the embedding worker. The worker's own
+            // document events skip this, so it doesn't wake itself.
+            let (wake, raw_emit) = (embedder.clone(), emit);
+            let ingest_emit: Emit = Arc::new(move |e| {
+                let ready = e.document.status == DocStatus::Ready;
+                raw_emit(e);
+                if ready {
+                    wake.wake();
+                }
+            });
+            let ingest = Ingestor::start(&db_path, dir.join("library"), ingest_emit)?;
             // Documents that were still being read when the app last stopped.
             let (resume_db, resume_ingest) = (db.clone(), ingest.clone());
             tauri::async_runtime::spawn(async move {
                 let _ = resume_ingest.resume(&resume_db).await;
+            });
+            // If the user agreed to the model download earlier, finish it.
+            let (model_db, model_embedder) = (db.clone(), embedder.clone());
+            tauri::async_runtime::spawn(async move {
+                let accepted = model_db
+                    .call(|c| crate::persistence::settings::get_bool(c, commands::embedding::DOWNLOAD_ACCEPTED))
+                    .await
+                    .unwrap_or(false);
+                if accepted {
+                    model_embedder.ensure_model();
+                }
             });
             app.manage(AppState {
                 db,
                 providers: Providers::new(),
                 generations: Generations::default(),
                 ingest,
+                embedder,
                 import_target: Arc::new(Mutex::new(None)),
             });
             Ok(())

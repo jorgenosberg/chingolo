@@ -56,12 +56,17 @@ export const commands = {
 	searchLibrary: (query: string, projectId: string | null, limit: number | null) => typedError<SearchHit[], CmdError>(__TAURI_INVOKE("search_library", { query, projectId, limit })),
 	/**  A passage with its line boxes, for opening it in the reader. */
 	getPassage: (passageId: string) => typedError<PassageView, CmdError>(__TAURI_INVOKE("get_passage", { passageId })),
+	embeddingStatus: () => __TAURI_INVOKE<EmbeddingStatus>("embedding_status"),
+	/**  Starts (or resumes) the model download, or retries loading the model if the files are there. */
+	downloadEmbeddingModel: () => typedError<EmbeddingStatus, CmdError>(__TAURI_INVOKE("download_embedding_model")),
+	setEmbeddingPaused: (paused: boolean) => __TAURI_INVOKE<EmbeddingStatus>("set_embedding_paused", { paused }),
 };
 
 /** Events */
 export const events = {
 	documentChanged: makeEvent<DocumentChanged, DocumentChanged>("document-changed"),
 	dropHover: makeEvent<DropHover, DropHover>("drop-hover"),
+	embeddingStatus: makeEvent<EmbeddingStatus, EmbeddingStatus>("embedding-status"),
 	importSummary: makeEvent<ImportSummary, ImportSummary>("import-summary"),
 };
 
@@ -71,6 +76,8 @@ export type AppSettings = {
 	privacyAcknowledged: boolean,
 	defaultModel: string | null,
 	hasApiKey: boolean,
+	/**  The user chose "Not now" on the search model download notice. */
+	embeddingNoticeDismissed: boolean,
 };
 
 export type Chapter = {
@@ -162,6 +169,15 @@ export type DropHover = {
 	active: boolean,
 };
 
+/**  Sent whenever the model state, the indexing counts or the pause flag change. */
+export type EmbeddingStatus = {
+	model: ModelState,
+	/**  Passages of ready documents that have a vector, and all such passages. */
+	indexed: number,
+	total: number,
+	paused: boolean,
+};
+
 export type ImportSummary = {
 	/**  New documents, now queued for reading. */
 	added: Document[],
@@ -203,6 +219,9 @@ export type ModelInfo = {
 	inputTokenLimit: number | null,
 	outputTokenLimit: number | null,
 };
+
+/**  What the UI shows about the model files. Sizes are bytes. */
+export type ModelState = { kind: "missing" } | { kind: "downloading"; done: number | null; total: number | null } | { kind: "ready" } | { kind: "failed"; message: string };
 
 /**  Line boxes of a passage on one page, in PDF user space: `[left, bottom, right, top]`. */
 export type PageBoxes = {
@@ -254,6 +273,7 @@ export type SettingsPatch = {
 	onboarded: boolean | null,
 	privacyAcknowledged: boolean | null,
 	defaultModel: string | null,
+	embeddingNoticeDismissed: boolean | null,
 };
 
 export type SkippedFile = {

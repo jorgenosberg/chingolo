@@ -74,7 +74,10 @@ pub async fn update_document_metadata(
 #[tauri::command]
 #[specta::specta]
 pub async fn delete_document(state: State<'_, AppState>, id: String) -> CmdResult<()> {
-    Ok(import::delete_document(&state.db, &state.ingest, &id).await?)
+    import::delete_document(&state.db, &state.ingest, &id).await?;
+    // The indexing totals changed.
+    state.embedder.wake();
+    Ok(())
 }
 
 /// True if the document was queued or being read.

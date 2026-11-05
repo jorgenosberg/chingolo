@@ -181,6 +181,8 @@ pub struct AppSettings {
     pub privacy_acknowledged: bool,
     pub default_model: Option<String>,
     pub has_api_key: bool,
+    /// The user chose "Not now" on the search model download notice.
+    pub embedding_notice_dismissed: bool,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Type)]
@@ -189,6 +191,7 @@ pub struct SettingsPatch {
     pub onboarded: Option<bool>,
     pub privacy_acknowledged: Option<bool>,
     pub default_model: Option<String>,
+    pub embedding_notice_dismissed: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]

@@ -1,5 +1,6 @@
 //! Local embeddings: EmbeddingGemma 300M 4-bit run through fastembed (ONNX Runtime, CPU).
 
+pub mod engine;
 pub mod model;
 
 use std::path::Path;
@@ -56,7 +57,7 @@ pub fn dot(a: &[f32], b: &[f32]) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fastembed::{EmbeddingModel, InitOptions};
+    use fastembed::{EmbeddingModel, TextInitOptions};
 
     fn model_dir() -> Option<std::path::PathBuf> {
         std::env::var_os("CHINGUI_EMBED_MODEL_DIR").map(Into::into)
@@ -77,7 +78,7 @@ mod tests {
         let mut ours = load_model(&dir).expect("load from our files");
         let cache = tempfile::tempdir().unwrap();
         let mut builtin = TextEmbedding::try_new(
-            InitOptions::new(EmbeddingModel::EmbeddingGemma300MQ4)
+            TextInitOptions::new(EmbeddingModel::EmbeddingGemma300MQ4)
                 .with_cache_dir(cache.path().into())
                 .with_auto_device(AutoDevicePolicy::PreferCPU),
         )
