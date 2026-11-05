@@ -18,6 +18,8 @@ src-tauri/
     services/ai/         Provider trait, SSE parser, gemini.rs (+ openai.rs in M2)
     services/chat.rs     send, stream and persist a reply; handoff summary
     services/docfile.rs  chingui-doc:// scheme that serves stored files to the reader
+    services/tools.rs    library tools for the model (search_library, read_section, get_page)
+    services/citations.rs  checks [S<n>] handles in a finished reply
     services/{ingestion,retrieval,references,export}/   (M2+)
     persistence/         SQLite access, migrations runner
     security/            Keychain access
@@ -35,7 +37,7 @@ src-tauri/
 ## Data
 
 - SQLite via rusqlite (bundled, FTS5 on). WAL and foreign keys on. Migrations run at startup. IDs are UUIDv7 text.
-- M1 tables: `projects`, `chapters`, `conversations` (with nullable `source_scope` JSON), `messages`, `messages_fts`, `settings`.
+- M1 tables: `projects`, `chapters`, `conversations` (with nullable `source_scope` JSON, not used yet), `messages` (plus `turns` and `citations` JSON, migration 0007), `messages_fts`, `settings`. `conversation_sources` holds the handles of a conversation.
 - Message status is `streaming`, `complete`, `error`, `cancelled` or `interrupted`. Replies are flushed about twice a second while streaming, so a crash keeps most of the text.
 - Each message records its provider, model and token counts. A conversation also reports `switch_cost_tokens`, computed from its latest reply (see Conversations and models).
 - Original files go in a managed library folder, named by content hash.
@@ -68,7 +70,12 @@ Two modes, chosen per request from the provider's context window and the size of
 1. **Whole-source mode.** Selected documents are sent as passages tagged with app-assigned IDs. Provider caching keeps repeat questions cheap.
 2. **Tool mode.** The model gets `search_library`, `read_section` and `get_page` over a local hybrid index: FTS5 (unicode61, remove diacritics, for æøå) plus EmbeddingGemma vectors in a plain SQLite table scored in Rust (`persistence/vectors.rs`), merged by rank fusion (`services/retrieval.rs`), with neighbor expansion.
 
-In both modes the model cites passage IDs. The app checks each ID against the records it actually supplied, resolves the page, text and coordinates, and drops or flags anything it cannot match. Quotes are compared against the stored text before they are shown as verbatim. Document text is treated as untrusted data, never as instructions.
+Built so far: tool mode only (whole-source mode is not built). A conversation gets the three tools when the provider reports `capabilities().tools` and its project, or the library, has a ready document.
+
+- **Handles.** The model cites `[S<n>]`, never a passage id. `persistence/sources.rs` numbers passages per conversation the first time a tool shows them, in the same transaction that builds the tool result, and keeps a snapshot of title, page and text (`conversation_sources`, no foreign keys, so it survives a re-read or a delete).
+- **Loop.** `run_generation` (`services/chat.rs`) asks the model, runs its tool calls, sends the results back and repeats up to 4 tool rounds, then asks once more with no tools. The turns it produced (with provider replay records) are saved in `messages.turns` and rebuilt by `history()`. Every request is recorded in `api_usage` and logged. A tool error goes back to the model as a result.
+- **Check.** When a reply finishes, `services/citations.rs` removes handles the app never gave out, checks quotes of four words or more against the stored text, and flags claims that share few words with the source (`ok`, `weak`, `quote_mismatch`). The result is saved in `messages.citations` and sent as `Message.citations`. The word-overlap test can't judge meaning, so it flags and never removes.
+- Document text is treated as untrusted data, never as instructions (the prompt says so, and the tools return it as data).
 
 ## Ingestion (M2)
 
