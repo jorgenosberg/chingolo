@@ -1,6 +1,7 @@
 //! Plain data types and validation. No IO, no provider or UI details.
 
 pub mod library;
+pub mod usage;
 
 use serde::{Deserialize, Serialize};
 use specta::Type;

@@ -5,6 +5,7 @@ import {
 	commands,
 	type MetadataPatch,
 	type SettingsPatch,
+	type UsagePeriod,
 } from "./bindings";
 
 type Result<T> = { status: "ok"; data: T } | { status: "error"; error: string };
@@ -99,7 +100,16 @@ export const api = {
 
 	embeddingStatus: () => commands.embeddingStatus(),
 	downloadEmbeddingModel: () => unwrap(commands.downloadEmbeddingModel()),
+	allowCloudEmbedding: () => unwrap(commands.allowCloudEmbedding()),
+	setEmbeddingBackend: (backend: "gemini" | "local") =>
+		unwrap(commands.setEmbeddingBackend(backend)),
 	setEmbeddingPaused: (paused: boolean) => commands.setEmbeddingPaused(paused),
+
+	getUsage: (period: UsagePeriod) => unwrap(commands.getUsage(period)),
+	showLogs: () => unwrap(commands.showLogs()),
+	setPricesAutoUpdate: (enabled: boolean) =>
+		unwrap(commands.setPricesAutoUpdate(enabled)),
+	updatePricesNow: () => unwrap(commands.updatePricesNow()),
 };
 
 export function sendMessageRaw(

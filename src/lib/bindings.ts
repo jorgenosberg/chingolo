@@ -60,8 +60,23 @@ export const commands = {
 	/**  A passage with its line boxes, for opening it in the reader. */
 	getPassage: (passageId: string) => typedError<PassageView, CmdError>(__TAURI_INVOKE("get_passage", { passageId })),
 	embeddingStatus: () => __TAURI_INVOKE<EmbeddingStatus>("embedding_status"),
-	/**  Starts (or resumes) the model download, or retries loading the model if the files are there. */
+	/**
+	 *  Starts (or resumes) the local model download, or retries loading the model if the files are
+	 *  there. Does nothing while Gemini is the backend.
+	 */
 	downloadEmbeddingModel: () => typedError<EmbeddingStatus, CmdError>(__TAURI_INVOKE("download_embedding_model")),
+	/**  The user's yes to sending passages to Gemini. Also the retry after an error. */
+	allowCloudEmbedding: () => typedError<EmbeddingStatus, CmdError>(__TAURI_INVOKE("allow_cloud_embedding")),
+	/**  Switches the model behind meaning search. The library is indexed again with the new one. */
+	setEmbeddingBackend: (backend: Backend) => typedError<EmbeddingStatus, CmdError>(__TAURI_INVOKE("set_embedding_backend", { backend })),
+	/**  What the paid API calls used and roughly cost, by model and purpose. */
+	getUsage: (period: UsagePeriod) => typedError<UsageReport, CmdError>(__TAURI_INVOKE("get_usage", { period })),
+	/**  Turns the weekly price download on or off. Turning it on checks right away. */
+	setPricesAutoUpdate: (enabled: boolean) => typedError<null, CmdError>(__TAURI_INVOKE("set_prices_auto_update", { enabled })),
+	/**  Fetches the price list now, whatever the schedule or the switch says. */
+	updatePricesNow: () => typedError<null, CmdError>(__TAURI_INVOKE("update_prices_now")),
+	/**  Opens the folder with the log files in Finder. The path is the app's own, never the webview's. */
+	showLogs: () => typedError<null, CmdError>(__TAURI_INVOKE("show_logs")),
 	setEmbeddingPaused: (paused: boolean) => __TAURI_INVOKE<EmbeddingStatus>("set_embedding_paused", { paused }),
 };
 
@@ -82,6 +97,12 @@ export type AppSettings = {
 	/**  The user chose "Not now" on the search model download notice. */
 	embeddingNoticeDismissed: boolean,
 };
+
+/**
+ *  Which model makes the vectors. Switching re-indexes, because vectors from different models
+ *  can't be compared.
+ */
+export type Backend = "gemini" | "local";
 
 export type Chapter = {
 	id: string,
@@ -174,6 +195,8 @@ export type DropHover = {
 
 /**  Sent whenever the model state, the indexing counts or the pause flag change. */
 export type EmbeddingStatus = {
+	backend: Backend,
+	/**  For Gemini, `missing` means the user hasn't agreed to send passages yet. */
 	model: ModelState,
 	/**  Passages of ready documents that have a vector, and all such passages. */
 	indexed: number,
@@ -292,6 +315,37 @@ export type SettingsPatch = {
 export type SkippedFile = {
 	name: string,
 	reason: string,
+};
+
+export type UsagePeriod = "day" | "week" | "all";
+
+export type UsageReport = {
+	rows: UsageRow[],
+	/**  Where the price list comes from and when it was copied. */
+	pricesSource: string,
+	pricesFetched: string,
+	/**  The weekly price download is on. */
+	pricesAutoUpdate: boolean,
+};
+
+/**  Calls to one model for one purpose over a period. */
+export type UsageRow = {
+	provider: string,
+	model: string,
+	/**  `chat`, `handoff`, `embed_index` or `embed_query`. */
+	kind: string,
+	calls: number,
+	errors: number,
+	inputTokens: number,
+	outputTokens: number,
+	cachedTokens: number,
+	avgLatencyMs: number,
+	/**  Estimated, summed over the calls that had a known price. */
+	costUsd: number | null,
+	/**  Calls with no known price, so the cost above leaves them out. */
+	unpricedCalls: number,
+	/**  Some token counts were guessed from text length. */
+	estimated: boolean,
 };
 
 /* Tauri Specta runtime */

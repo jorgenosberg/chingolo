@@ -3,6 +3,7 @@
 
 pub mod chat;
 pub mod library;
+pub mod usage;
 pub mod projects;
 pub mod settings;
 pub mod vectors;
@@ -21,6 +22,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../migrations/0003_fork_marker.sql"),
     include_str!("../../migrations/0004_library.sql"),
     include_str!("../../migrations/0005_embeddings.sql"),
+    include_str!("../../migrations/0006_api_usage.sql"),
 ];
 
 #[derive(Clone)]

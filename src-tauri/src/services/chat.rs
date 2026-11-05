@@ -11,6 +11,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::domain::{Message, MessageStatus, Role};
 use crate::error::{AppError, Result};
+use crate::persistence::usage::{self, NewUsage};
 use crate::persistence::{Db, chat as repo, settings};
 use crate::security;
 use crate::services::ai::{GenerationEvent, GenerationRequest, Provider, Turn, TurnRole};
@@ -23,6 +24,40 @@ and don't invent any. If asked for citations, explain that you can't verify them
 Use Markdown. Write math as LaTeX between $...$ or $$...$$.";
 
 const FLUSH_EVERY: Duration = Duration::from_millis(500);
+
+/// Writes one usage row. A failure here is logged and never stops a reply.
+async fn record_usage(
+    db: &Db,
+    provider: &'static str,
+    model: String,
+    kind: &'static str,
+    tokens: (u32, u32, u32),
+    started: Instant,
+    ok: bool,
+) {
+    let latency_ms = started.elapsed().as_millis() as u32;
+    let result = db
+        .call(move |c| {
+            usage::record(
+                c,
+                &NewUsage {
+                    provider,
+                    model: &model,
+                    kind,
+                    input_tokens: tokens.0,
+                    output_tokens: tokens.1,
+                    cached_tokens: tokens.2,
+                    estimated: false,
+                    latency_ms,
+                    ok,
+                },
+            )
+        })
+        .await;
+    if let Err(e) = result {
+        log::warn!("couldn't record {kind} usage: {e}");
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(tag = "type", rename_all = "camelCase")]
@@ -156,6 +191,9 @@ async fn run_generation(
     on_event: Channel<ChatEvent>,
     token: CancellationToken,
 ) {
+    let (provider_id, model_id) = (provider.id(), request.model.clone());
+    let started = Instant::now();
+    let mut first_text_ms: Option<u128> = None;
     let mut stream = provider.generate(api_key, request);
     let mut content = String::new();
     let (mut input_tokens, mut output_tokens, mut cached_input_tokens) = (None, None, None);
@@ -168,6 +206,7 @@ async fn run_generation(
             item = stream.next() => match item {
                 None => break Outcome::Done,
                 Some(Ok(GenerationEvent::Text(text))) => {
+                    first_text_ms.get_or_insert_with(|| started.elapsed().as_millis());
                     content.push_str(&text);
                     let _ = on_event.send(ChatEvent::Delta { text });
                     if last_flush.elapsed() >= FLUSH_EVERY {
@@ -203,6 +242,21 @@ async fn run_generation(
             ),
         },
     };
+
+    let tokens = (input_tokens.unwrap_or(0), output_tokens.unwrap_or(0), cached_input_tokens.unwrap_or(0));
+    log::info!(
+        "chat reply {provider_id}/{model_id}: {status:?} in {} ms (first text after {} ms), tokens in {} out {} cached {}{}",
+        started.elapsed().as_millis(),
+        first_text_ms.map_or("none".to_string(), |ms| ms.to_string()),
+        tokens.0,
+        tokens.1,
+        tokens.2,
+        note.as_deref().map(|n| format!(", note: {n}")).unwrap_or_default()
+    );
+    // A cancelled reply with no usage report was not billed as far as we know.
+    if !(status == MessageStatus::Cancelled && input_tokens.is_none()) {
+        record_usage(&db, provider_id, model_id, "chat", tokens, started, status == MessageStatus::Complete).await;
+    }
 
     let id = assistant.id.clone();
     let saved = db
@@ -263,6 +317,8 @@ pub async fn handoff_summary(state: &AppState, conversation_id: String) -> Resul
         role: TurnRole::User,
         text: HANDOFF_REQUEST.to_string(),
     });
+    let (provider_id, model_id) = (provider.id(), model.clone());
+    let started = Instant::now();
     let mut stream = provider.generate(
         api_key,
         GenerationRequest {
@@ -271,18 +327,34 @@ pub async fn handoff_summary(state: &AppState, conversation_id: String) -> Resul
             turns,
         },
     );
+    let mut tokens = (0, 0, 0);
     let collect = async {
         let mut out = String::new();
         while let Some(item) = stream.next().await {
-            if let GenerationEvent::Text(t) = item? {
-                out.push_str(&t);
+            match item? {
+                GenerationEvent::Text(t) => out.push_str(&t),
+                GenerationEvent::Usage { input_tokens, output_tokens, cached_tokens } => {
+                    tokens = (input_tokens, output_tokens, cached_tokens);
+                }
+                GenerationEvent::Finished(_) => {}
             }
         }
         Ok::<_, AppError>(out)
     };
-    let text = tokio::time::timeout(Duration::from_secs(120), collect)
+    let collected = tokio::time::timeout(Duration::from_secs(120), collect)
         .await
-        .map_err(|_| AppError::Provider("Writing the summary took too long.".into()))??;
+        .map_err(|_| AppError::Provider("Writing the summary took too long.".into()))
+        .and_then(|r| r);
+    log::info!(
+        "handoff note {provider_id}/{model_id}: {} in {} ms, tokens in {} out {} cached {}",
+        if collected.is_ok() { "ok" } else { "failed" },
+        started.elapsed().as_millis(),
+        tokens.0,
+        tokens.1,
+        tokens.2
+    );
+    record_usage(&state.db, provider_id, model_id, "handoff", tokens, started, collected.is_ok()).await;
+    let text = collected?;
     let text = text.trim().to_string();
     if text.is_empty() {
         return Err(AppError::Provider("The model returned an empty summary.".into()));

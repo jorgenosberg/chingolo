@@ -16,6 +16,7 @@ use crate::commands::library::DropHover;
 use crate::services::ai::Providers;
 use crate::services::docfile;
 use crate::domain::library::DocStatus;
+use crate::services::embedding::Backend;
 use crate::services::embedding::engine::{Embedder, EmbeddingStatus, StatusEmit};
 use crate::services::ingestion::import::{ImportSummary, import_paths};
 use crate::services::ingestion::queue::{DocumentChanged, Emit, Ingestor};
@@ -63,6 +64,12 @@ fn specta_builder() -> Builder<tauri::Wry> {
         commands::library::get_passage,
         commands::embedding::embedding_status,
         commands::embedding::download_embedding_model,
+        commands::embedding::allow_cloud_embedding,
+        commands::embedding::set_embedding_backend,
+        commands::usage::get_usage,
+        commands::usage::set_prices_auto_update,
+        commands::usage::update_prices_now,
+        commands::usage::show_logs,
         commands::embedding::set_embedding_paused,
     ])
 }
@@ -106,6 +113,25 @@ fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// Logs go to the console and to a file in `~/Library/Logs/app.chingui.desktop/`. They hold
+/// timings, counts and errors, never document text, messages or API keys.
+fn logging() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    use tauri_plugin_log::{RotationStrategy, Target, TargetKind};
+    // Our own code logs at debug level in dev builds. Dependencies stay at info, they are chatty.
+    let ours = if cfg!(debug_assertions) { log::LevelFilter::Debug } else { log::LevelFilter::Info };
+    tauri_plugin_log::Builder::new()
+        .targets([
+            Target::new(TargetKind::Stdout),
+            Target::new(TargetKind::LogDir { file_name: Some("chingui".into()) }),
+        ])
+        .level(log::LevelFilter::Info)
+        .level_for("chingui_lib", ours)
+        .level_for("chingui", ours)
+        .max_file_size(2_000_000)
+        .rotation_strategy(RotationStrategy::KeepSome(5))
+        .build()
+}
+
 pub fn run() {
     let builder = specta_builder();
 
@@ -116,6 +142,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(logging())
         .register_asynchronous_uri_scheme_protocol(docfile::SCHEME, |ctx, request, responder| {
             let app = ctx.app_handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -126,10 +153,14 @@ pub fn run() {
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
             builder.mount_events(app);
+            std::panic::set_hook(Box::new(|info| log::error!("panic: {info}")));
+            log::info!("Chingui {} starting", env!("CARGO_PKG_VERSION"));
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
             let db_path = dir.join("chingui.sqlite");
             let db = Db::open(&db_path)?;
+            crate::services::pricing::load_saved(&dir);
+            tauri::async_runtime::spawn(crate::services::pricing::keep_fresh(db.clone(), dir.clone()));
             let handle = app.handle().clone();
             let emit: Emit = Arc::new(move |e| {
                 let _ = e.emit(&handle);
@@ -138,7 +169,14 @@ pub fn run() {
             let status_emit: StatusEmit = Arc::new(move |s| {
                 let _ = s.emit(&status_handle);
             });
-            let embedder = Embedder::start(&db_path, &dir, status_emit, emit.clone())?;
+            let (backend, cloud_accepted) = {
+                let conn = Db::open_secondary(&db_path)?;
+                (
+                    commands::embedding::saved_backend(&conn)?,
+                    crate::persistence::settings::get_bool(&conn, commands::embedding::CLOUD_ACCEPTED)?,
+                )
+            };
+            let embedder = Embedder::start(&db_path, &dir, backend, cloud_accepted, status_emit, emit.clone())?;
             // A document that becomes ready wakes the embedding worker. The worker's own
             // document events skip this, so it doesn't wake itself.
             let (wake, raw_emit) = (embedder.clone(), emit);
@@ -155,17 +193,19 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 let _ = resume_ingest.resume(&resume_db).await;
             });
-            // If the user agreed to the model download earlier, finish it.
-            let (model_db, model_embedder) = (db.clone(), embedder.clone());
-            tauri::async_runtime::spawn(async move {
-                let accepted = model_db
-                    .call(|c| crate::persistence::settings::get_bool(c, commands::embedding::DOWNLOAD_ACCEPTED))
-                    .await
-                    .unwrap_or(false);
-                if accepted {
-                    model_embedder.ensure_model();
-                }
-            });
+            // If the user agreed to the local model download earlier, finish it.
+            if backend == Backend::Local {
+                let (model_db, model_embedder) = (db.clone(), embedder.clone());
+                tauri::async_runtime::spawn(async move {
+                    let accepted = model_db
+                        .call(|c| crate::persistence::settings::get_bool(c, commands::embedding::DOWNLOAD_ACCEPTED))
+                        .await
+                        .unwrap_or(false);
+                    if accepted {
+                        model_embedder.ensure_model();
+                    }
+                });
+            }
             app.manage(AppState {
                 db,
                 providers: Providers::new(),

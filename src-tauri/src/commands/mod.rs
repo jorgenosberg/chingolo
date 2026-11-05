@@ -5,3 +5,4 @@ pub mod embedding;
 pub mod library;
 pub mod projects;
 pub mod settings;
+pub mod usage;
