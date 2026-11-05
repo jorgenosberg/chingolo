@@ -117,7 +117,7 @@ pub async fn send(
             };
             let tx = c.transaction()?;
             if conv.model_id.is_none() {
-                repo::set_model(&tx, &conv.id, &model)?;
+                repo::set_model(&tx, &conv.id, &conv.provider, &model)?;
             }
             let user_message = repo::insert_message(
                 &tx, &conv.id, Role::User, &content, MessageStatus::Complete, None, None,

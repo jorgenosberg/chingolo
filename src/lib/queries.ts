@@ -31,7 +31,7 @@ export function useSettings() {
 export function useModels(enabled: boolean) {
 	return useQuery({
 		queryKey: keys.models,
-		queryFn: api.listModels,
+		queryFn: api.listAllModels,
 		enabled,
 		staleTime: 10 * 60_000,
 	});

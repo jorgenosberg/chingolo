@@ -195,8 +195,8 @@ export function UsageSection() {
 				Estimated from token counts and prices from{" "}
 				{data?.pricesSource ?? "the price list"}, last updated{" "}
 				{data?.pricesFetched ?? "…"} (see below). "~" means a token count was
-				guessed from text length. Google has no usage service for API keys, so
-				AI Studio's Usage page has the real bill.
+				guessed from text length. Your provider's own dashboard (AI Studio for
+				Gemini, platform.openai.com for OpenAI) has the real bill.
 			</p>
 			<div className="flex flex-col gap-2 border-t border-border pt-3">
 				<Switch

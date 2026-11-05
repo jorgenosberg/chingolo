@@ -3,11 +3,11 @@ use tauri::ipc::Channel;
 
 use crate::domain::{Conversation, ConversationFilter, Message};
 use crate::error::CmdResult;
-use crate::persistence::{chat as repo, settings};
+use crate::commands::settings::pick_provider;
+use crate::persistence::chat as repo;
+use crate::persistence::settings;
 use crate::services::chat::{self, ChatEvent, SendResult};
 use crate::state::AppState;
-
-const DEFAULT_PROVIDER: &str = "gemini";
 
 #[tauri::command]
 #[specta::specta]
@@ -28,6 +28,7 @@ pub async fn create_conversation(
     project_id: Option<String>,
     chapter_id: Option<String>,
 ) -> CmdResult<Conversation> {
+    let provider = pick_provider(&state).await?;
     Ok(state
         .db
         .call(move |c| {
@@ -36,7 +37,7 @@ pub async fn create_conversation(
                 c,
                 project_id.as_deref(),
                 chapter_id.as_deref(),
-                DEFAULT_PROVIDER,
+                &provider,
                 model.as_deref(),
             )
         })
@@ -74,11 +75,13 @@ pub async fn archive_conversation(
 pub async fn set_conversation_model(
     state: State<'_, AppState>,
     id: String,
+    provider: String,
     model_id: String,
 ) -> CmdResult<Conversation> {
+    state.providers.get(&provider)?;
     Ok(state
         .db
-        .call(move |c| repo::set_model(c, &id, &model_id))
+        .call(move |c| repo::set_model(c, &id, &provider, &model_id))
         .await?)
 }
 

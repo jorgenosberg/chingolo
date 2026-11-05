@@ -2,13 +2,23 @@ import { useState } from "react";
 import {
 	Dialog,
 	DialogTrigger,
+	Header,
 	ListBox,
 	ListBoxItem,
+	ListBoxSection,
 	Popover,
 	Tooltip,
 	TooltipTrigger,
 } from "react-aria-components";
-import type { ModelInfo } from "../lib/bindings";
+import type { ModelInfo, ProviderError } from "../lib/bindings";
+import {
+	groupModels,
+	type ModelRef,
+	modelKey,
+	providerName,
+	sameModel,
+	withSavedModel,
+} from "../lib/providers";
 import { CheckIcon, SparkleIcon } from "./icons";
 import { formatTokens } from "./ModelSelect";
 import { IconButton } from "./ui";
@@ -16,31 +26,23 @@ import { IconButton } from "./ui";
 /** Small button that opens a popover to see and change the conversation's model. */
 export function ModelPopover({
 	models,
+	errors = [],
 	value,
 	onChange,
 	isDisabled,
 }: {
 	models: ModelInfo[];
-	value: string | null;
-	onChange: (id: string) => void;
+	/** Providers whose model list couldn't be loaded. */
+	errors?: ProviderError[];
+	value: ModelRef | null;
+	onChange: (model: ModelRef) => void;
 	isDisabled?: boolean;
 }) {
 	const [open, setOpen] = useState(false);
-	// Keep a saved model visible even if the provider no longer lists it.
-	const items: ModelInfo[] =
-		value && !models.some((m) => m.id === value)
-			? [
-					{
-						id: value,
-						displayName: value,
-						inputTokenLimit: null,
-						outputTokenLimit: null,
-					},
-					...models,
-				]
-			: models;
+	const items = withSavedModel(models, value);
+	const groups = groupModels(items);
 	const current =
-		items.find((m) => m.id === value)?.displayName ?? "none chosen";
+		items.find((m) => sameModel(m, value))?.displayName ?? "none chosen";
 
 	return (
 		<DialogTrigger isOpen={open} onOpenChange={setOpen}>
@@ -73,40 +75,62 @@ export function ModelPopover({
 						aria-label="Models"
 						selectionMode="single"
 						disallowEmptySelection
-						selectedKeys={value ? [value] : []}
+						selectedKeys={value ? [modelKey(value)] : []}
 						onSelectionChange={(keys) => {
 							if (keys === "all") return;
-							const id = [...keys][0];
-							if (id === undefined || String(id) === value) return;
+							const key = [...keys][0];
+							const m = items.find((i) => modelKey(i) === String(key));
+							if (!m || sameModel(m, value)) return;
 							// Close first: switching can open a confirmation dialog.
 							setOpen(false);
-							onChange(String(id));
+							onChange({ provider: m.provider, id: m.id });
 						}}
-						items={items}
 						className="max-h-72 overflow-auto outline-none"
 					>
-						{(m) => (
-							<ListBoxItem
-								id={m.id}
-								textValue={m.displayName}
-								className="flex cursor-default items-center justify-between gap-3 rounded-md px-2.5 py-1.5 text-[13px] outline-none data-[focused]:bg-muted data-[selected]:font-medium"
+						{groups.map((g) => (
+							<ListBoxSection
+								key={g.provider}
+								aria-label={providerName(g.provider)}
 							>
-								{({ isSelected }) => (
-									<>
-										<span className="truncate">{m.displayName}</span>
-										<span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
-											{m.inputTokenLimit
-												? formatTokens(m.inputTokenLimit)
-												: null}
-											{isSelected && (
-												<CheckIcon className="size-3.5 text-primary" />
-											)}
-										</span>
-									</>
+								{groups.length > 1 && (
+									<Header className="px-2.5 pb-1 pt-2 text-xs font-medium text-muted-foreground">
+										{providerName(g.provider)}
+									</Header>
 								)}
-							</ListBoxItem>
-						)}
+								{g.models.map((m) => (
+									<ListBoxItem
+										key={modelKey(m)}
+										id={modelKey(m)}
+										textValue={m.displayName}
+										className="flex cursor-default items-center justify-between gap-3 rounded-md px-2.5 py-1.5 text-[13px] outline-none data-[focused]:bg-muted data-[selected]:font-medium"
+									>
+										{({ isSelected }) => (
+											<>
+												<span className="truncate">{m.displayName}</span>
+												<span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+													{m.inputTokenLimit
+														? formatTokens(m.inputTokenLimit)
+														: null}
+													{isSelected && (
+														<CheckIcon className="size-3.5 text-primary" />
+													)}
+												</span>
+											</>
+										)}
+									</ListBoxItem>
+								))}
+							</ListBoxSection>
+						))}
 					</ListBox>
+					{errors.map((e) => (
+						<p
+							key={e.provider}
+							role="alert"
+							className="px-2.5 pb-1 pt-2 text-xs text-problem"
+						>
+							Couldn't load {providerName(e.provider)} models: {e.message}
+						</p>
+					))}
 				</Dialog>
 			</Popover>
 		</DialogTrigger>

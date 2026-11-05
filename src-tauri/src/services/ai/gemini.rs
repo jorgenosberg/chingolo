@@ -397,6 +397,7 @@ impl ApiModel {
             return None;
         }
         Some(ModelInfo {
+            provider: "gemini".to_string(),
             display_name: self.display_name.unwrap_or_else(|| id.clone()),
             id,
             input_token_limit: self.input_token_limit,

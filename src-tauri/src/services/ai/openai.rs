@@ -98,6 +98,7 @@ impl Provider for OpenAi {
             let mut models: Vec<ModelInfo> = ids
                 .filter(|id| is_chat_model(id))
                 .map(|id| ModelInfo {
+                    provider: "openai".to_string(),
                     id: id.to_string(),
                     display_name: id.to_string(),
                     // The model list has no limits, the price table does.

@@ -130,6 +130,13 @@ impl Providers {
         Providers(Arc::new(map))
     }
 
+    /// Provider ids in a fixed order.
+    pub fn ids(&self) -> Vec<&'static str> {
+        let mut ids: Vec<&'static str> = self.0.keys().copied().collect();
+        ids.sort_unstable();
+        ids
+    }
+
     pub fn get(&self, id: &str) -> Result<Arc<dyn Provider>> {
         self.0
             .get(id)

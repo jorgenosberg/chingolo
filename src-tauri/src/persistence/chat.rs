@@ -156,10 +156,10 @@ pub fn set_archived(conn: &Connection, id: &str, archived: bool) -> Result<Conve
     get_conversation(conn, id)
 }
 
-pub fn set_model(conn: &Connection, id: &str, model_id: &str) -> Result<Conversation> {
+pub fn set_model(conn: &Connection, id: &str, provider: &str, model_id: &str) -> Result<Conversation> {
     let n = conn.execute(
-        "UPDATE conversations SET model_id = ?1 WHERE id = ?2",
-        params![model_id, id],
+        "UPDATE conversations SET provider = ?1, model_id = ?2 WHERE id = ?3",
+        params![provider, model_id, id],
     )?;
     if n == 0 {
         return Err(AppError::NotFound);
@@ -366,8 +366,9 @@ mod tests {
         assert_eq!(list_conversations(&conn, &f).unwrap().len(), 1);
 
         let c = set_archived(&conn, &c.id, false).unwrap();
-        let c = set_model(&conn, &c.id, "other-model").unwrap();
+        let c = set_model(&conn, &c.id, "openai", "other-model").unwrap();
         assert_eq!(c.model_id.as_deref(), Some("other-model"));
+        assert_eq!(c.provider, "openai");
         delete_conversation(&conn, &c.id).unwrap();
         assert!(matches!(get_conversation(&conn, &c.id), Err(AppError::NotFound)));
     }

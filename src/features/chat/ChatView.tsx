@@ -14,6 +14,7 @@ import { ModelPopover } from "../../components/ModelPopover";
 import { Button, IconButton, Modal_, SHORTCUTS } from "../../components/ui";
 import { api } from "../../lib/api";
 import type { Message } from "../../lib/bindings";
+import { type ModelRef, providerName, sameModel } from "../../lib/providers";
 import {
 	keys,
 	sendMessage,
@@ -38,7 +39,8 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 	const messages = useMessages(conversationId);
 	const live = useLiveReply(conversationId);
 	const settings = useSettings();
-	const models = useModels(!!settings.data?.hasApiKey);
+	const models = useModels((settings.data?.apiKeys.length ?? 0) > 0);
+	const modelList = models.data?.models ?? [];
 
 	// Stable callback so finished messages don't re-render while a reply streams.
 	const forkRef = useRef<(messageId: string) => void>(() => {});
@@ -80,10 +82,16 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 		);
 	}
 
-	const hasKey = settings.data?.hasApiKey ?? false;
+	const hasKey = conversation
+		? (settings.data?.apiKeys.includes(conversation.provider) ?? false)
+		: false;
 	const busy = sending || live !== undefined;
 	const switchCost = conversation?.switchCostTokens ?? null;
 	const modelId = conversation?.modelId ?? settings.data?.defaultModel ?? null;
+	const modelRef: ModelRef | null =
+		conversation && modelId
+			? { provider: conversation.provider, id: modelId }
+			: null;
 
 	const doSend = async (text: string): Promise<boolean> => {
 		setError(null);
@@ -119,10 +127,11 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 		await qc.invalidateQueries({ queryKey: keys.settings });
 	};
 
-	const changeModel = async (id: string) => {
-		if (id === modelId) return;
+	const changeModel = async (next: ModelRef) => {
+		if (sameModel(next, modelRef)) return;
 		if (switchCost) {
-			const name = models.data?.find((m) => m.id === id)?.displayName ?? id;
+			const name =
+				modelList.find((m) => sameModel(m, next))?.displayName ?? next.id;
 			const ok = await confirm({
 				title: "Switch model?",
 				message: `${name} has to read this whole conversation (about ${formatTokens(switchCost)} tokens) as new input, with no cached input from the current model. Cached input usually costs about a tenth as much, so the next message costs more. Messages after that are cached again. To continue with less context, use "Hand off to a new conversation" from the ⋯ menu instead.`,
@@ -130,7 +139,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 			});
 			if (!ok) return;
 		}
-		await api.setConversationModel(conversationId, id);
+		await api.setConversationModel(conversationId, next.provider, next.id);
 		await qc.invalidateQueries({ queryKey: keys.conversations });
 	};
 
@@ -149,7 +158,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 
 	const list = messages.data ?? [];
 	const modelName = (id: string) =>
-		models.data?.find((m) => m.id === id)?.displayName ?? id;
+		modelList.find((m) => m.id === id)?.displayName ?? id;
 	const modelChanges = findModelChanges(list);
 	// The model the conversation began with: its first reply's model, else the current choice.
 	const startModel =
@@ -238,7 +247,10 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 				<div className="mx-auto flex max-w-3xl flex-col gap-6 px-6 py-8">
 					{!hasKey && settings.isSuccess && (
 						<div className="flex items-center justify-between gap-4 rounded-xl bg-muted px-4 py-3 text-sm">
-							<span>Add your Gemini API key to start chatting.</span>
+							<span>
+								Add your {providerName(conversation?.provider ?? "gemini")} API
+								key to start chatting.
+							</span>
 							<Button onPress={openSettings}>Open settings</Button>
 						</div>
 					)}
@@ -300,8 +312,9 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 					onStop={() => live?.messageId && api.cancelGeneration(live.messageId)}
 					extra={
 						<ModelPopover
-							models={models.data ?? []}
-							value={modelId}
+							models={modelList}
+							errors={models.data?.errors}
+							value={modelRef}
 							onChange={changeModel}
 							isDisabled={!hasKey || busy}
 						/>

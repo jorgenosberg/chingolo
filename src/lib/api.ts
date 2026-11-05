@@ -17,8 +17,6 @@ async function unwrap<T>(p: Promise<Result<T>>): Promise<T> {
 	return r.data;
 }
 
-export const PROVIDER = "gemini";
-
 export const api = {
 	listProjects: () => unwrap(commands.listProjects()),
 	createProject: (name: string) => unwrap(commands.createProject(name)),
@@ -46,8 +44,8 @@ export const api = {
 		unwrap(commands.renameConversation(id, title)),
 	archiveConversation: (id: string, archived: boolean) =>
 		unwrap(commands.archiveConversation(id, archived)),
-	setConversationModel: (id: string, modelId: string) =>
-		unwrap(commands.setConversationModel(id, modelId)),
+	setConversationModel: (id: string, provider: string, modelId: string) =>
+		unwrap(commands.setConversationModel(id, provider, modelId)),
 	deleteConversation: (id: string) => unwrap(commands.deleteConversation(id)),
 	forkConversation: (id: string, fromMessageId: string | null) =>
 		unwrap(commands.forkConversation(id, fromMessageId)),
@@ -63,13 +61,15 @@ export const api = {
 				onboarded: null,
 				privacyAcknowledged: null,
 				defaultModel: null,
+				defaultProvider: null,
 				embeddingNoticeDismissed: null,
 				...patch,
 			}),
 		),
-	saveApiKey: (key: string) => unwrap(commands.saveApiKey(PROVIDER, key)),
-	deleteApiKey: () => unwrap(commands.deleteApiKey(PROVIDER)),
-	listModels: () => unwrap(commands.listModels(PROVIDER)),
+	saveApiKey: (provider: string, key: string) =>
+		unwrap(commands.saveApiKey(provider, key)),
+	deleteApiKey: (provider: string) => unwrap(commands.deleteApiKey(provider)),
+	listAllModels: () => unwrap(commands.listAllModels()),
 
 	pickAndImport: (folder: boolean, projectId: string | null) =>
 		unwrap(commands.pickAndImport(folder, projectId)),

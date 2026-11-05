@@ -181,7 +181,10 @@ pub struct AppSettings {
     pub onboarded: bool,
     pub privacy_acknowledged: bool,
     pub default_model: Option<String>,
-    pub has_api_key: bool,
+    /// The provider that `default_model` belongs to. New chats start with it.
+    pub default_provider: Option<String>,
+    /// Provider ids that have an API key saved in the Keychain.
+    pub api_keys: Vec<String>,
     /// The user chose "Not now" on the search model download notice.
     pub embedding_notice_dismissed: bool,
 }
@@ -192,16 +195,35 @@ pub struct SettingsPatch {
     pub onboarded: Option<bool>,
     pub privacy_acknowledged: Option<bool>,
     pub default_model: Option<String>,
+    pub default_provider: Option<String>,
     pub embedding_notice_dismissed: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelInfo {
+    /// The provider id this model belongs to, for example `gemini` or `openai`.
+    pub provider: String,
     pub id: String,
     pub display_name: String,
     pub input_token_limit: Option<u32>,
     pub output_token_limit: Option<u32>,
+}
+
+/// A provider whose model list couldn't be loaded.
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderError {
+    pub provider: String,
+    pub message: String,
+}
+
+/// Models from every provider that has a key. One failing provider doesn't hide the others.
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelList {
+    pub models: Vec<ModelInfo>,
+    pub errors: Vec<ProviderError>,
 }
 
 #[cfg(test)]

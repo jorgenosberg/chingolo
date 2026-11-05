@@ -1,12 +1,21 @@
 import {
 	Button,
+	Header,
 	ListBox,
 	ListBoxItem,
+	ListBoxSection,
 	Popover,
 	Select,
 	SelectValue,
 } from "react-aria-components";
 import type { ModelInfo } from "../lib/bindings";
+import {
+	groupModels,
+	type ModelRef,
+	modelKey,
+	providerName,
+	withSavedModel,
+} from "../lib/providers";
 import { ChevronIcon } from "./icons";
 import { cx, focus } from "./ui";
 
@@ -20,24 +29,24 @@ export function ModelSelect({
 	className,
 }: {
 	models: ModelInfo[];
-	value: string | null;
-	onChange: (id: string) => void;
+	value: ModelRef | null;
+	onChange: (model: ModelRef) => void;
 	label: string;
 	isDisabled?: boolean;
 	placeholder?: string;
 	className?: string;
 }) {
-	// Keep a saved model selectable even if the provider no longer lists it.
-	const items =
-		value && !models.some((m) => m.id === value)
-			? [{ id: value, displayName: value } as ModelInfo, ...models]
-			: models;
+	const items = withSavedModel(models, value);
+	const groups = groupModels(items);
 
 	return (
 		<Select
 			aria-label={label}
-			selectedKey={value}
-			onSelectionChange={(k) => k && onChange(String(k))}
+			selectedKey={value ? modelKey(value) : null}
+			onSelectionChange={(k) => {
+				const m = items.find((i) => modelKey(i) === String(k));
+				if (m) onChange({ provider: m.provider, id: m.id });
+			}}
 			isDisabled={isDisabled}
 			placeholder={placeholder}
 			className={className}
@@ -53,21 +62,34 @@ export function ModelSelect({
 				<ChevronIcon className="size-3.5 shrink-0 rotate-90 text-muted-foreground" />
 			</Button>
 			<Popover className="max-h-72 min-w-(--trigger-width) overflow-auto rounded-xl border border-border bg-card p-1 shadow-lg">
-				<ListBox items={items} className="outline-none">
-					{(m) => (
-						<ListBoxItem
-							id={m.id}
-							textValue={m.displayName}
-							className="flex cursor-default items-center justify-between gap-3 rounded-md px-2.5 py-1.5 text-[13px] outline-none data-[focused]:bg-muted data-[selected]:font-medium"
+				<ListBox className="outline-none">
+					{groups.map((g) => (
+						<ListBoxSection
+							key={g.provider}
+							aria-label={providerName(g.provider)}
 						>
-							<span className="truncate">{m.displayName}</span>
-							{m.inputTokenLimit ? (
-								<span className="shrink-0 text-xs text-muted-foreground">
-									{formatTokens(m.inputTokenLimit)}
-								</span>
-							) : null}
-						</ListBoxItem>
-					)}
+							{groups.length > 1 && (
+								<Header className="px-2.5 pb-1 pt-2 text-xs font-medium text-muted-foreground">
+									{providerName(g.provider)}
+								</Header>
+							)}
+							{g.models.map((m) => (
+								<ListBoxItem
+									key={modelKey(m)}
+									id={modelKey(m)}
+									textValue={m.displayName}
+									className="flex cursor-default items-center justify-between gap-3 rounded-md px-2.5 py-1.5 text-[13px] outline-none data-[focused]:bg-muted data-[selected]:font-medium"
+								>
+									<span className="truncate">{m.displayName}</span>
+									{m.inputTokenLimit ? (
+										<span className="shrink-0 text-xs text-muted-foreground">
+											{formatTokens(m.inputTokenLimit)}
+										</span>
+									) : null}
+								</ListBoxItem>
+							))}
+						</ListBoxSection>
+					))}
 				</ListBox>
 			</Popover>
 		</Select>
@@ -80,12 +102,17 @@ export function formatTokens(n: number) {
 		: `${Math.round(n / 1000)}k`;
 }
 
-/** First "flash" model that isn't a lite or preview build, else the first model. */
-export function pickDefaultModel(models: ModelInfo[]): string | null {
-	const plain = models.find(
-		(m) => /flash/i.test(m.id) && !/lite|preview|exp/i.test(m.id),
-	);
-	return (
-		(plain ?? models.find((m) => /flash/i.test(m.id)) ?? models[0])?.id ?? null
-	);
+/**
+ * For Gemini, the first "flash" model that isn't a lite or preview build. Other providers have
+ * no naming rule we trust, so the user picks.
+ */
+export function pickDefaultModel(models: ModelInfo[]): ModelRef | null {
+	const gemini = models.filter((m) => m.provider === "gemini");
+	const found =
+		gemini.find(
+			(m) => /flash/i.test(m.id) && !/lite|preview|exp/i.test(m.id),
+		) ??
+		gemini.find((m) => /flash/i.test(m.id)) ??
+		gemini[0];
+	return found ? { provider: found.provider, id: found.id } : null;
 }

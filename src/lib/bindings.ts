@@ -18,7 +18,7 @@ export const commands = {
 	createConversation: (projectId: string | null, chapterId: string | null) => typedError<Conversation, CmdError>(__TAURI_INVOKE("create_conversation", { projectId, chapterId })),
 	renameConversation: (id: string, title: string) => typedError<Conversation, CmdError>(__TAURI_INVOKE("rename_conversation", { id, title })),
 	archiveConversation: (id: string, archived: boolean) => typedError<Conversation, CmdError>(__TAURI_INVOKE("archive_conversation", { id, archived })),
-	setConversationModel: (id: string, modelId: string) => typedError<Conversation, CmdError>(__TAURI_INVOKE("set_conversation_model", { id, modelId })),
+	setConversationModel: (id: string, provider: string, modelId: string) => typedError<Conversation, CmdError>(__TAURI_INVOKE("set_conversation_model", { id, provider, modelId })),
 	deleteConversation: (id: string) => typedError<null, CmdError>(__TAURI_INVOKE("delete_conversation", { id })),
 	listMessages: (conversationId: string) => typedError<Message[], CmdError>(__TAURI_INVOKE("list_messages", { conversationId })),
 	/**  Saves the user's message, then streams the reply over `on_event`. */
@@ -34,6 +34,11 @@ export const commands = {
 	saveApiKey: (provider: string, key: string) => typedError<ModelInfo[], CmdError>(__TAURI_INVOKE("save_api_key", { provider, key })),
 	deleteApiKey: (provider: string) => typedError<null, CmdError>(__TAURI_INVOKE("delete_api_key", { provider })),
 	listModels: (provider: string) => typedError<ModelInfo[], CmdError>(__TAURI_INVOKE("list_models", { provider })),
+	/**
+	 *  Models from every provider that has a key, loaded in parallel. A provider that fails is
+	 *  reported in `errors` and the others still show up.
+	 */
+	listAllModels: () => typedError<ModelList, CmdError>(__TAURI_INVOKE("list_all_models")),
 	/**
 	 *  Opens the system file or folder dialog and imports what the user picks. Paths never pass
 	 *  through the webview.
@@ -93,7 +98,10 @@ export type AppSettings = {
 	onboarded: boolean,
 	privacyAcknowledged: boolean,
 	defaultModel: string | null,
-	hasApiKey: boolean,
+	/**  The provider that `default_model` belongs to. New chats start with it. */
+	defaultProvider: string | null,
+	/**  Provider ids that have an API key saved in the Keychain. */
+	apiKeys: string[],
 	/**  The user chose "Not now" on the search model download notice. */
 	embeddingNoticeDismissed: boolean,
 };
@@ -249,10 +257,18 @@ export type MetadataPatch = {
 };
 
 export type ModelInfo = {
+	/**  The provider id this model belongs to, for example `gemini` or `openai`. */
+	provider: string,
 	id: string,
 	displayName: string,
 	inputTokenLimit: number | null,
 	outputTokenLimit: number | null,
+};
+
+/**  Models from every provider that has a key. One failing provider doesn't hide the others. */
+export type ModelList = {
+	models: ModelInfo[],
+	errors: ProviderError[],
 };
 
 /**  What the UI shows about the model files. Sizes are bytes. */
@@ -287,6 +303,12 @@ export type Project = {
 	updatedAt: number,
 };
 
+/**  A provider whose model list couldn't be loaded. */
+export type ProviderError = {
+	provider: string,
+	message: string,
+};
+
 export type Role = "user" | "assistant";
 
 export type SearchHit = {
@@ -309,6 +331,7 @@ export type SettingsPatch = {
 	onboarded: boolean | null,
 	privacyAcknowledged: boolean | null,
 	defaultModel: string | null,
+	defaultProvider: string | null,
 	embeddingNoticeDismissed: boolean | null,
 };
 

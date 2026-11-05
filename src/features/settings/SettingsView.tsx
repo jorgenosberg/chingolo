@@ -15,6 +15,12 @@ import { ModelSelect } from "../../components/ModelSelect";
 import { Button, cx, focus, Spinner, TextInput } from "../../components/ui";
 import { api } from "../../lib/api";
 import { useEmbeddingStatus } from "../../lib/library";
+import {
+	type ModelRef,
+	PROVIDERS,
+	type Provider,
+	providerName,
+} from "../../lib/providers";
 import { keys, useModels, useSettings } from "../../lib/queries";
 import { setTheme, type ThemePref, useTheme } from "../../lib/theme";
 import { mb } from "../library/EmbeddingNotice";
@@ -149,7 +155,8 @@ function SearchModel() {
 		api.setEmbeddingBackend(id).catch(fail);
 	};
 
-	const needsKey = backend === "gemini" && !settings?.hasApiKey;
+	const needsKey =
+		backend === "gemini" && !settings?.apiKeys.includes("gemini");
 	const indexing = model.kind === "ready" && indexed < total;
 
 	return (
@@ -279,6 +286,109 @@ function SearchModel() {
 	);
 }
 
+/** Key entry for one provider. The key is checked by listing models before it is saved. */
+function ApiKeySection({ provider }: { provider: Provider }) {
+	const qc = useQueryClient();
+	const { confirm } = useDialogs();
+	const { data: settings } = useSettings();
+	const hasKey = settings?.apiKeys.includes(provider.id) ?? false;
+	const [replacing, setReplacing] = useState(false);
+	const [key, setKey] = useState("");
+	const [busy, setBusy] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+
+	const saveKey = async () => {
+		setBusy(true);
+		setError(null);
+		try {
+			await api.saveApiKey(provider.id, key);
+			await qc.invalidateQueries({ queryKey: keys.settings });
+			await qc.invalidateQueries({ queryKey: keys.models });
+			setKey("");
+			setReplacing(false);
+		} catch (e) {
+			setError(e instanceof Error ? e.message : String(e));
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	const removeKey = async () => {
+		const ok = await confirm({
+			title: `Remove the ${provider.name} key?`,
+			message: `The key is deleted from the macOS Keychain. Your chats stay, but you can't send messages with ${provider.name} models until you add a key again.`,
+			confirmLabel: "Remove key",
+			danger: true,
+		});
+		if (!ok) return;
+		await api.deleteApiKey(provider.id);
+		await qc.invalidateQueries({ queryKey: keys.settings });
+		await qc.invalidateQueries({ queryKey: keys.models });
+	};
+
+	return (
+		<Section title={`${provider.name} API key`}>
+			{hasKey && !replacing ? (
+				<div className="flex items-center justify-between gap-3">
+					<p className="text-sm text-muted-foreground">
+						Saved in the macOS Keychain.
+					</p>
+					<div className="flex gap-2">
+						<Button onPress={() => setReplacing(true)}>Replace</Button>
+						<Button variant="ghost" onPress={removeKey}>
+							Remove
+						</Button>
+					</div>
+				</div>
+			) : (
+				<form
+					className="flex flex-col gap-3"
+					onSubmit={(e) => {
+						e.preventDefault();
+						if (key.trim()) saveKey();
+					}}
+				>
+					<TextInput
+						label="API key"
+						type="password"
+						value={key}
+						onChange={setKey}
+						isInvalid={!!error}
+						description={`Checked with ${provider.company} before it is saved. Create one at ${provider.keyUrl}.`}
+					/>
+					{error && (
+						<p role="alert" className="text-sm text-problem">
+							{error}
+						</p>
+					)}
+					<div className="flex justify-end gap-2">
+						{replacing && (
+							<Button
+								variant="ghost"
+								onPress={() => {
+									setReplacing(false);
+									setError(null);
+									setKey("");
+								}}
+							>
+								Cancel
+							</Button>
+						)}
+						<Button
+							variant="primary"
+							type="submit"
+							isDisabled={busy || !key.trim()}
+						>
+							{busy ? <Spinner /> : null}
+							Check and save
+						</Button>
+					</div>
+				</form>
+			)}
+		</Section>
+	);
+}
+
 export function SettingsView() {
 	const { closeSettings } = useNav();
 	const [tab, setTab] = useState(savedTab);
@@ -291,47 +401,22 @@ export function SettingsView() {
 		}
 	};
 	const qc = useQueryClient();
-	const { confirm } = useDialogs();
 	const { data: settings } = useSettings();
-	const models = useModels(!!settings?.hasApiKey);
+	const hasKeys = (settings?.apiKeys.length ?? 0) > 0;
+	const models = useModels(hasKeys);
 	const theme = useTheme();
-	const [replacing, setReplacing] = useState(false);
-	const [key, setKey] = useState("");
-	const [busy, setBusy] = useState(false);
-	const [error, setError] = useState<string | null>(null);
+	const defaultModel: ModelRef | null = settings?.defaultModel
+		? {
+				provider: settings.defaultProvider ?? "gemini",
+				id: settings.defaultModel,
+			}
+		: null;
 
-	const saveKey = async () => {
-		setBusy(true);
-		setError(null);
-		try {
-			const list = await api.saveApiKey(key);
-			qc.setQueryData(keys.models, list);
-			await qc.invalidateQueries({ queryKey: keys.settings });
-			setKey("");
-			setReplacing(false);
-		} catch (e) {
-			setError(e instanceof Error ? e.message : String(e));
-		} finally {
-			setBusy(false);
-		}
-	};
-
-	const removeKey = async () => {
-		const ok = await confirm({
-			title: "Remove API key?",
-			message:
-				"The key is deleted from the macOS Keychain. Your chats stay, but you can't send messages until you add a key again.",
-			confirmLabel: "Remove key",
-			danger: true,
+	const setDefaultModel = async (m: ModelRef) => {
+		await api.updateSettings({
+			defaultModel: m.id,
+			defaultProvider: m.provider,
 		});
-		if (!ok) return;
-		await api.deleteApiKey();
-		qc.removeQueries({ queryKey: keys.models });
-		await qc.invalidateQueries({ queryKey: keys.settings });
-	};
-
-	const setDefaultModel = async (id: string) => {
-		await api.updateSettings({ defaultModel: id });
 		await qc.invalidateQueries({ queryKey: keys.settings });
 	};
 
@@ -373,79 +458,19 @@ export function SettingsView() {
 				<div className="min-h-0 flex-1 overflow-y-auto">
 					<div className="mx-auto flex w-full max-w-2xl flex-col px-6 pt-2 pb-12">
 						<TabPanel id="general" className="outline-none">
-							<Section title="Gemini API key">
-								{settings?.hasApiKey && !replacing ? (
-									<div className="flex items-center justify-between gap-3">
-										<p className="text-sm text-muted-foreground">
-											Saved in the macOS Keychain.
-										</p>
-										<div className="flex gap-2">
-											<Button onPress={() => setReplacing(true)}>
-												Replace
-											</Button>
-											<Button variant="ghost" onPress={removeKey}>
-												Remove
-											</Button>
-										</div>
-									</div>
-								) : (
-									<form
-										className="flex flex-col gap-3"
-										onSubmit={(e) => {
-											e.preventDefault();
-											if (key.trim()) saveKey();
-										}}
-									>
-										<TextInput
-											label="API key"
-											type="password"
-											value={key}
-											onChange={setKey}
-											isInvalid={!!error}
-											description="Checked with Google before it is saved. Create one at aistudio.google.com/apikey."
-										/>
-										{error && (
-											<p role="alert" className="text-sm text-problem">
-												{error}
-											</p>
-										)}
-										<div className="flex justify-end gap-2">
-											{replacing && (
-												<Button
-													variant="ghost"
-													onPress={() => {
-														setReplacing(false);
-														setError(null);
-														setKey("");
-													}}
-												>
-													Cancel
-												</Button>
-											)}
-											<Button
-												variant="primary"
-												type="submit"
-												isDisabled={busy || !key.trim()}
-											>
-												{busy ? <Spinner /> : null}
-												Check and save
-											</Button>
-										</div>
-									</form>
-								)}
-							</Section>
+							{PROVIDERS.map((p) => (
+								<ApiKeySection key={p.id} provider={p} />
+							))}
 
 							<Section title="Default model">
 								<ModelSelect
 									label="Default model"
-									models={models.data ?? []}
-									value={settings?.defaultModel ?? null}
+									models={models.data?.models ?? []}
+									value={defaultModel}
 									onChange={setDefaultModel}
-									isDisabled={!settings?.hasApiKey}
+									isDisabled={!hasKeys}
 									placeholder={
-										settings?.hasApiKey
-											? "Choose a model"
-											: "Add an API key first"
+										hasKeys ? "Choose a model" : "Add an API key first"
 									}
 								/>
 								{models.isError && (
@@ -453,6 +478,15 @@ export function SettingsView() {
 										Couldn't load models: {models.error.message}
 									</p>
 								)}
+								{models.data?.errors.map((e) => (
+									<p
+										key={e.provider}
+										role="alert"
+										className="text-sm text-problem"
+									>
+										Couldn't load {providerName(e.provider)} models: {e.message}
+									</p>
+								))}
 							</Section>
 
 							<Section title="Appearance">
@@ -493,12 +527,13 @@ export function SettingsView() {
 							<Section title="Privacy">
 								<p className="text-sm leading-relaxed text-muted-foreground">
 									Projects and chats are stored on this Mac. Messages you send
-									go to Google's Gemini service with your own API key. Meaning
-									search sends passages of your papers to Gemini to be indexed,
-									and only if you agree. The local search model keeps them on
-									this Mac, after a one-time download from Hugging Face. About
-									once a week the app also downloads a public price list from
-									models.dev for cost estimates, which sends nothing of yours.
+									go to the provider of the model you chose, Google (Gemini) or
+									OpenAI, with your own API key for it. Meaning search sends
+									passages of your papers to Gemini to be indexed, and only if
+									you agree. The local search model keeps them on this Mac,
+									after a one-time download from Hugging Face. About once a week
+									the app also downloads a public price list from models.dev for
+									cost estimates, which sends nothing of yours.
 								</p>
 							</Section>
 						</TabPanel>

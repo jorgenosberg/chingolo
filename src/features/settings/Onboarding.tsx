@@ -1,9 +1,16 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { Radio, RadioGroup } from "react-aria-components";
 import { ModelSelect, pickDefaultModel } from "../../components/ModelSelect";
-import { Button, Spinner, TextInput } from "../../components/ui";
+import { Button, cx, focus, Spinner, TextInput } from "../../components/ui";
 import { api } from "../../lib/api";
 import type { ModelInfo } from "../../lib/bindings";
+import {
+	type ModelRef,
+	PROVIDERS,
+	providerInfo,
+	providerName,
+} from "../../lib/providers";
 import { keys } from "../../lib/queries";
 import { PrivacyNotice } from "./PrivacyNotice";
 
@@ -12,9 +19,10 @@ type Step = "welcome" | "key" | "model" | "privacy";
 export function Onboarding() {
 	const qc = useQueryClient();
 	const [step, setStep] = useState<Step>("welcome");
+	const [provider, setProvider] = useState<string>(PROVIDERS[0].id);
 	const [key, setKey] = useState("");
 	const [models, setModels] = useState<ModelInfo[]>([]);
-	const [model, setModel] = useState<string | null>(null);
+	const [model, setModel] = useState<ModelRef | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
@@ -36,8 +44,8 @@ export function Onboarding() {
 		setBusy(true);
 		setError(null);
 		try {
-			const list = await api.saveApiKey(key);
-			qc.setQueryData(keys.models, list);
+			const list = await api.saveApiKey(provider, key);
+			await qc.invalidateQueries({ queryKey: keys.models });
 			setModels(list);
 			setModel(pickDefaultModel(list));
 			setStep("model");
@@ -49,7 +57,12 @@ export function Onboarding() {
 	};
 
 	const saveModel = async () => {
-		if (model) await api.updateSettings({ defaultModel: model });
+		if (model) {
+			await api.updateSettings({
+				defaultModel: model.id,
+				defaultProvider: model.provider,
+			});
+		}
 		setStep("privacy");
 	};
 
@@ -86,15 +99,43 @@ export function Onboarding() {
 							if (key.trim()) saveKey();
 						}}
 					>
-						<h2 className="text-lg font-semibold">Connect Gemini</h2>
+						<h2 className="text-lg font-semibold">Connect an AI provider</h2>
+						<p className="text-sm text-muted-foreground">
+							One is enough to start. You can add the other in Settings.
+						</p>
+						<RadioGroup
+							aria-label="Provider"
+							orientation="horizontal"
+							value={provider}
+							onChange={(v) => {
+								setProvider(v);
+								setError(null);
+							}}
+							className="inline-flex gap-1 self-start rounded-lg bg-muted p-1"
+						>
+							{PROVIDERS.map((p) => (
+								<Radio
+									key={p.id}
+									value={p.id}
+									className={cx(
+										"cursor-default rounded-md px-3 py-1 text-[13px] text-muted-foreground",
+										"data-[selected]:bg-card data-[selected]:font-medium data-[selected]:text-foreground data-[selected]:shadow-sm",
+										focus,
+									)}
+								>
+									{p.name}
+								</Radio>
+							))}
+						</RadioGroup>
 						<TextInput
-							label="Gemini API key"
+							key={provider}
+							label={`${providerName(provider)} API key`}
 							type="password"
 							value={key}
 							onChange={setKey}
 							autoFocus
 							isInvalid={!!error}
-							description="Create a key at aistudio.google.com/apikey. Chingui stores it in the macOS Keychain."
+							description={`Create a key at ${providerInfo(provider)?.keyUrl}. Chingui stores it in the macOS Keychain.`}
 						/>
 						{error && (
 							<p role="alert" className="text-sm text-problem">

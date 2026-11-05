@@ -51,6 +51,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
         commands::settings::save_api_key,
         commands::settings::delete_api_key,
         commands::settings::list_models,
+        commands::settings::list_all_models,
         commands::library::pick_and_import,
         commands::library::set_import_target,
         commands::library::list_documents,

@@ -19,11 +19,12 @@ export function PrivacyNotice({
 				</li>
 				<li>
 					<strong className="font-medium text-foreground">
-						Sent to Google.
+						Sent to your AI provider.
 					</strong>{" "}
 					When you send a message, that message and the earlier messages in the
-					chat go to Google's Gemini service, using your own API key. Google's
-					terms apply to what you send.
+					chat go to the service of the model you chose, Google's Gemini or
+					OpenAI, using your own API key for it. That company's terms apply to
+					what you send.
 				</li>
 				<li>
 					<strong className="font-medium text-foreground">
