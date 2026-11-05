@@ -8,7 +8,7 @@ One local Tauri 2 app. No server, no account. Rust owns everything privileged. T
 src/                     React frontend
   app/                   shell, panes, navigation state
   components/            shared UI
-  features/{projects,chat,settings,...}
+  features/{projects,chat,settings,library,reader,...}
   lib/                   bindings.ts (generated), api wrapper, react-query hooks, live-reply store
   styles/                index.css (design tokens, Tailwind entry)
 src-tauri/
@@ -17,6 +17,7 @@ src-tauri/
     domain/              plain types and validation, no IO
     services/ai/         Provider trait, SSE parser, gemini.rs (+ openai.rs in M2)
     services/chat.rs     send, stream and persist a reply; handoff summary
+    services/docfile.rs  chingui-doc:// scheme that serves stored files to the reader
     services/{ingestion,retrieval,references,export}/   (M2+)
     persistence/         SQLite access, migrations runner
     security/            Keychain access
@@ -70,6 +71,14 @@ In both modes the model cites passage IDs. The app checks each ID against the re
 ## Ingestion (M2)
 
 Import, hash and dedupe, parse (pdfium for PDF with per-page char boxes, zip + quick-xml for DOCX), extract metadata, segment into passages keeping page and offsets, index, embed. Jobs are cancellable and resumable, and report progress through events. Pages with missing or garbled text are flagged. Tables and equations are not guessed at.
+
+## Reader (M2)
+
+- A document opens in the main pane (`features/reader`), later also as a split beside a chat. PDF.js renders it. Files reach the viewer through the `chingui-doc://localhost/<document id>` URI scheme registered in Rust (`services/docfile.rs`). The id is looked up in the database and the managed copy is read, so the webview never supplies a path. Single byte ranges are supported.
+- `get_passage` returns a passage with its line boxes (PDF user space). The reader converts two opposite corners through the page viewport and draws the boxes in percent of the page, which survives zoom. A passage without boxes opens the page with a note.
+- PDF.js assets (wasm, CMaps, fonts, ICC profiles) are served from `/pdfjs/` by a small Vite plugin and copied into the build. The CSP allows `chingui-doc:`, `wasm-unsafe-eval` and blob workers.
+- Pinch zoom is a CSS transform preview with one PDF.js rescale at the end (`features/reader/pinch.ts`).
+- Tailwind's `border-box` default must not apply to `.pdfViewer .page`, or the canvas and text layer disagree on size (see `index.css`).
 
 ## Privacy
 
