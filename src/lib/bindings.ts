@@ -58,10 +58,11 @@ export const commands = {
 	/**  Takes the document out of a project. It stays in the library. */
 	detachDocument: (projectId: string, documentId: string) => typedError<null, CmdError>(__TAURI_INVOKE("detach_document", { projectId, documentId })),
 	/**
-	 *  Search over the text of documents that are ready. Keywords and meaning are merged once the
-	 *  search model is ready. Before that, or for a very short query, it is keyword search only.
+	 *  Search over the text of documents that are ready. With `meaning` set, keywords and meaning are
+	 *  merged once the search model is ready (this can cost one embedding call, which is cached for
+	 *  repeated queries). Without it, or for a very short query, it is keyword search only.
 	 */
-	searchLibrary: (query: string, projectId: string | null, limit: number | null) => typedError<SearchHit[], CmdError>(__TAURI_INVOKE("search_library", { query, projectId, limit })),
+	searchLibrary: (query: string, projectId: string | null, limit: number | null, meaning: boolean) => typedError<SearchHit[], CmdError>(__TAURI_INVOKE("search_library", { query, projectId, limit, meaning })),
 	/**  A passage with its line boxes, for opening it in the reader. */
 	getPassage: (passageId: string) => typedError<PassageView, CmdError>(__TAURI_INVOKE("get_passage", { passageId })),
 	embeddingStatus: () => __TAURI_INVOKE<EmbeddingStatus>("embedding_status"),

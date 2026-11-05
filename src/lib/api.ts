@@ -95,8 +95,8 @@ export const api = {
 	detachDocument: (projectId: string, documentId: string) =>
 		unwrap(commands.detachDocument(projectId, documentId)),
 	getPassage: (passageId: string) => unwrap(commands.getPassage(passageId)),
-	searchLibrary: (query: string, projectId: string | null) =>
-		unwrap(commands.searchLibrary(query, projectId, 30)),
+	searchLibrary: (query: string, projectId: string | null, meaning: boolean) =>
+		unwrap(commands.searchLibrary(query, projectId, 30, meaning)),
 
 	embeddingStatus: () => commands.embeddingStatus(),
 	downloadEmbeddingModel: () => unwrap(commands.downloadEmbeddingModel()),

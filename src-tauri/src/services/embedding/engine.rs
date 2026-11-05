@@ -95,6 +95,8 @@ fn initial_state(backend: Backend, cloud_accepted: bool, local_ready: bool) -> M
     if ready { ModelState::Ready } else { ModelState::Missing }
 }
 
+const QUERY_CACHE_SIZE: usize = 64;
+
 struct Inner {
     dir: PathBuf,
     backend: Mutex<Backend>,
@@ -104,6 +106,8 @@ struct Inner {
     encoder: Mutex<Option<Box<dyn Encoder>>>,
     /// Searches waiting for the model. The worker steps aside for them between batches.
     waiting: AtomicUsize,
+    /// Recent query vectors, so a repeated search costs no call. Oldest first.
+    query_cache: Mutex<Vec<(Backend, String, Vec<f32>)>>,
     wake: mpsc::UnboundedSender<()>,
     emit_status: StatusEmit,
     emit_doc: Emit,
@@ -154,6 +158,7 @@ impl Embedder {
             paused: AtomicBool::new(false),
             encoder: Mutex::new(None),
             waiting: AtomicUsize::new(0),
+            query_cache: Mutex::new(Vec::new()),
             wake,
             emit_status,
             emit_doc,
@@ -180,6 +185,7 @@ impl Embedder {
         log::info!("embedding backend set to {backend:?} (cloud accepted: {cloud_accepted})");
         *lock(&self.0.backend) = backend;
         *lock(&self.0.encoder) = None;
+        lock(&self.0.query_cache).clear();
         *lock(&self.0.counts) = (0, 0);
         let local_ready = model::is_complete(&self.0.dir, FILES);
         *lock(&self.0.state) = initial_state(backend, cloud_accepted, local_ready);
@@ -285,6 +291,13 @@ impl Embedder {
         if !matches!(*lock(&self.0.state), ModelState::Ready) {
             return Ok(None);
         }
+        let backend = self.backend();
+        // Case and spacing don't change what a search means, so they share one cached vector.
+        let key = query.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+        if let Some((_, _, v)) = lock(&self.0.query_cache).iter().find(|(b, k, _)| *b == backend && *k == key) {
+            log::debug!("query vector from the cache");
+            return Ok(Some(v.clone()));
+        }
         self.0.waiting.fetch_add(1, Ordering::SeqCst);
         let text = vec![format!("{QUERY_PREFIX}{query}")];
         let started = Instant::now();
@@ -296,7 +309,15 @@ impl Embedder {
             started.elapsed().as_millis(),
             waited_for_model
         );
-        Ok(out?.into_iter().next())
+        let vector = out?.into_iter().next();
+        if let Some(v) = &vector {
+            let mut cache = lock(&self.0.query_cache);
+            if cache.len() >= QUERY_CACHE_SIZE {
+                cache.remove(0);
+            }
+            cache.push((backend, key, v.clone()));
+        }
+        Ok(vector)
     }
 
     /// Runs the encoder and, for Gemini, records what the call used and how long it took.
@@ -593,6 +614,21 @@ mod tests {
         let expect = ("coral".len() + QUERY_PREFIX.len()) as f32;
         let direct = normalize(vec![expect, 1.0, format!("{QUERY_PREFIX}coral").bytes().map(|b| b as f32).sum::<f32>() % 7.0 + 1.0]);
         assert_eq!(v, direct);
+    }
+
+    #[test]
+    fn a_repeated_query_is_embedded_once() {
+        let r = rig(true, None, false);
+        let first = r.embedder.embed_query("Coral  reefs").unwrap().unwrap();
+        assert_eq!(r.calls.load(Ordering::SeqCst), 1);
+        // Same words with other case and spacing hit the cache and make no call.
+        assert_eq!(r.embedder.embed_query(" coral reefs ").unwrap().unwrap(), first);
+        assert_eq!(r.calls.load(Ordering::SeqCst), 1);
+        r.embedder.embed_query("kelp").unwrap();
+        assert_eq!(r.calls.load(Ordering::SeqCst), 2);
+        // A new backend must not reuse vectors from the old one.
+        r.embedder.use_backend(Backend::Gemini, true);
+        assert!(lock(&r.embedder.0.query_cache).is_empty());
     }
 
     #[test]

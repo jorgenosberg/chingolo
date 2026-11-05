@@ -120,8 +120,9 @@ pub async fn detach_document(state: State<'_, AppState>, project_id: String, doc
     Ok(state.db.call(move |c| repo::detach(c, &project_id, &document_id)).await?)
 }
 
-/// Search over the text of documents that are ready. Keywords and meaning are merged once the
-/// search model is ready. Before that, or for a very short query, it is keyword search only.
+/// Search over the text of documents that are ready. With `meaning` set, keywords and meaning are
+/// merged once the search model is ready (this can cost one embedding call, which is cached for
+/// repeated queries). Without it, or for a very short query, it is keyword search only.
 #[tauri::command]
 #[specta::specta]
 pub async fn search_library(
@@ -129,12 +130,14 @@ pub async fn search_library(
     query: String,
     project_id: Option<String>,
     limit: Option<u32>,
+    meaning: bool,
 ) -> CmdResult<Vec<SearchHit>> {
     let limit = limit.unwrap_or(30).clamp(1, 100);
     let trimmed = query.trim().to_string();
     let started = std::time::Instant::now();
     let identity = state.embedder.backend().identity();
-    let vector = if trimmed.chars().count() >= 3 {
+    // Meaning search can cost an API call, so the caller asks for it only once typing has paused.
+    let vector = if meaning && trimmed.chars().count() >= 3 {
         let embedder = state.embedder.clone();
         let text = trimmed.clone();
         match tauri::async_runtime::spawn_blocking(move || embedder.embed_query(&text)).await {

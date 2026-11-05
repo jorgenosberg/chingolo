@@ -20,8 +20,8 @@ export const keys = {
 	documents: ["documents"] as const,
 	documentsIn: (scope: string | null) => ["documents", scope] as const,
 	passage: (id: string) => ["passage", id] as const,
-	librarySearch: (q: string, scope: string | null) =>
-		["library-search", scope, q] as const,
+	librarySearch: (q: string, scope: string | null, meaning: boolean) =>
+		["library-search", scope, meaning, q] as const,
 };
 
 export function useSettings() {
@@ -81,13 +81,22 @@ export function useDocuments(scope: string | null) {
 	});
 }
 
-/** Keyword search over document text. Pass an already deferred query. */
-export function useLibrarySearch(query: string, scope: string | null) {
+/**
+ * Search over document text. Keyword search is free and fast, so it can follow every keystroke.
+ * Meaning search can cost an API call: pass a query that has settled, and `enabled` only when
+ * the search model is ready.
+ */
+export function useLibrarySearch(
+	query: string,
+	scope: string | null,
+	meaning: boolean,
+	enabled = true,
+) {
 	const q = query.trim();
 	return useQuery({
-		queryKey: keys.librarySearch(q, scope),
-		queryFn: () => api.searchLibrary(q, scope),
-		enabled: q.length > 0,
+		queryKey: keys.librarySearch(q, scope, meaning),
+		queryFn: () => api.searchLibrary(q, scope, meaning),
+		enabled: enabled && q.length > 0 && (!meaning || q.length >= 3),
 	});
 }
 

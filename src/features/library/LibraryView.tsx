@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useDeferredValue, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import {
 	ListBox,
 	ListBoxItem,
@@ -35,6 +35,8 @@ import { MetadataDialog } from "./MetadataDialog";
 import { ProjectsDialog } from "./ProjectsDialog";
 
 const ALL = "__all__";
+/** How long typing must pause before meaning search runs (it can cost an API call). */
+const SETTLE_MS = 500;
 
 const STATUS_LABEL: Record<DocStatus, string> = {
 	queued: "Waiting",
@@ -335,7 +337,25 @@ export function LibraryView() {
 	const summary = useImportSummary();
 	const [query, setQuery] = useState("");
 	const deferred = useDeferredValue(query);
-	const textHits = useLibrarySearch(deferred, scope);
+	// Meaning search can cost an API call, so it waits until typing has paused (or Enter).
+	const [settled, setSettled] = useState("");
+	useEffect(() => {
+		const t = setTimeout(() => setSettled(query), SETTLE_MS);
+		return () => clearTimeout(t);
+	}, [query]);
+	const embedding = useEmbeddingStatus();
+	const meaningReady = embedding?.model.kind === "ready";
+	const keywordHits = useLibrarySearch(deferred, scope, false);
+	const meaningHits = useLibrarySearch(settled, scope, true, meaningReady);
+	const meaningCurrent =
+		meaningReady && settled.trim() === query.trim() && meaningHits.isSuccess;
+	// Keyword hits show at once and are replaced when the merged ones arrive.
+	const textHits = meaningCurrent ? meaningHits : keywordHits;
+	const lookingByMeaning =
+		meaningReady &&
+		query.trim().length >= 3 &&
+		!meaningCurrent &&
+		keywordHits.isSuccess;
 	const [importing, setImporting] = useState(false);
 	const [editing, setEditing] = useState<Document | null>(null);
 	const [projectsFor, setProjectsFor] = useState<string | null>(null);
@@ -446,7 +466,14 @@ export function LibraryView() {
 						placeholder="Search titles, authors and text"
 						value={query}
 						onChange={(e) => setQuery(e.target.value)}
-						onKeyDown={(e) => e.key === "Escape" && setQuery("")}
+						onKeyDown={(e) => {
+							if (e.key === "Escape") {
+								setQuery("");
+								setSettled("");
+							} else if (e.key === "Enter") {
+								setSettled(query);
+							}
+						}}
 						className="h-8 w-full rounded-lg border border-transparent bg-muted pl-8 pr-3 text-[13px] outline-none placeholder:text-muted-foreground focus:border-primary/50"
 					/>
 				</div>
@@ -507,6 +534,11 @@ export function LibraryView() {
 					<section className="pb-6">
 						<h2 className="px-6 pb-1 pt-4 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
 							In the text
+							{lookingByMeaning && (
+								<span className="ml-2 font-normal normal-case tracking-normal">
+									Looking for related passages…
+								</span>
+							)}
 						</h2>
 						{textHits.isPending && (
 							<p className="px-6 text-sm text-muted-foreground">Searching…</p>
