@@ -170,9 +170,7 @@ fn parse_response(value: &Value, expected: usize) -> Result<Vec<Vec<f32>>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::{Read, Write};
-    use std::net::TcpListener;
-    use std::sync::Mutex;
+    use crate::services::testserver::serve;
 
     fn vector(seed: f32) -> Value {
         json!({ "values": (0..DIMENSIONS).map(|i| seed + i as f32).collect::<Vec<_>>() })
@@ -226,49 +224,6 @@ mod tests {
         assert!(parse_response(&json!({ "embeddings": [vector(1.0)] }), 2).is_err());
         assert!(parse_response(&json!({ "embeddings": [{ "values": [1.0, 2.0] }] }), 1).is_err());
         assert!(parse_response(&json!({ "nope": true }), 1).is_err());
-    }
-
-    type Seen = Arc<Mutex<Vec<(String, String)>>>;
-
-    /// Answers each request with the next canned (status, body), and records (head, body).
-    fn serve(replies: Vec<(u16, String)>) -> (String, Seen) {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let base = format!("http://{}", listener.local_addr().unwrap());
-        let seen: Seen = Arc::new(Mutex::new(Vec::new()));
-        let log = seen.clone();
-        std::thread::spawn(move || {
-            for (status, body) in replies {
-                let (mut s, _) = listener.accept().unwrap();
-                let mut buf = Vec::new();
-                let mut chunk = [0u8; 4096];
-                let (head_end, len) = loop {
-                    let n = s.read(&mut chunk).unwrap();
-                    buf.extend_from_slice(&chunk[..n]);
-                    let text = String::from_utf8_lossy(&buf).to_string();
-                    if let Some(i) = text.find("\r\n\r\n") {
-                        let len = text[..i]
-                            .lines()
-                            .find_map(|l| {
-                                l.to_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap())
-                            })
-                            .unwrap_or(0);
-                        break (i + 4, len);
-                    }
-                };
-                while buf.len() < head_end + len {
-                    let n = s.read(&mut chunk).unwrap();
-                    buf.extend_from_slice(&chunk[..n]);
-                }
-                let head = String::from_utf8_lossy(&buf[..head_end]).to_string();
-                log.lock().unwrap().push((head, String::from_utf8_lossy(&buf[head_end..]).to_string()));
-                let reply = format!(
-                    "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
-                    body.len()
-                );
-                s.write_all(reply.as_bytes()).unwrap();
-            }
-        });
-        (base, seen)
     }
 
     fn encoder(base: String, key: Option<&str>) -> GeminiEncoder {

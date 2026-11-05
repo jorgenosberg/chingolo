@@ -14,7 +14,7 @@ use crate::error::{AppError, Result};
 use crate::persistence::usage::{self, NewUsage};
 use crate::persistence::{Db, chat as repo, settings};
 use crate::security;
-use crate::services::ai::{GenerationEvent, GenerationRequest, Provider, Turn, TurnRole};
+use crate::services::ai::{FinishReason, GenerationEvent, GenerationRequest, Provider, Turn, TurnRole};
 use crate::state::{AppState, Generations};
 
 const SYSTEM_PROMPT: &str = "You are Chingui, a research assistant for students. \
@@ -136,6 +136,7 @@ pub async fn send(
                     model,
                     system: Some(SYSTEM_PROMPT.to_string()),
                     turns,
+                    tools: Vec::new(),
                 },
             })
         })
@@ -164,12 +165,12 @@ fn history(conn: &rusqlite::Connection, conversation_id: &str) -> Result<Vec<Tur
     Ok(repo::list_messages(conn, conversation_id)?
         .into_iter()
         .filter(|m| m.status == MessageStatus::Complete && !m.content.is_empty())
-        .map(|m| Turn {
-            role: match m.role {
+        .map(|m| {
+            let role = match m.role {
                 Role::User => TurnRole::User,
                 Role::Assistant => TurnRole::Model,
-            },
-            text: m.content,
+            };
+            Turn::text(role, m.content)
         })
         .collect())
 }
@@ -197,7 +198,7 @@ async fn run_generation(
     let mut stream = provider.generate(api_key, request);
     let mut content = String::new();
     let (mut input_tokens, mut output_tokens, mut cached_input_tokens) = (None, None, None);
-    let mut finish_reason: Option<String> = None;
+    let mut finish_reason: Option<FinishReason> = None;
     let mut last_flush = Instant::now();
 
     let outcome = loop {
@@ -221,6 +222,11 @@ async fn run_generation(
                     cached_input_tokens = Some(c);
                 }
                 Some(Ok(GenerationEvent::Finished(reason))) => finish_reason = Some(reason),
+                // No tools are sent yet (slice 8), so a call or a replay record has nowhere to go.
+                Some(Ok(GenerationEvent::ToolCall { name, .. })) => {
+                    log::warn!("chat reply {provider_id}/{model_id}: ignored an unexpected tool call to {name}");
+                }
+                Some(Ok(GenerationEvent::Replay(_))) => {}
                 Some(Err(e)) => break Outcome::Failed(e.to_string()),
             }
         }
@@ -230,9 +236,17 @@ async fn run_generation(
     let (status, note) = match outcome {
         Outcome::Cancelled => (MessageStatus::Cancelled, None),
         Outcome::Failed(msg) => (MessageStatus::Error, Some(msg)),
-        Outcome::Done => match finish_reason.as_deref() {
-            Some("STOP") => (MessageStatus::Complete, None),
-            Some(other) => (
+        Outcome::Done => match finish_reason {
+            Some(FinishReason::Stop) => (MessageStatus::Complete, None),
+            Some(FinishReason::Length) => (
+                MessageStatus::Complete,
+                Some("The model stopped early (it reached its output limit).".to_string()),
+            ),
+            Some(FinishReason::ToolCalls) => (
+                MessageStatus::Complete,
+                Some("The model stopped early (it asked for a tool).".to_string()),
+            ),
+            Some(FinishReason::Other(other)) => (
                 MessageStatus::Complete,
                 Some(format!("The model stopped early ({other}).")),
             ),
@@ -313,10 +327,7 @@ pub async fn handoff_summary(state: &AppState, conversation_id: String) -> Resul
             .ok_or_else(|| AppError::Invalid("Choose a model first.".into()))?,
     };
     let (provider, api_key) = provider_and_key(state, &conv.provider).await?;
-    turns.push(Turn {
-        role: TurnRole::User,
-        text: HANDOFF_REQUEST.to_string(),
-    });
+    turns.push(Turn::text(TurnRole::User, HANDOFF_REQUEST));
     let (provider_id, model_id) = (provider.id(), model.clone());
     let started = Instant::now();
     let mut stream = provider.generate(
@@ -325,6 +336,7 @@ pub async fn handoff_summary(state: &AppState, conversation_id: String) -> Resul
             model,
             system: Some(HANDOFF_SYSTEM.to_string()),
             turns,
+            tools: Vec::new(),
         },
     );
     let mut tokens = (0, 0, 0);
@@ -336,7 +348,7 @@ pub async fn handoff_summary(state: &AppState, conversation_id: String) -> Resul
                 GenerationEvent::Usage { input_tokens, output_tokens, cached_tokens } => {
                     tokens = (input_tokens, output_tokens, cached_tokens);
                 }
-                GenerationEvent::Finished(_) => {}
+                GenerationEvent::Finished(_) | GenerationEvent::ToolCall { .. } | GenerationEvent::Replay(_) => {}
             }
         }
         Ok::<_, AppError>(out)
