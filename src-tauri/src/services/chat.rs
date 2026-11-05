@@ -9,14 +9,16 @@ use specta::Type;
 use tauri::ipc::Channel;
 use tokio_util::sync::CancellationToken;
 
-use crate::domain::{Message, MessageStatus, Role};
+use crate::domain::{CitationStatus, Message, MessageStatus, Role};
 use crate::error::{AppError, Result};
+use crate::persistence::sources;
 use crate::persistence::usage::{self, NewUsage};
 use crate::persistence::{Db, chat as repo, settings};
 use crate::security;
 use crate::services::ai::{
     FinishReason, GenerationEvent, GenerationRequest, Part, Provider, Replay, Turn, TurnRole,
 };
+use crate::services::citations;
 use crate::services::tools::{self, ToolCtx};
 use crate::state::{AppState, Generations};
 
@@ -422,10 +424,10 @@ async fn run_generation(
         new_turns.push(answers);
         live.break_before_next = !live.content.is_empty();
     };
-    let content = std::mem::take(&mut live.content);
+    let mut content = std::mem::take(&mut live.content);
     let first_text_ms = live.first_text_ms;
 
-    let (status, note) = match outcome {
+    let (status, mut note) = match outcome {
         Outcome::Cancelled => (MessageStatus::Cancelled, None),
         Outcome::Failed(msg) => (MessageStatus::Error, Some(msg)),
         Outcome::Done => match finish_reason {
@@ -449,6 +451,40 @@ async fn run_generation(
         },
     };
 
+    // Check what the reply cites against the passages the app handed out in this conversation.
+    let mut citations_json: Option<String> = None;
+    if let (MessageStatus::Complete, Some(ctx)) = (status, &tool_ctx) {
+        let conversation_id = ctx.conversation_id.clone();
+        match db.call(move |c| sources::list(c, &conversation_id)).await {
+            Ok(list) => {
+                let known = list.into_iter().map(|s| (s.handle, s)).collect();
+                let checked = citations::check(&content, &known);
+                let count = |s: CitationStatus| checked.citations.iter().filter(|c| c.status == s).count();
+                log::info!(
+                    "chat reply {provider_id}/{model_id}: {} cited ({} weak, {} quote mismatch), {} removed",
+                    checked.citations.len(),
+                    count(CitationStatus::Weak),
+                    count(CitationStatus::QuoteMismatch),
+                    checked.removed
+                );
+                if checked.removed > 0 {
+                    let msg = format!(
+                        "{} citation{} removed because no source matches {}.",
+                        checked.removed,
+                        if checked.removed == 1 { " was" } else { "s were" },
+                        if checked.removed == 1 { "it" } else { "them" }
+                    );
+                    note = Some(note.map_or(msg.clone(), |n| format!("{n} {msg}")));
+                }
+                if !checked.citations.is_empty() {
+                    citations_json = serde_json::to_string(&checked.citations).ok();
+                }
+                content = checked.text;
+            }
+            Err(e) => log::warn!("couldn't check citations: {e}"),
+        }
+    }
+
     log::info!(
         "chat reply {provider_id}/{model_id}: {status:?} in {} ms over {round_no} request(s) with {tool_rounds} tool round(s) (first text after {} ms), tokens in {} out {} cached {}{}",
         started.elapsed().as_millis(),
@@ -466,7 +502,13 @@ async fn run_generation(
     let id = assistant.id.clone();
     let saved = db
         .call(move |c| {
-            let message = repo::finish_message(
+            if let Some(json) = &turns_json {
+                repo::set_turns(c, &id, json)?;
+            }
+            if let Some(json) = &citations_json {
+                repo::set_citations(c, &id, json)?;
+            }
+            repo::finish_message(
                 c,
                 &id,
                 repo::Finish {
@@ -477,11 +519,7 @@ async fn run_generation(
                     cached_input_tokens,
                     error: note.as_deref(),
                 },
-            )?;
-            if let Some(json) = &turns_json {
-                repo::set_turns(c, &id, json)?;
-            }
-            Ok(message)
+            )
         })
         .await;
     generations.remove(&assistant.id);
@@ -761,6 +799,35 @@ mod tests {
         let tool = events.iter().find(|e| e["type"] == "tool").expect("a tool event");
         assert_eq!(tool["summary"], "Searching your library for \"iron plankton\"");
         assert_eq!(usage_rows(&s).await, 2, "one usage row per request");
+    }
+
+    #[tokio::test]
+    async fn citations_are_checked_saved_and_made_up_handles_are_removed() {
+        let s = setup().await;
+        let rounds = vec![
+            Scripted::Events(vec![
+                call("search_library", json!({ "query": "iron plankton" })),
+                usage(5, 1),
+                GenerationEvent::Finished(FinishReason::ToolCalls),
+            ]),
+            Scripted::Events(vec![
+                GenerationEvent::Text("Iron limitation controls plankton growth [S1]. A made-up claim [S9].".into()),
+                usage(9, 4),
+                GenerationEvent::Finished(FinishReason::Stop),
+            ]),
+        ];
+        let m = play(&s, rounds, true, CancellationToken::new()).await;
+        assert_eq!(m.status, MessageStatus::Complete);
+        assert_eq!(m.content, "Iron limitation controls plankton growth [S1]. A made-up claim.");
+        assert_eq!(m.error.as_deref(), Some("1 citation was removed because no source matches it."));
+        assert_eq!(m.citations.len(), 1);
+        let c = &m.citations[0];
+        assert_eq!((c.handle, c.title.as_str(), c.page), (1, "Iron paper", 1));
+        assert_eq!(c.status, crate::domain::CitationStatus::Ok);
+        // and it is what a reload reads back
+        let id = m.id.clone();
+        let again = s.db.call(move |c| repo::get_message(c, &id)).await.unwrap();
+        assert_eq!(again.citations.len(), 1);
     }
 
     #[tokio::test]

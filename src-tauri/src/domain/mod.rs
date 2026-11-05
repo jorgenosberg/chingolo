@@ -155,10 +155,43 @@ pub struct Message {
     pub output_tokens: Option<u32>,
     pub cached_input_tokens: Option<u32>,
     pub error: Option<String>,
+    /// The app's check of each source the reply cites, one entry per handle. Empty for replies
+    /// that cite nothing.
+    #[serde(default)]
+    pub citations: Vec<Citation>,
     #[specta(type = Number)]
     pub created_at: i64,
     #[specta(type = Number)]
     pub updated_at: i64,
+}
+
+/// How a cited source held up when the app checked it. A handle that matches no source is never
+/// stored: it is removed from the reply.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum CitationStatus {
+    Ok,
+    /// The claim shares few words with the passage it cites.
+    Weak,
+    /// The reply quotes the source, and the quote is not in it.
+    QuoteMismatch,
+}
+
+/// A source a reply cites (`[S3]`), with what the UI needs to show it and open it.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct Citation {
+    pub handle: u32,
+    pub status: CitationStatus,
+    /// Some(true) if the reply quotes this source and the quote is in it, Some(false) if not.
+    pub quote_verified: Option<bool>,
+    /// May be gone if the document was read again, then the page is the fallback.
+    pub passage_id: Id,
+    pub document_id: Id,
+    pub title: String,
+    /// First page, 0 for Word documents.
+    pub page: u32,
+    pub snippet: String,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Type)]

@@ -256,7 +256,7 @@ pub fn store_content(
 
 /// Words too common to help in a question, English and Norwegian (folded). Same list the
 /// retrieval benchmark used, plus a few Norwegian ones.
-const COMMON: &[&str] = &[
+pub(crate) const COMMON: &[&str] = &[
     "the", "and", "for", "are", "was", "were", "what", "how", "when", "why", "which", "who", "does", "did", "has",
     "have", "had", "that", "this", "with", "from", "into", "than", "then", "them", "they", "their", "there",
     "these", "those", "can", "could", "would", "should", "about", "over", "under", "after", "before", "between",

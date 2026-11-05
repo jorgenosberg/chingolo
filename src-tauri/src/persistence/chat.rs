@@ -15,7 +15,7 @@ const CONV_COLS: &str = "id, project_id, chapter_id, title, provider, model_id, 
        FROM messages m WHERE m.conversation_id = conversations.id AND m.role = 'assistant'
        ORDER BY m.id DESC LIMIT 1),
     forked_from_title, fork_boundary_message_id";
-const MSG_COLS: &str = "id, conversation_id, role, content, status, provider, model_id, input_tokens, output_tokens, error, created_at, updated_at, cached_input_tokens";
+const MSG_COLS: &str = "id, conversation_id, role, content, status, provider, model_id, input_tokens, output_tokens, error, created_at, updated_at, cached_input_tokens, citations";
 
 fn conversation_from_row(r: &Row) -> rusqlite::Result<Conversation> {
     Ok(Conversation {
@@ -51,6 +51,10 @@ fn message_from_row(r: &Row) -> rusqlite::Result<Message> {
         created_at: r.get(10)?,
         updated_at: r.get(11)?,
         cached_input_tokens: r.get(12)?,
+        citations: r
+            .get::<_, Option<String>>(13)?
+            .and_then(|json| serde_json::from_str(&json).ok())
+            .unwrap_or_default(),
     })
 }
 

@@ -128,6 +128,31 @@ export type ChatEvent = { type: "delta"; text: string } |
 /**  Sent once at the end, whether the reply completed, failed or was cancelled. */
 { type: "finished"; message: Message };
 
+/**  A source a reply cites (`[S3]`), with what the UI needs to show it and open it. */
+export type Citation = {
+	handle: number,
+	status: CitationStatus,
+	/**  Some(true) if the reply quotes this source and the quote is in it, Some(false) if not. */
+	quoteVerified: boolean | null,
+	/**  May be gone if the document was read again, then the page is the fallback. */
+	passageId: string,
+	documentId: string,
+	title: string,
+	/**  First page, 0 for Word documents. */
+	page: number,
+	snippet: string,
+};
+
+/**
+ *  How a cited source held up when the app checked it. A handle that matches no source is never
+ *  stored: it is removed from the reply.
+ */
+export type CitationStatus = "ok" | 
+/**  The claim shares few words with the passage it cites. */
+"weak" | 
+/**  The reply quotes the source, and the quote is not in it. */
+"quote_mismatch";
+
 /**  What the frontend sees: a plain message string. */
 export type CmdError = string;
 
@@ -244,6 +269,11 @@ export type Message = {
 	outputTokens: number | null,
 	cachedInputTokens: number | null,
 	error: string | null,
+	/**
+	 *  The app's check of each source the reply cites, one entry per handle. Empty for replies
+	 *  that cite nothing.
+	 */
+	citations?: Citation[],
 	createdAt: number,
 	updatedAt: number,
 };
