@@ -141,6 +141,20 @@ pub struct SearchHit {
     pub page_start: u32,
     pub page_end: u32,
     pub text: String,
+    pub matched_by: MatchKind,
+}
+
+/// Why a passage is in the results.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum MatchKind {
+    /// It contains words from the query.
+    Keyword,
+    /// It is close in meaning to the query but shares no ranked keyword match.
+    Meaning,
+    Both,
+    /// Not a match itself: it sits next to one.
+    Context,
 }
 
 /// Lowercase and fold the Norwegian letters the full-text tokenizer leaves alone.

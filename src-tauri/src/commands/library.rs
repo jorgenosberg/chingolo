@@ -9,6 +9,7 @@ use crate::domain::library::{DocStatus, Document, MetadataPatch, PageBoxes, Pass
 use crate::error::{AppError, CmdResult};
 use crate::persistence::library::{self as repo, SearchOptions};
 use crate::services::ingestion::import::{self, ImportSummary};
+use crate::services::retrieval;
 use crate::state::AppState;
 
 /// True while files are dragged over the window.
@@ -119,7 +120,8 @@ pub async fn detach_document(state: State<'_, AppState>, project_id: String, doc
     Ok(state.db.call(move |c| repo::detach(c, &project_id, &document_id)).await?)
 }
 
-/// Keyword search over the text of documents that are ready.
+/// Search over the text of documents that are ready. Keywords and meaning are merged once the
+/// search model is ready. Before that, or for a very short query, it is keyword search only.
 #[tauri::command]
 #[specta::specta]
 pub async fn search_library(
@@ -129,11 +131,26 @@ pub async fn search_library(
     limit: Option<u32>,
 ) -> CmdResult<Vec<SearchHit>> {
     let limit = limit.unwrap_or(30).clamp(1, 100);
+    let trimmed = query.trim().to_string();
+    let vector = if trimmed.chars().count() >= 3 {
+        let embedder = state.embedder.clone();
+        let text = trimmed.clone();
+        tauri::async_runtime::spawn_blocking(move || embedder.embed_query(&text))
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .flatten()
+    } else {
+        None
+    };
     Ok(state
         .db
-        .call(move |c| {
-            let opts = SearchOptions { project_id: project_id.as_deref(), all_terms: true, prefix_last: true, limit };
-            repo::search_passages(c, &query, &opts)
+        .call(move |c| match vector {
+            Some(v) => retrieval::hybrid_search(c, &trimmed, &v, project_id.as_deref(), limit),
+            None => {
+                let opts = SearchOptions { project_id: project_id.as_deref(), all_terms: true, prefix_last: true, limit };
+                repo::search_passages(c, &query, &opts)
+            }
         })
         .await?)
 }

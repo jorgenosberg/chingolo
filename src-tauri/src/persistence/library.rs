@@ -3,7 +3,7 @@
 use rusqlite::{Connection, OptionalExtension, Row, TransactionBehavior, params};
 
 use crate::domain::library::{
-    DocKind, DocStatus, Document, MetadataPatch, SearchHit, fold,
+    DocKind, DocStatus, Document, MatchKind, MetadataPatch, SearchHit, fold,
 };
 use crate::domain::{Id, clean_name, new_id, now_ms};
 use crate::error::{AppError, Result};
@@ -254,6 +254,19 @@ pub fn store_content(
     get_document(conn, id)
 }
 
+/// Words too common to help in a question, English and Norwegian (folded). Same list the
+/// retrieval benchmark used, plus a few Norwegian ones.
+const COMMON: &[&str] = &[
+    "the", "and", "for", "are", "was", "were", "what", "how", "when", "why", "which", "who", "does", "did", "has",
+    "have", "had", "that", "this", "with", "from", "into", "than", "then", "them", "they", "their", "there",
+    "these", "those", "can", "could", "would", "should", "about", "over", "under", "after", "before", "between",
+    "during", "each", "other", "some", "such", "only", "also", "not", "but", "out", "any", "all", "its", "our",
+    "your", "you", "his", "her", "she", "him", "where", "whose", "been", "being", "more", "most", "very", "much",
+    "many", "may", "might", "own", "same", "too", "via", "per", "og", "som", "det", "til", "med", "den", "det",
+    "ikke", "har", "var", "kan", "vil", "hva", "hvordan", "hvorfor", "hvilke", "hvilken", "hvem", "fra", "etter",
+    "mellom", "om",
+];
+
 /// One FTS5 query from free text. Every term is quoted, so user input can't use FTS syntax.
 /// `all_terms` requires every term (library search); otherwise any term matches (retrieval).
 /// `prefix_last` lets the last term match as a prefix, for search-as-you-type.
@@ -266,6 +279,13 @@ fn match_expr(query: &str, all_terms: bool, prefix_last: bool) -> Option<String>
     if terms.is_empty() {
         return None;
     }
+    // In retrieval mode a question's filler words would match nearly everything.
+    let terms: Vec<&str> = if all_terms {
+        terms
+    } else {
+        let kept: Vec<&str> = terms.iter().copied().filter(|t| t.chars().count() > 2 && !COMMON.contains(t)).collect();
+        if kept.is_empty() { terms } else { kept }
+    };
     let last = terms.len() - 1;
     let parts: Vec<String> = terms
         .iter()
@@ -317,6 +337,7 @@ pub fn search_passages(conn: &Connection, query: &str, opts: &SearchOptions) -> 
             page_start: r.get(3)?,
             page_end: r.get(4)?,
             text: r.get(5)?,
+            matched_by: MatchKind::Keyword,
         })
     };
     let rows = match opts.project_id {
@@ -324,6 +345,33 @@ pub fn search_passages(conn: &Connection, query: &str, opts: &SearchOptions) -> 
         None => stmt.query_map(params![expr, opts.limit], map)?.collect::<rusqlite::Result<Vec<_>>>()?,
     };
     Ok(rows)
+}
+
+/// Search hits for these passage ids, in the order given. Ids that no longer exist are skipped.
+pub fn hits_for_ids(conn: &Connection, ids: &[Id], matched_by: MatchKind) -> Result<Vec<SearchHit>> {
+    let mut stmt = conn.prepare(
+        "SELECT p.id, d.id, COALESCE(NULLIF(d.title, ''), d.original_name), p.page_start, p.page_end, p.text
+           FROM passages p JOIN documents d ON d.id = p.document_id
+          WHERE p.id = ?1",
+    )?;
+    let mut out = Vec::with_capacity(ids.len());
+    for id in ids {
+        let hit = stmt
+            .query_row([id], |r| {
+                Ok(SearchHit {
+                    passage_id: r.get(0)?,
+                    document_id: r.get(1)?,
+                    document_title: r.get(2)?,
+                    page_start: r.get(3)?,
+                    page_end: r.get(4)?,
+                    text: r.get(5)?,
+                    matched_by,
+                })
+            })
+            .optional()?;
+        out.extend(hit);
+    }
+    Ok(out)
 }
 
 pub struct StoredPassage {

@@ -52,7 +52,10 @@ export const commands = {
 	attachDocument: (projectId: string, documentId: string) => typedError<null, CmdError>(__TAURI_INVOKE("attach_document", { projectId, documentId })),
 	/**  Takes the document out of a project. It stays in the library. */
 	detachDocument: (projectId: string, documentId: string) => typedError<null, CmdError>(__TAURI_INVOKE("detach_document", { projectId, documentId })),
-	/**  Keyword search over the text of documents that are ready. */
+	/**
+	 *  Search over the text of documents that are ready. Keywords and meaning are merged once the
+	 *  search model is ready. Before that, or for a very short query, it is keyword search only.
+	 */
 	searchLibrary: (query: string, projectId: string | null, limit: number | null) => typedError<SearchHit[], CmdError>(__TAURI_INVOKE("search_library", { query, projectId, limit })),
 	/**  A passage with its line boxes, for opening it in the reader. */
 	getPassage: (passageId: string) => typedError<PassageView, CmdError>(__TAURI_INVOKE("get_passage", { passageId })),
@@ -186,6 +189,15 @@ export type ImportSummary = {
 	skipped: SkippedFile[],
 };
 
+/**  Why a passage is in the results. */
+export type MatchKind = 
+/**  It contains words from the query. */
+"keyword" | 
+/**  It is close in meaning to the query but shares no ranked keyword match. */
+"meaning" | "both" | 
+/**  Not a match itself: it sits next to one. */
+"context";
+
 export type Message = {
 	id: string,
 	conversationId: string,
@@ -262,6 +274,7 @@ export type SearchHit = {
 	pageStart: number,
 	pageEnd: number,
 	text: string,
+	matchedBy: MatchKind,
 };
 
 export type SendResult = {
