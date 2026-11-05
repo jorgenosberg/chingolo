@@ -64,13 +64,21 @@ macOS Keychain "Always Allow" is tied to the app's code signature. Ad-hoc dev bu
 Two modes, chosen per request from the provider's context window and the size of the selected sources:
 
 1. **Whole-source mode.** Selected documents are sent as passages tagged with app-assigned IDs. Provider caching keeps repeat questions cheap.
-2. **Tool mode.** The model gets `search_library`, `read_section` and `get_page` over a local hybrid index: FTS5 (unicode61, remove diacritics, for æøå) plus multilingual embeddings in sqlite-vec, merged by rank fusion, with neighbor expansion.
+2. **Tool mode.** The model gets `search_library`, `read_section` and `get_page` over a local hybrid index: FTS5 (unicode61, remove diacritics, for æøå) plus EmbeddingGemma vectors in a plain SQLite table scored in Rust (`persistence/vectors.rs`), merged by rank fusion (`services/retrieval.rs`), with neighbor expansion.
 
 In both modes the model cites passage IDs. The app checks each ID against the records it actually supplied, resolves the page, text and coordinates, and drops or flags anything it cannot match. Quotes are compared against the stored text before they are shown as verbatim. Document text is treated as untrusted data, never as instructions.
 
 ## Ingestion (M2)
 
 Import, hash and dedupe, parse (pdfium for PDF with per-page char boxes, zip + quick-xml for DOCX), extract metadata, segment into passages keeping page and offsets, index, embed. Jobs are cancellable and resumable, and report progress through events. Pages with missing or garbled text are flagged. Tables and equations are not guessed at.
+
+### Embedding
+
+- `services/embedding/engine.rs`: one worker thread (`embed`) with its own database connection. A passage of a `ready` document with no row in `passage_vectors` for the current model and revision is pending, so a restart, a model change and a re-read of a file all need no extra bookkeeping. The ingest worker wakes it when a document becomes ready. Batches are 8 passages so a search never waits long for the model.
+- Keyword search never depends on this. `ready` means searchable by keyword. Embedding progress is reported separately (`EmbeddingStatus` event, `Document.embeddedCount`).
+- `services/embedding/model.rs`: the pinned model files (revision and SHA-256 in the manifest), downloaded by Rust with `.part` files and Range resume, checksum verified before a file gets its real name. Files live in `<app data>/models/embeddinggemma-300m-q4/<revision>/`. The download starts only after the user agrees (settings key `embedding_download_accepted`) and resumes at startup.
+- `services/embedding/mod.rs`: loads the model from those files through fastembed's user-defined model API (weights passed from memory), on CPU only. Documents get the prefix `title: none | text: `, queries `task: search result | query: `.
+- Search (`search_library`): with a model and a query of 3 or more characters it embeds the query, then merges BM25 (any term, common words dropped) and the vector scan by reciprocal rank fusion (k = 60). Otherwise it is the old keyword search.
 
 ## Reader (M2)
 
