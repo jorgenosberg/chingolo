@@ -62,6 +62,7 @@ export const api = {
 				onboarded: null,
 				privacyAcknowledged: null,
 				defaultModel: null,
+				embeddingNoticeDismissed: null,
 				...patch,
 			}),
 		),
