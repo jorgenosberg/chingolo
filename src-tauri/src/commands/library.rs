@@ -1,0 +1,136 @@
+use std::path::PathBuf;
+
+use serde::{Deserialize, Serialize};
+use specta::Type;
+use tauri::{AppHandle, State};
+use tauri_plugin_dialog::DialogExt;
+
+use crate::domain::library::{DocStatus, Document, MetadataPatch, SearchHit};
+use crate::error::{AppError, CmdResult};
+use crate::persistence::library::{self as repo, SearchOptions};
+use crate::services::ingestion::import::{self, ImportSummary};
+use crate::state::AppState;
+
+/// True while files are dragged over the window.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+#[serde(rename_all = "camelCase")]
+pub struct DropHover {
+    pub active: bool,
+}
+
+/// Opens the system file or folder dialog and imports what the user picks. Paths never pass
+/// through the webview.
+#[tauri::command]
+#[specta::specta]
+pub async fn pick_and_import(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    folder: bool,
+    project_id: Option<String>,
+) -> CmdResult<ImportSummary> {
+    let dialog = app.dialog().file();
+    let picked: Vec<PathBuf> = if folder {
+        dialog.blocking_pick_folder().into_iter().filter_map(|p| p.into_path().ok()).collect()
+    } else {
+        dialog
+            .add_filter("Papers (PDF, Word)", &["pdf", "docx"])
+            .blocking_pick_files()
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|p| p.into_path().ok())
+            .collect()
+    };
+    if picked.is_empty() {
+        return Ok(ImportSummary::default());
+    }
+    Ok(import::import_paths(&state.db, &state.ingest, picked, project_id).await?)
+}
+
+/// Where dropped files go. The window remembers it, because a drop has no other way to say.
+#[tauri::command]
+#[specta::specta]
+pub fn set_import_target(state: State<'_, AppState>, project_id: Option<String>) -> CmdResult<()> {
+    *state.import_target.lock().map_err(|_| AppError::Internal("lock poisoned".into()))? = project_id;
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn list_documents(state: State<'_, AppState>, project_id: Option<String>) -> CmdResult<Vec<Document>> {
+    Ok(state.db.call(move |c| repo::list_documents(c, project_id.as_deref())).await?)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn update_document_metadata(
+    state: State<'_, AppState>,
+    id: String,
+    patch: MetadataPatch,
+) -> CmdResult<Document> {
+    Ok(state.db.call(move |c| repo::update_metadata(c, &id, &patch)).await?)
+}
+
+/// Removes the document, its index entries and the stored copy. The original file is untouched.
+#[tauri::command]
+#[specta::specta]
+pub async fn delete_document(state: State<'_, AppState>, id: String) -> CmdResult<()> {
+    Ok(import::delete_document(&state.db, &state.ingest, &id).await?)
+}
+
+/// True if the document was queued or being read.
+#[tauri::command]
+#[specta::specta]
+pub fn cancel_import(state: State<'_, AppState>, id: String) -> bool {
+    state.ingest.cancel(&id)
+}
+
+/// Reads a failed or cancelled document again.
+#[tauri::command]
+#[specta::specta]
+pub async fn retry_import(state: State<'_, AppState>, id: String) -> CmdResult<Document> {
+    let doc = state
+        .db
+        .call(move |c| {
+            let d = repo::get_document(c, &id)?;
+            if matches!(d.status, DocStatus::Queued | DocStatus::Processing) {
+                return Err(AppError::Invalid("This document is already being read.".into()));
+            }
+            repo::set_status(c, &id, DocStatus::Queued, None)
+        })
+        .await?;
+    state.ingest.enqueue(&doc);
+    state.ingest.emit(doc.clone(), None);
+    Ok(doc)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn attach_document(state: State<'_, AppState>, project_id: String, document_id: String) -> CmdResult<()> {
+    Ok(state.db.call(move |c| repo::attach(c, &project_id, &document_id)).await?)
+}
+
+/// Takes the document out of a project. It stays in the library.
+#[tauri::command]
+#[specta::specta]
+pub async fn detach_document(state: State<'_, AppState>, project_id: String, document_id: String) -> CmdResult<()> {
+    Ok(state.db.call(move |c| repo::detach(c, &project_id, &document_id)).await?)
+}
+
+/// Keyword search over the text of documents that are ready.
+#[tauri::command]
+#[specta::specta]
+pub async fn search_library(
+    state: State<'_, AppState>,
+    query: String,
+    project_id: Option<String>,
+    limit: Option<u32>,
+) -> CmdResult<Vec<SearchHit>> {
+    let limit = limit.unwrap_or(30).clamp(1, 100);
+    Ok(state
+        .db
+        .call(move |c| {
+            let opts = SearchOptions { project_id: project_id.as_deref(), all_terms: true, prefix_last: true, limit };
+            repo::search_passages(c, &query, &opts)
+        })
+        .await?)
+}

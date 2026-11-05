@@ -6,7 +6,7 @@ use specta_typescript::Number;
 
 use super::Id;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "lowercase")]
 pub enum DocKind {
     Pdf,
@@ -35,7 +35,7 @@ impl DocKind {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum DocStatus {
     Queued,
@@ -72,7 +72,7 @@ impl DocStatus {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Document {
     pub id: Id,
@@ -105,7 +105,7 @@ pub struct MetadataPatch {
     pub doi: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchHit {
     pub passage_id: Id,

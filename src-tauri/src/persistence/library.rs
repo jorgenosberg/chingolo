@@ -1,6 +1,6 @@
 //! Documents, pages and passages. The ingestion worker and the library commands both use these.
 
-use rusqlite::{Connection, OptionalExtension, Row, params};
+use rusqlite::{Connection, OptionalExtension, Row, TransactionBehavior, params};
 
 use crate::domain::library::{
     DocKind, DocStatus, Document, MetadataPatch, SearchHit, fold,
@@ -205,7 +205,9 @@ pub fn store_content(
     status: DocStatus,
     note: Option<&str>,
 ) -> Result<Document> {
-    let tx = conn.transaction()?;
+    // Take the write lock up front so the busy timeout applies (a deferred transaction that
+    // starts reading and then upgrades can fail at once when another connection wrote meanwhile).
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
     tx.execute("DELETE FROM passages WHERE document_id = ?1", [id])?;
     tx.execute("DELETE FROM pages WHERE document_id = ?1", [id])?;
     for p in pages {

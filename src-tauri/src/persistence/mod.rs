@@ -34,10 +34,21 @@ impl Db {
 
     fn init(conn: &mut Connection) -> Result<()> {
         conn.pragma_update(None, "foreign_keys", "ON")?;
+        // The import worker writes through its own connection, so wait for it instead of failing.
+        conn.busy_timeout(std::time::Duration::from_secs(10))?;
         migrate(conn)?;
         // A previous run may have been killed mid-stream.
         chat::recover_interrupted(conn)?;
         Ok(())
+    }
+
+    /// A second connection to the same file for a background worker, so long writes
+    /// don't hold up the shared connection (WAL lets readers and one writer overlap).
+    pub fn open_secondary(path: &Path) -> Result<Connection> {
+        let conn = Connection::open(path)?;
+        conn.pragma_update(None, "foreign_keys", "ON")?;
+        conn.busy_timeout(std::time::Duration::from_secs(10))?;
+        Ok(conn)
     }
 
     pub async fn call<T, F>(&self, f: F) -> Result<T>

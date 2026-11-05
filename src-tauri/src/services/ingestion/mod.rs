@@ -2,8 +2,10 @@
 //! passages, index. The queue that runs this in the background is added on top of these parts.
 
 pub mod docx;
+pub mod import;
 pub mod meta;
 pub mod pdf;
+pub mod queue;
 pub mod segment;
 
 use crate::persistence::library::{Extracted, NewPage};
