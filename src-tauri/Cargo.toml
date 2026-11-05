@@ -38,6 +38,7 @@ zip = { version = "9.3.0", default-features = false, features = ["deflate"] }
 quick-xml = "0.42.0"
 regex = "1.13.1"
 tauri-plugin-dialog = "2.8.4"
+fastembed = { version = "=7.6.0", default-features = false, features = ["ort-download-binaries-rustls-tls"] }
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
@@ -50,3 +51,5 @@ strip = true
 
 [dev-dependencies]
 tempfile = "3.27.0"
+# parity test against the built-in model definition (ignored test, needs network)
+fastembed = { version = "=7.6.0", default-features = false, features = ["ort-download-binaries-rustls-tls", "hf-hub-rustls-tls"] }
