@@ -2,6 +2,7 @@
 //! `Db::call` runs them on a blocking thread for the async commands.
 
 pub mod chat;
+pub mod library;
 pub mod projects;
 pub mod settings;
 
@@ -17,6 +18,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../migrations/0001_init.sql"),
     include_str!("../../migrations/0002_cached_tokens.sql"),
     include_str!("../../migrations/0003_fork_marker.sql"),
+    include_str!("../../migrations/0004_library.sql"),
 ];
 
 #[derive(Clone)]
