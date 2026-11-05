@@ -10,7 +10,7 @@ import {
 } from "react-aria-components";
 import { useNav } from "../../app/nav";
 import { useDialogs } from "../../components/dialogs";
-import { ChevronIcon } from "../../components/icons";
+import { CheckIcon, ChevronIcon } from "../../components/icons";
 import { ModelSelect } from "../../components/ModelSelect";
 import { Button, cx, focus, Spinner, TextInput } from "../../components/ui";
 import { api } from "../../lib/api";
@@ -59,13 +59,70 @@ function Section({
 	);
 }
 
-/** Which model makes the meaning-search index, and its state. */
+type BackendId = "gemini" | "local";
+
+const BACKENDS: {
+	id: BackendId;
+	title: string;
+	tag: string;
+	blurb: string;
+	note: string;
+}[] = [
+	{
+		id: "gemini",
+		title: "Gemini",
+		tag: "Online",
+		blurb:
+			"Quick, and light on this Mac. Passages of your papers go to Google to be indexed, using your API key.",
+		note: "Costs well under a dollar for a few hundred papers.",
+	},
+	{
+		id: "local",
+		title: "On this Mac",
+		tag: "Private",
+		blurb:
+			"Nothing leaves your computer. Needs a one-time 200 MB download from Hugging Face.",
+		note: "Indexing is slower and uses more of this Mac's processor.",
+	},
+];
+
+function ProgressBar({
+	value,
+	max,
+	label,
+}: {
+	value: number;
+	max: number;
+	label: string;
+}) {
+	return (
+		<div
+			role="progressbar"
+			aria-label={label}
+			aria-valuemin={0}
+			aria-valuemax={max}
+			aria-valuenow={value}
+			className="h-1.5 w-full overflow-hidden rounded-full bg-border"
+		>
+			<div
+				className="h-full bg-primary transition-[width]"
+				style={{ width: `${max ? Math.min(100, (value / max) * 100) : 0}%` }}
+			/>
+		</div>
+	);
+}
+
+/** Two option cards for the model behind meaning search, and a status panel for the chosen one. */
 function SearchModel() {
 	const status = useEmbeddingStatus();
+	const { data: settings } = useSettings();
+	const { confirm } = useDialogs();
 	const [error, setError] = useState<string | null>(null);
 	if (!status) return null;
-	const { backend, model, indexed, total } = status;
+	const { backend, model, indexed, total, paused } = status;
+	const active = BACKENDS.find((b) => b.id === backend) ?? BACKENDS[0];
 	const fail = (e: { message?: string }) => setError(String(e.message ?? e));
+
 	const start = () => {
 		setError(null);
 		(backend === "gemini"
@@ -73,101 +130,152 @@ function SearchModel() {
 			: api.downloadEmbeddingModel()
 		).catch(fail);
 	};
-	const choose = (next: string) => {
+
+	const choose = async (next: string) => {
+		const id = next as BackendId;
+		if (id === backend) return;
 		setError(null);
-		api.setEmbeddingBackend(next as "gemini" | "local").catch(fail);
+		if (total > 0) {
+			const ok = await confirm({
+				title: `Switch to ${BACKENDS.find((b) => b.id === id)?.title}?`,
+				message:
+					id === "gemini"
+						? `Your ${total.toLocaleString()} passages will be indexed again with Gemini. They are sent to Google to do that. Keyword search keeps working meanwhile.`
+						: `Your ${total.toLocaleString()} passages will be indexed again on this Mac, after a one-time 200 MB download. Keyword search keeps working meanwhile.`,
+				confirmLabel: "Switch",
+			});
+			if (!ok) return;
+		}
+		api.setEmbeddingBackend(id).catch(fail);
 	};
 
-	let body: React.ReactNode;
-	if (model.kind === "ready") {
-		body = (
-			<p>
-				Ready. {indexed.toLocaleString()} of {total.toLocaleString()} passages
-				are indexed for meaning search.
-			</p>
-		);
-	} else if (model.kind === "downloading") {
-		body = (
-			<p>
-				Downloading: {mb(model.done)} of {mb(model.total)}.
-			</p>
-		);
-	} else {
-		return (
-			<div className="flex flex-col gap-3">
-				<Backends value={backend} onChange={choose} />
-				<div className="flex items-start justify-between gap-3 text-sm text-muted-foreground">
-					<div>
-						{model.kind === "failed" ? (
-							<p role="alert" className="text-problem">
-								{model.message}
-							</p>
-						) : backend === "gemini" ? (
-							<p>
-								Not turned on. Passages of your papers would be sent to Gemini
-								to be indexed, using your API key. Keyword search works without
-								it.
-							</p>
-						) : (
-							<p>
-								Not downloaded. Meaning search needs a one-time download of
-								about 200 MB from Hugging Face. Keyword search works without it.
-							</p>
-						)}
-						{error && <p className="text-problem">{error}</p>}
-					</div>
-					<Button className="shrink-0" onPress={start}>
-						{model.kind === "failed"
-							? "Try again"
-							: backend === "gemini"
-								? "Allow"
-								: "Download"}
-					</Button>
-				</div>
-			</div>
-		);
-	}
+	const needsKey = backend === "gemini" && !settings?.hasApiKey;
+	const indexing = model.kind === "ready" && indexed < total;
+
 	return (
 		<div className="flex flex-col gap-3">
-			<Backends value={backend} onChange={choose} />
-			<div className="text-sm text-muted-foreground">
-				{body}
-				{error && <p className="text-problem">{error}</p>}
+			<RadioGroup
+				aria-label="Search model"
+				value={backend}
+				onChange={choose}
+				className="grid gap-3 sm:grid-cols-2"
+			>
+				{BACKENDS.map((b) => (
+					<Radio
+						key={b.id}
+						value={b.id}
+						className={cx(
+							"group flex cursor-default flex-col gap-2 rounded-xl border border-border bg-card p-4 transition-colors",
+							"data-[hovered]:border-foreground/30 data-[selected]:border-primary data-[selected]:bg-primary/5",
+							"data-[focus-visible]:ring-2 data-[focus-visible]:ring-primary/60",
+						)}
+					>
+						<div className="flex items-center gap-2">
+							<span className="text-sm font-semibold">{b.title}</span>
+							<span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+								{b.tag}
+							</span>
+							<span className="ml-auto grid size-5 place-items-center rounded-full border border-border text-primary-foreground group-data-[selected]:border-primary group-data-[selected]:bg-primary">
+								<CheckIcon className="size-3 opacity-0 group-data-[selected]:opacity-100" />
+							</span>
+						</div>
+						<p className="text-[13px] leading-relaxed">{b.blurb}</p>
+						<p className="text-[13px] leading-relaxed text-muted-foreground">
+							{b.note}
+						</p>
+					</Radio>
+				))}
+			</RadioGroup>
+
+			<div
+				className="flex flex-col gap-2.5 rounded-xl border border-border bg-muted/40 p-4"
+				aria-live="polite"
+			>
+				<div className="flex items-center justify-between gap-3">
+					<div className="text-[13px] font-medium">
+						{active.title}
+						<span className="font-normal text-muted-foreground">
+							{" "}
+							·{" "}
+							{model.kind === "ready"
+								? indexing
+									? paused
+										? "indexing paused"
+										: "indexing"
+									: "ready"
+								: model.kind === "downloading"
+									? "downloading"
+									: model.kind === "failed"
+										? "not working"
+										: "not set up"}
+						</span>
+					</div>
+					{indexing && (
+						<Button onPress={() => api.setEmbeddingPaused(!paused)}>
+							{paused ? "Resume" : "Pause"}
+						</Button>
+					)}
+					{model.kind === "failed" && (
+						<Button variant="primary" onPress={start}>
+							Try again
+						</Button>
+					)}
+					{model.kind === "missing" && (
+						<Button variant="primary" onPress={start} isDisabled={needsKey}>
+							{backend === "gemini" ? "Allow and index" : "Download 200 MB"}
+						</Button>
+					)}
+				</div>
+
+				{model.kind === "ready" && (
+					<>
+						{total > 0 && (
+							<ProgressBar
+								value={indexed}
+								max={total}
+								label="Indexed passages"
+							/>
+						)}
+						<p className="text-[13px] text-muted-foreground">
+							{total === 0
+								? "Ready. Add papers to the library and they are indexed for meaning search."
+								: `${indexed.toLocaleString()} of ${total.toLocaleString()} passages are indexed for meaning search.`}
+						</p>
+					</>
+				)}
+				{model.kind === "downloading" && (
+					<>
+						<ProgressBar
+							value={model.done ?? 0}
+							max={model.total ?? 0}
+							label="Search model download"
+						/>
+						<p className="text-[13px] text-muted-foreground">
+							Downloading the search model: {mb(model.done)} of{" "}
+							{mb(model.total)}. Keyword search works meanwhile.
+						</p>
+					</>
+				)}
+				{model.kind === "missing" && (
+					<p className="text-[13px] text-muted-foreground">
+						{backend === "gemini"
+							? "Not turned on yet. Allowing it sends passages of your papers to Gemini to be indexed. Keyword search works without it."
+							: "Not downloaded yet. Keyword search works without it."}
+						{needsKey && " Add a Gemini API key on the General tab first."}
+					</p>
+				)}
+				{model.kind === "failed" && (
+					<p role="alert" className="text-[13px] text-problem">
+						{model.message}
+					</p>
+				)}
+				{error && (
+					<p role="alert" className="text-[13px] text-problem">
+						{error}
+					</p>
+				)}
 			</div>
 		</div>
-	);
-}
-
-function Backends({
-	value,
-	onChange,
-}: {
-	value: string;
-	onChange: (v: string) => void;
-}) {
-	return (
-		<RadioGroup
-			aria-label="Search model"
-			value={value}
-			onChange={onChange}
-			className="flex flex-col gap-1.5 text-sm"
-		>
-			<Radio value="gemini" className={cx("cursor-default", focus)}>
-				<span className="font-medium">Gemini (online).</span>{" "}
-				<span className="text-muted-foreground">
-					Fast and light on this Mac. Sends passages to Google.
-				</span>
-			</Radio>
-			<Radio value="local" className={cx("cursor-default", focus)}>
-				<span className="font-medium">On this Mac.</span>{" "}
-				<span className="text-muted-foreground">
-					Nothing leaves your computer. 200 MB download, slower to index.
-				</span>
-			</Radio>
-			<p className="text-[13px] text-muted-foreground">
-				Switching rebuilds the index with the new model.
-			</p>
-		</RadioGroup>
 	);
 }
 
