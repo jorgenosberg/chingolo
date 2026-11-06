@@ -349,10 +349,12 @@ function ProjectItem({
 						</div>
 					))}
 					{loose.map((c) => (
-						<ConversationRow key={c.id} c={c} depth={0} />
+						<ConversationRow key={c.id} c={c} depth={1} />
 					))}
 					{!chapters.data?.length && !loose.length && (
-						<p className="py-1 pl-8 text-xs text-muted-foreground">Empty</p>
+						<p className="py-1 pl-[18px] text-xs text-muted-foreground">
+							Empty
+						</p>
 					)}
 				</div>
 			)}
