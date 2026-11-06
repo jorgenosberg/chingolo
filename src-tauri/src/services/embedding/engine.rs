@@ -778,7 +778,7 @@ mod tests {
         // keyword search worked before and after; a quick meaning query for the record
         let q = embedder.embed_query("why do some marine algae produce toxins").unwrap().unwrap();
         let hits = db
-            .call(move |c| crate::services::retrieval::hybrid_search(c, "why do some marine algae produce toxins", &q, Backend::Local.identity(), None, 5))
+            .call(move |c| crate::services::retrieval::hybrid_search(c, "why do some marine algae produce toxins", &q, Backend::Local.identity(), &crate::domain::library::DocFilter::All, 5))
             .await
             .unwrap();
         for h in &hits {

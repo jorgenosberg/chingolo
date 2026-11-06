@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use rusqlite::Connection;
 
 use crate::domain::Id;
-use crate::domain::library::{MatchKind, SearchHit};
+use crate::domain::library::{DocFilter, MatchKind, SearchHit};
 use crate::error::Result;
 use crate::persistence::library::{self as repo, SearchOptions};
 use crate::persistence::vectors;
@@ -53,12 +53,12 @@ pub fn hybrid_search(
     query: &str,
     query_vec: &[f32],
     identity: (&str, &str),
-    project_id: Option<&str>,
+    filter: &DocFilter,
     limit: u32,
 ) -> Result<Vec<SearchHit>> {
-    let opts = SearchOptions { project_id, all_terms: false, prefix_last: false, limit: POOL };
+    let opts = SearchOptions { filter, all_terms: false, prefix_last: false, limit: POOL };
     let keyword = repo::search_passages(conn, query, &opts)?;
-    let meaning = vectors::scan(conn, query_vec, identity.0, identity.1, project_id, POOL as usize)?;
+    let meaning = vectors::scan(conn, query_vec, identity.0, identity.1, filter, POOL as usize)?;
 
     let keyword_ids: Vec<Id> = keyword.iter().map(|h| h.passage_id.clone()).collect();
     let meaning_ids: Vec<Id> = meaning.into_iter().map(|s| s.passage_id).collect();
@@ -161,12 +161,12 @@ mod tests {
         vectors::store_vectors(&mut conn, &items, MODEL_NAME, REVISION).unwrap();
 
         // no word of the question appears in either passage
-        let hits = hybrid_search(&conn, "why do reefs lose their colour", &[1.0, 0.0], (MODEL_NAME, REVISION), None, 10).unwrap();
+        let hits = hybrid_search(&conn, "why do reefs lose their colour", &[1.0, 0.0], (MODEL_NAME, REVISION), &DocFilter::All, 10).unwrap();
         assert_eq!(hits.first().map(|h| h.passage_id.as_str()), Some(a[0].as_str()));
         assert_eq!(hits[0].matched_by, MatchKind::Meaning);
 
         // a keyword hit that is also close in meaning is labelled Both and goes first
-        let hits = hybrid_search(&conn, "heat stress corals", &[1.0, 0.0], (MODEL_NAME, REVISION), None, 10).unwrap();
+        let hits = hybrid_search(&conn, "heat stress corals", &[1.0, 0.0], (MODEL_NAME, REVISION), &DocFilter::All, 10).unwrap();
         assert_eq!((hits[0].passage_id.as_str(), hits[0].matched_by), (a[0].as_str(), MatchKind::Both));
         assert_eq!(hits.len(), 2);
         assert_eq!(hits[1].matched_by, MatchKind::Meaning);
@@ -176,7 +176,7 @@ mod tests {
     fn question_filler_words_do_not_drive_the_keyword_side() {
         let mut conn = test_conn();
         let a = doc(&mut conn, "a", &["what is the answer to the question", "iron limits plankton growth"]);
-        let opts = SearchOptions { project_id: None, all_terms: false, prefix_last: false, limit: 10 };
+        let opts = SearchOptions { filter: &DocFilter::All, all_terms: false, prefix_last: false, limit: 10 };
         let hits = repo::search_passages(&conn, "What limits the plankton?", &opts).unwrap();
         assert_eq!(hits.iter().map(|h| h.passage_id.as_str()).collect::<Vec<_>>(), [a[1].as_str()]);
         // a query of only common words still searches, instead of returning nothing
@@ -191,12 +191,12 @@ mod tests {
         let mut items: Vec<_> = a.iter().chain(&b).map(|id| (id.clone(), vec![1.0, 0.0])).collect();
         items[3].1 = vec![0.9, 0.1];
         vectors::store_vectors(&mut conn, &items, MODEL_NAME, REVISION).unwrap();
-        assert_eq!(hybrid_search(&conn, "text", &[1.0, 0.0], (MODEL_NAME, REVISION), None, 2).unwrap().len(), 2);
+        assert_eq!(hybrid_search(&conn, "text", &[1.0, 0.0], (MODEL_NAME, REVISION), &DocFilter::All, 2).unwrap().len(), 2);
 
         let p = crate::persistence::projects::create_project(&conn, "P").unwrap();
         let doc_b: String = conn.query_row("SELECT document_id FROM passages WHERE id = ?1", [&b[0]], |r| r.get(0)).unwrap();
         repo::attach(&conn, &p.id, &doc_b).unwrap();
-        let hits = hybrid_search(&conn, "text", &[1.0, 0.0], (MODEL_NAME, REVISION), Some(&p.id), 10).unwrap();
+        let hits = hybrid_search(&conn, "text", &[1.0, 0.0], (MODEL_NAME, REVISION), &DocFilter::Project(p.id.clone()), 10).unwrap();
         assert_eq!(hits.iter().map(|h| h.passage_id.as_str()).collect::<Vec<_>>(), [b[0].as_str()]);
     }
 

@@ -5,7 +5,9 @@
 use rusqlite::{Connection, TransactionBehavior, params, params_from_iter};
 
 use crate::domain::Id;
+use crate::domain::library::DocFilter;
 use crate::error::Result;
+use crate::persistence::library::scope_clause;
 
 /// A passage waiting for its vector.
 #[derive(Debug, Clone, PartialEq)]
@@ -100,14 +102,10 @@ pub fn scan(
     query: &[f32],
     model: &str,
     revision: &str,
-    project_id: Option<&str>,
+    filter: &DocFilter,
     limit: usize,
 ) -> Result<Vec<Scored>> {
-    let scope = if project_id.is_some() {
-        "AND d.id IN (SELECT document_id FROM project_documents WHERE project_id = ?3)"
-    } else {
-        ""
-    };
+    let (scope, scope_args) = scope_clause(filter, "d.id", 3);
     let sql = format!(
         "SELECT v.passage_id, v.vec
            FROM passage_vectors v
@@ -117,9 +115,7 @@ pub fn scan(
     );
     let mut stmt = conn.prepare(&sql)?;
     let mut args: Vec<&dyn rusqlite::ToSql> = vec![&model, &revision];
-    if let Some(p) = &project_id {
-        args.push(p);
-    }
+    args.extend(scope_args.iter().map(|a| a as &dyn rusqlite::ToSql));
     let mut out: Vec<Scored> = Vec::new();
     let rows = stmt.query_map(params_from_iter(args), |r| {
         Ok((r.get::<_, Id>(0)?, r.get::<_, Vec<u8>>(1)?))
@@ -269,21 +265,21 @@ mod tests {
         store_vectors(&mut conn, &items, M, R).unwrap();
         let q = unit(1.0, 0.0);
 
-        let hits = scan(&conn, &q, M, R, None, 10).unwrap();
+        let hits = scan(&conn, &q, M, R, &DocFilter::All, 10).unwrap();
         let order: Vec<_> = hits.iter().map(|h| h.passage_id.clone()).collect();
         assert_eq!(order, [a[0].clone(), b[0].clone(), a[1].clone()]);
         assert!(hits[0].score > hits[1].score && hits[1].score > hits[2].score);
-        assert_eq!(scan(&conn, &q, M, R, None, 1).unwrap().len(), 1);
-        assert!(scan(&conn, &q, M, "other", None, 10).unwrap().is_empty());
-        assert!(scan(&conn, &[1.0, 0.0, 0.0], M, R, None, 10).unwrap().is_empty(), "wrong size is ignored");
+        assert_eq!(scan(&conn, &q, M, R, &DocFilter::All, 1).unwrap().len(), 1);
+        assert!(scan(&conn, &q, M, "other", &DocFilter::All, 10).unwrap().is_empty());
+        assert!(scan(&conn, &[1.0, 0.0, 0.0], M, R, &DocFilter::All, 10).unwrap().is_empty(), "wrong size is ignored");
 
         let p = projects::create_project(&conn, "P").unwrap();
         lib::attach(&conn, &p.id, &db).unwrap();
-        let scoped = scan(&conn, &q, M, R, Some(&p.id), 10).unwrap();
+        let scoped = scan(&conn, &q, M, R, &DocFilter::Project(p.id.clone()), 10).unwrap();
         assert_eq!(scoped.iter().map(|h| h.passage_id.clone()).collect::<Vec<_>>(), [b[0].clone()]);
 
         lib::set_status(&conn, &da, DocStatus::Error, None).unwrap();
-        assert_eq!(scan(&conn, &q, M, R, None, 10).unwrap().len(), 1);
+        assert_eq!(scan(&conn, &q, M, R, &DocFilter::All, 10).unwrap().len(), 1);
     }
 
     #[test]

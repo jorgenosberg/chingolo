@@ -99,6 +99,24 @@ pub struct Document {
     pub updated_at: i64,
 }
 
+/// What a conversation may read, as chosen in the composer. Stored as JSON in
+/// `conversations.source_scope`. `Project` means the conversation's own project.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum Scope {
+    Project,
+    Library,
+    Documents { ids: Vec<Id> },
+}
+
+/// A scope resolved against a conversation, ready for queries.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DocFilter {
+    All,
+    Project(Id),
+    Documents(Vec<Id>),
+}
+
 /// Line boxes of a passage on one page, in PDF user space: `[left, bottom, right, top]`.
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -191,6 +209,17 @@ mod tests {
     #[test]
     fn folds_norwegian_letters_and_case() {
         assert_eq!(fold("Økosystemet ved Ærø og Åre"), "okosystemet ved aero og are");
+    }
+
+    #[test]
+    fn scope_json_round_trips_and_reads_the_old_value() {
+        let old: Scope = serde_json::from_str("{\"kind\":\"library\"}").unwrap();
+        assert_eq!(old, Scope::Library);
+        for s in [Scope::Project, Scope::Library, Scope::Documents { ids: vec!["a".into(), "b".into()] }] {
+            let json = serde_json::to_string(&s).unwrap();
+            assert_eq!(serde_json::from_str::<Scope>(&json).unwrap(), s);
+        }
+        assert_eq!(serde_json::to_string(&Scope::Project).unwrap(), "{\"kind\":\"project\"}");
     }
 
     #[test]

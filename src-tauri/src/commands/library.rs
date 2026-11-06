@@ -5,7 +5,7 @@ use specta::Type;
 use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 
-use crate::domain::library::{DocStatus, Document, MetadataPatch, PageBoxes, PassageView, SearchHit, SourceView};
+use crate::domain::library::{DocFilter, DocStatus, Document, MetadataPatch, PageBoxes, PassageView, SearchHit, SourceView};
 use crate::error::{AppError, CmdResult};
 use crate::persistence::library::{self as repo, SearchOptions};
 use crate::services::ingestion::import::{self, ImportSummary};
@@ -156,12 +156,13 @@ pub async fn search_library(
     };
     let embed_ms = started.elapsed().as_millis();
     let by_meaning = vector.is_some();
+    let filter = DocFilter::from_project(project_id.as_deref());
     let hits = state
         .db
         .call(move |c| match vector {
-            Some(v) => retrieval::hybrid_search(c, &trimmed, &v, identity, project_id.as_deref(), limit),
+            Some(v) => retrieval::hybrid_search(c, &trimmed, &v, identity, &filter, limit),
             None => {
-                let opts = SearchOptions { project_id: project_id.as_deref(), all_terms: true, prefix_last: true, limit };
+                let opts = SearchOptions { filter: &filter, all_terms: true, prefix_last: true, limit };
                 repo::search_passages(c, &query, &opts)
             }
         })

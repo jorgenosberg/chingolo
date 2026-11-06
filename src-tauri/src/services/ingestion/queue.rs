@@ -241,7 +241,7 @@ mod tests {
         let (doc, path, mut conn) = docx_file(dir.path(), "h1", &["Plankton blooms follow iron enrichment in the Gulf of Alaska."]);
         let seen = run(&mut conn, &path, &doc, &CancellationToken::new());
         assert_eq!(seen, [DocStatus::Processing, DocStatus::Ready]);
-        let opts = repo::SearchOptions { project_id: None, all_terms: true, prefix_last: false, limit: 5 };
+        let opts = repo::SearchOptions { filter: &crate::domain::library::DocFilter::All, all_terms: true, prefix_last: false, limit: 5 };
         assert_eq!(repo::search_passages(&conn, "plankton iron", &opts).unwrap().len(), 1);
         assert_eq!(repo::get_document(&conn, &doc.id).unwrap().passage_count, 1);
     }

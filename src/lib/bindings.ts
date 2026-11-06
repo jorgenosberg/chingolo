@@ -19,6 +19,8 @@ export const commands = {
 	renameConversation: (id: string, title: string) => typedError<Conversation, CmdError>(__TAURI_INVOKE("rename_conversation", { id, title })),
 	archiveConversation: (id: string, archived: boolean) => typedError<Conversation, CmdError>(__TAURI_INVOKE("archive_conversation", { id, archived })),
 	setConversationModel: (id: string, provider: string, modelId: string) => typedError<Conversation, CmdError>(__TAURI_INVOKE("set_conversation_model", { id, provider, modelId })),
+	/**  Chooses what a conversation may read. `None` goes back to the default. */
+	setConversationScope: (id: string, scope: Scope | null) => typedError<Conversation, CmdError>(__TAURI_INVOKE("set_conversation_scope", { id, scope })),
 	deleteConversation: (id: string) => typedError<null, CmdError>(__TAURI_INVOKE("delete_conversation", { id })),
 	listMessages: (conversationId: string) => typedError<Message[], CmdError>(__TAURI_INVOKE("list_messages", { conversationId })),
 	/**  Saves the user's message, then streams the reply over `on_event`. */
@@ -174,6 +176,11 @@ export type Conversation = {
 	forkedFromTitle: string | null,
 	/**  Last copied message of a fork. Messages up to and including it are shown collapsed. */
 	forkBoundaryMessageId: string | null,
+	/**
+	 *  What the conversation may read. `None` is the default: its project if that has ready
+	 *  documents, else the whole library.
+	 */
+	sourceScope: Scope | null,
 	archivedAt: number | null,
 	createdAt: number,
 	updatedAt: number,
@@ -345,6 +352,12 @@ export type ProviderError = {
 };
 
 export type Role = "user" | "assistant";
+
+/**
+ *  What a conversation may read, as chosen in the composer. Stored as JSON in
+ *  `conversations.source_scope`. `Project` means the conversation's own project.
+ */
+export type Scope = { kind: "project" } | { kind: "library" } | { kind: "documents"; ids: string[] };
 
 export type SearchHit = {
 	passageId: string,

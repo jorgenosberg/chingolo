@@ -326,8 +326,8 @@ mod tests {
         }
         assert_eq!(db.call(|c| repo::list_documents(c, None)).await.unwrap().len(), 3, "the copy was not added again");
 
-        let opts = SearchOptions { project_id: Some(&project.id), all_terms: true, prefix_last: false, limit: 5 };
-        let hits = db.call({ let pid = project.id.clone(); move |c| repo::search_passages(c, "aero", &SearchOptions { project_id: Some(&pid), ..opts }) }).await.unwrap();
+        let pf = crate::domain::library::DocFilter::Project(project.id.clone());
+        let hits = db.call({ let pf = pf.clone(); move |c| repo::search_passages(c, "aero", &SearchOptions { filter: &pf, all_terms: true, prefix_last: false, limit: 5 }) }).await.unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].document_title, "alpha.docx");
 
@@ -335,7 +335,7 @@ mod tests {
         let alpha = docs.iter().find(|d| d.original_name == "alpha.docx").unwrap().clone();
         delete_document(&db, &ingest, &alpha.id).await.unwrap();
         assert!(!library_path(&lib, &alpha.content_hash, alpha.kind).exists());
-        let none = db.call(|c| repo::search_passages(c, "domoic", &SearchOptions { project_id: None, all_terms: true, prefix_last: false, limit: 5 })).await.unwrap();
+        let none = db.call(|c| repo::search_passages(c, "domoic", &SearchOptions { filter: &crate::domain::library::DocFilter::All, all_terms: true, prefix_last: false, limit: 5 })).await.unwrap();
         assert!(none.is_empty());
 
         // a document left "processing" by a crash is read again on the next start
@@ -376,7 +376,7 @@ mod tests {
             println!("{:>9?} {:>4}p {:>5} passages | {:?} | {}", d.status, d.page_count.unwrap_or(0), d.passage_count, d.error.as_deref().unwrap_or(""), d.original_name.chars().take(34).collect::<String>());
         }
         for q in ["domoic acid", "palmer maloney", "alcian blue gill", "Pseudo-nitzschia razor clams", "resilient"] {
-            let hits = db.call({ let q = q.to_string(); move |c| repo::search_passages(c, &q, &SearchOptions { project_id: None, all_terms: true, prefix_last: true, limit: 3 }) }).await.unwrap();
+            let hits = db.call({ let q = q.to_string(); move |c| repo::search_passages(c, &q, &SearchOptions { filter: &crate::domain::library::DocFilter::All, all_terms: true, prefix_last: true, limit: 3 }) }).await.unwrap();
             let top: Vec<_> = hits.iter().map(|h| format!("{} p{}", h.document_title.chars().take(22).collect::<String>(), h.page_start)).collect();
             println!("search {q:?}: {top:?}");
         }

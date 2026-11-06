@@ -5,7 +5,8 @@
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use crate::domain::library::SearchHit;
+use crate::domain::Conversation;
+use crate::domain::library::{DocFilter, DocStatus, Scope, SearchHit};
 use crate::error::{AppError, Result};
 use crate::persistence::library::{self as repo, SearchOptions};
 use crate::persistence::sources::{self, NewSource};
@@ -18,6 +19,7 @@ const SEARCH_LIMIT_DEFAULT: u32 = 6;
 const SEARCH_LIMIT_MAX: u32 = 8;
 const NEIGHBOURS_MAX: u32 = 3;
 const PAGE_LIMIT: u32 = 8;
+const LIST_MAX: usize = 100;
 
 /// What a tool call needs: where to look and which conversation the handles belong to.
 #[derive(Clone)]
@@ -25,19 +27,33 @@ pub struct ToolCtx {
     pub db: Db,
     pub embedder: Embedder,
     pub conversation_id: String,
-    /// Documents of this project only, or the whole library.
-    pub project_id: Option<String>,
+    /// Which documents every tool may read.
+    pub filter: DocFilter,
 }
 
-/// Which documents a conversation can draw on, or `None` when there are none to read. A project
-/// without ready documents falls back to the whole library.
-pub fn scope_for(conn: &Connection, project_id: Option<&str>) -> Result<Option<Option<String>>> {
-    if let Some(p) = project_id
-        && repo::ready_document_count(conn, Some(p))? > 0
-    {
-        return Ok(Some(Some(p.to_string())));
-    }
-    Ok((repo::ready_document_count(conn, None)? > 0).then_some(None))
+/// Which documents a conversation can draw on, or `None` when there are none to read.
+/// Without a chosen scope, a project without ready documents falls back to the whole library.
+/// A scope the user chose never falls back: if nothing in it is ready, there are no tools.
+pub fn scope_for(conn: &Connection, conv: &Conversation) -> Result<Option<DocFilter>> {
+    let project = conv.project_id.as_deref();
+    let filter = match &conv.source_scope {
+        None => {
+            if let Some(p) = project {
+                let f = DocFilter::Project(p.to_string());
+                if repo::ready_document_count(conn, &f)? > 0 {
+                    return Ok(Some(f));
+                }
+            }
+            DocFilter::All
+        }
+        Some(Scope::Library) => DocFilter::All,
+        Some(Scope::Project) => match project {
+            Some(p) => DocFilter::Project(p.to_string()),
+            None => return Ok(None),
+        },
+        Some(Scope::Documents { ids }) => DocFilter::Documents(ids.clone()),
+    };
+    Ok((repo::ready_document_count(conn, &filter)? > 0).then_some(filter))
 }
 
 pub fn specs() -> Vec<ToolSpec> {
@@ -56,6 +72,13 @@ pub fn specs() -> Vec<ToolSpec> {
                 },
                 "required": ["query"]
             }),
+        },
+        ToolSpec {
+            name: "list_documents".into(),
+            description: "List the documents you can search: title, year, pages and whether each could be read. \
+                Use it first when the question is about each or all of the user's papers, or how many there are."
+                .into(),
+            parameters: json!({ "type": "object", "properties": {} }),
         },
         ToolSpec {
             name: "read_section".into(),
@@ -96,6 +119,7 @@ pub fn summary(name: &str, args: &Value) -> String {
             Some(q) => format!("Searching your library for \"{}\"", q.chars().take(80).collect::<String>()),
             None => "Searching your library".into(),
         },
+        "list_documents" => "Listing your documents".into(),
         "read_section" => "Reading around a passage".into(),
         "get_page" => "Reading a page".into(),
         _ => "Working".into(),
@@ -107,6 +131,7 @@ pub fn summary(name: &str, args: &Value) -> String {
 pub async fn run(ctx: &ToolCtx, name: &str, args: &Value) -> Value {
     let result = match name {
         "search_library" => search(ctx, args).await,
+        "list_documents" => list_documents(ctx).await,
         "read_section" => read_section(ctx, args).await,
         "get_page" => get_page(ctx, args).await,
         other => Err(AppError::Invalid(format!("There is no tool called {other}."))),
@@ -140,13 +165,13 @@ async fn search(ctx: &ToolCtx, args: &Value) -> Result<Value> {
     };
     let by_meaning = vector.is_some();
     let identity = ctx.embedder.backend().identity();
-    let (conversation_id, project_id) = (ctx.conversation_id.clone(), ctx.project_id.clone());
+    let (conversation_id, filter) = (ctx.conversation_id.clone(), ctx.filter.clone());
     ctx.db
         .call(move |c| {
             let hits = match vector {
-                Some(v) => retrieval::hybrid_search(c, &query, &v, identity, project_id.as_deref(), limit)?,
+                Some(v) => retrieval::hybrid_search(c, &query, &v, identity, &filter, limit)?,
                 None => {
-                    let opts = SearchOptions { project_id: project_id.as_deref(), all_terms: false, prefix_last: false, limit };
+                    let opts = SearchOptions { filter: &filter, all_terms: false, prefix_last: false, limit };
                     repo::search_passages(c, &query, &opts)?
                 }
             };
@@ -163,6 +188,36 @@ async fn search(ctx: &ToolCtx, args: &Value) -> Result<Value> {
             Ok(out)
         })
         .await
+}
+
+async fn list_documents(ctx: &ToolCtx) -> Result<Value> {
+    let filter = ctx.filter.clone();
+    ctx.db.call(move |c| list_documents_sync(c, &filter)).await
+}
+
+/// Title, year, pages and a plain status for each scoped document. No ids and no handles.
+fn list_documents_sync(conn: &Connection, filter: &DocFilter) -> Result<Value> {
+    let docs = repo::list_documents_in(conn, filter)?;
+    let ready = docs.iter().filter(|d| d.status == DocStatus::Ready).count();
+    let items: Vec<Value> = docs
+        .iter()
+        .take(LIST_MAX)
+        .map(|d| {
+            let title = d.title.as_deref().map(str::trim).filter(|t| !t.is_empty()).unwrap_or(&d.original_name);
+            let status = match d.status {
+                DocStatus::Ready => "ready",
+                DocStatus::Queued | DocStatus::Processing => "still being read, not searchable yet",
+                DocStatus::NoText => "no text could be read (probably a scan), not searchable",
+                DocStatus::Error | DocStatus::Cancelled => "could not be read, not searchable",
+            };
+            json!({ "title": title, "year": d.year, "pages": d.page_count, "status": status })
+        })
+        .collect();
+    let mut out = json!({ "total": docs.len(), "ready": ready, "documents": items });
+    if docs.len() > LIST_MAX {
+        out["note"] = json!(format!("Only the newest {LIST_MAX} are listed."));
+    }
+    Ok(out)
 }
 
 async fn read_section(ctx: &ToolCtx, args: &Value) -> Result<Value> {
@@ -339,15 +394,62 @@ mod tests {
         }
     }
 
+    fn conv_with(conn: &Connection, project: Option<&str>, scope: Option<Scope>) -> Conversation {
+        let c = chat::create_conversation(conn, project, None, "gemini", Some("m")).unwrap();
+        chat::set_scope(conn, &c.id, scope.as_ref()).unwrap()
+    }
+
     #[test]
-    fn scope_prefers_a_project_with_documents_then_the_library() {
+    fn default_scope_prefers_a_project_with_documents_then_the_library() {
         let mut conn = test_conn();
-        assert_eq!(scope_for(&conn, None).unwrap(), None, "nothing to read yet");
-        let d = doc(&mut conn, "h1", "Alpha", &[1]);
         let p = crate::persistence::projects::create_project(&conn, "P").unwrap();
-        assert_eq!(scope_for(&conn, Some(&p.id)).unwrap(), Some(None), "an empty project falls back to the library");
-        assert_eq!(scope_for(&conn, None).unwrap(), Some(None));
+        let loose = conv_with(&conn, None, None);
+        let in_p = conv_with(&conn, Some(&p.id), None);
+        assert_eq!(scope_for(&conn, &loose).unwrap(), None, "nothing to read yet");
+        let d = doc(&mut conn, "h1", "Alpha", &[1]);
+        assert_eq!(scope_for(&conn, &in_p).unwrap(), Some(DocFilter::All), "an empty project falls back to the library");
+        assert_eq!(scope_for(&conn, &loose).unwrap(), Some(DocFilter::All));
         conn.execute("INSERT INTO project_documents (project_id, document_id, added_at) VALUES (?1, ?2, 0)", [&p.id, &d]).unwrap();
-        assert_eq!(scope_for(&conn, Some(&p.id)).unwrap(), Some(Some(p.id.clone())));
+        assert_eq!(scope_for(&conn, &in_p).unwrap(), Some(DocFilter::Project(p.id.clone())));
+    }
+
+    #[test]
+    fn a_chosen_scope_never_falls_back() {
+        let mut conn = test_conn();
+        let p = crate::persistence::projects::create_project(&conn, "P").unwrap();
+        let a = doc(&mut conn, "h1", "Alpha", &[1]);
+        let queued = repo::insert_document(&conn, "h2", "q.pdf", crate::domain::library::DocKind::Pdf).unwrap();
+
+        let library = conv_with(&conn, Some(&p.id), Some(Scope::Library));
+        assert_eq!(scope_for(&conn, &library).unwrap(), Some(DocFilter::All));
+        let empty_project = conv_with(&conn, Some(&p.id), Some(Scope::Project));
+        assert_eq!(scope_for(&conn, &empty_project).unwrap(), None, "the project is empty, the library is not used instead");
+        let no_project = conv_with(&conn, None, Some(Scope::Project));
+        assert_eq!(scope_for(&conn, &no_project).unwrap(), None);
+
+        let chosen = conv_with(&conn, None, Some(Scope::Documents { ids: vec![a.clone()] }));
+        assert_eq!(scope_for(&conn, &chosen).unwrap(), Some(DocFilter::Documents(vec![a.clone()])));
+        let not_ready = conv_with(&conn, None, Some(Scope::Documents { ids: vec![queued.id] }));
+        assert_eq!(scope_for(&conn, &not_ready).unwrap(), None, "a document still being read gives no tools");
+        let gone = conv_with(&conn, None, Some(Scope::Documents { ids: vec!["deleted".into()] }));
+        assert_eq!(scope_for(&conn, &gone).unwrap(), None);
+    }
+
+    #[test]
+    fn list_documents_covers_only_the_scope_and_hides_ids() {
+        let mut conn = test_conn();
+        let a = doc(&mut conn, "h1", "Alpha", &[1]);
+        let b = doc(&mut conn, "h2", "Beta", &[1]);
+        repo::insert_document(&conn, "h3", "waiting.pdf", crate::domain::library::DocKind::Pdf).unwrap();
+
+        let all = list_documents_sync(&conn, &DocFilter::All).unwrap();
+        assert_eq!((all["total"].as_u64(), all["ready"].as_u64()), (Some(3), Some(2)));
+        assert!(all.to_string().contains("not searchable yet"), "an unread document is reported as such");
+
+        let one = list_documents_sync(&conn, &DocFilter::Documents(vec![b.clone()])).unwrap();
+        assert_eq!(one["total"], 1);
+        assert_eq!(one["documents"][0]["title"], "Beta");
+        let text = one.to_string();
+        assert!(!text.contains(&a) && !text.contains(&b), "no document ids reach the model");
     }
 }

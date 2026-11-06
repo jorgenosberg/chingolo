@@ -34,6 +34,8 @@ const GROUNDED_PROMPT: &str = "You are Chingui, a research assistant for student
 The user has a library of papers. Before answering a question about their documents or the research \
 in them, search the library with the tools and answer from what you find. Search more than once when \
 a question spans several papers or the first results miss. \
+For a question about each or all of their papers, or how many there are, call list_documents first, \
+then search for each document that matters, and say how many you actually read when it is not all of them. \
 Every passage comes with a handle such as S3. Cite only with these handles, written [S3] right after \
 the claim they support. Never cite a handle you were not given, and never write page numbers, \
 authors or references from memory. If you quote, quote exactly and put the quote in quotation marks. \
@@ -166,13 +168,13 @@ pub async fn send(
                 Some(&provider_id), Some(&model),
             )?;
             // Tools only when there is something to read and the model can call them.
-            let scope = if can_use_tools { tools::scope_for(&tx, conv.project_id.as_deref())? } else { None };
+            let scope = if can_use_tools { tools::scope_for(&tx, &conv)? } else { None };
             tx.commit()?;
-            let tool_ctx = scope.map(|project_id| ToolCtx {
+            let tool_ctx = scope.map(|filter| ToolCtx {
                 db,
                 embedder,
                 conversation_id: conv.id.clone(),
-                project_id,
+                filter,
             });
             Ok(Prepared {
                 user_message,
@@ -755,7 +757,7 @@ mod tests {
             }
             Ok(())
         });
-        let ctx = ToolCtx { db: db.clone(), embedder, conversation_id: conv.clone(), project_id: None };
+        let ctx = ToolCtx { db: db.clone(), embedder, conversation_id: conv.clone(), filter: crate::domain::library::DocFilter::All };
         Setup { _dir: dir, db, conv, assistant, ctx, seen: Arc::new(Mutex::new(Vec::new())), events, channel }
     }
 
@@ -817,7 +819,7 @@ mod tests {
 
         let seen = s.seen.lock().unwrap();
         assert_eq!(seen.len(), 2);
-        assert!(seen.iter().all(|r| r.tools.len() == 3));
+        assert!(seen.iter().all(|r| r.tools.len() == 4));
         let second = &seen[1].turns;
         assert_eq!(second.len(), 3, "question, the model's call, the tool result");
         assert_eq!(second[1].replay, Some(Replay { provider: "fake".into(), data: json!({ "opaque": 1 }) }));

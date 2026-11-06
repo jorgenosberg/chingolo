@@ -8,13 +8,14 @@ use crate::domain::{
     Conversation, ConversationFilter, DEFAULT_CONVERSATION_TITLE, Id, Message, MessageStatus,
     Role, clean_name, new_id, now_ms,
 };
+use crate::domain::library::Scope;
 use crate::error::{AppError, Result};
 
 const CONV_COLS: &str = "id, project_id, chapter_id, title, provider, model_id, archived_at, created_at, updated_at,
     (SELECT CASE WHEN m.status <> 'error' THEN NULLIF(m.input_tokens, 0) END
        FROM messages m WHERE m.conversation_id = conversations.id AND m.role = 'assistant'
        ORDER BY m.id DESC LIMIT 1),
-    forked_from_title, fork_boundary_message_id";
+    forked_from_title, fork_boundary_message_id, source_scope";
 const MSG_COLS: &str = "id, conversation_id, role, content, status, provider, model_id, input_tokens, output_tokens, error, created_at, updated_at, cached_input_tokens, citations";
 
 fn conversation_from_row(r: &Row) -> rusqlite::Result<Conversation> {
@@ -31,6 +32,11 @@ fn conversation_from_row(r: &Row) -> rusqlite::Result<Conversation> {
         switch_cost_tokens: r.get(9)?,
         forked_from_title: r.get(10)?,
         fork_boundary_message_id: r.get(11)?,
+        source_scope: r.get::<_, Option<String>>(12)?.and_then(|json| {
+            serde_json::from_str(&json)
+                .map_err(|e| log::warn!("unreadable source_scope, using the default: {e}"))
+                .ok()
+        }),
     })
 }
 
@@ -173,6 +179,50 @@ pub fn set_model(conn: &Connection, id: &str, provider: &str, model_id: &str) ->
         return Err(AppError::NotFound);
     }
     get_conversation(conn, id)
+}
+
+/// Sets or clears (`None`) what a conversation may read. The caller validates the ids.
+pub fn set_scope(conn: &Connection, id: &str, scope: Option<&Scope>) -> Result<Conversation> {
+    let json = scope.map(serde_json::to_string).transpose().map_err(|e| AppError::Internal(e.to_string()))?;
+    let n = conn.execute("UPDATE conversations SET source_scope = ?1 WHERE id = ?2", params![json, id])?;
+    if n == 0 {
+        return Err(AppError::NotFound);
+    }
+    get_conversation(conn, id)
+}
+
+/// Most documents a chosen scope may name.
+const MAX_SCOPE_DOCUMENTS: usize = 200;
+
+/// What the user asked for, checked: a project scope needs a project, and a document list needs
+/// at least one id, all of which exist. Ids are deduplicated, order kept.
+pub fn change_scope(conn: &Connection, id: &str, scope: Option<Scope>) -> Result<Conversation> {
+    let conv = get_conversation(conn, id)?;
+    let scope = match scope {
+        Some(Scope::Project) if conv.project_id.is_none() => {
+            return Err(AppError::Invalid("This conversation isn't in a project.".into()));
+        }
+        Some(Scope::Documents { ids }) => {
+            let mut unique: Vec<Id> = Vec::with_capacity(ids.len());
+            for i in ids {
+                if !unique.contains(&i) {
+                    unique.push(i);
+                }
+            }
+            if unique.is_empty() {
+                return Err(AppError::Invalid("Choose at least one document.".into()));
+            }
+            if unique.len() > MAX_SCOPE_DOCUMENTS {
+                return Err(AppError::Invalid(format!("Choose at most {MAX_SCOPE_DOCUMENTS} documents.")));
+            }
+            if super::library::existing_ids(conn, &unique)?.len() != unique.len() {
+                return Err(AppError::Invalid("One of those documents no longer exists.".into()));
+            }
+            Some(Scope::Documents { ids: unique })
+        }
+        other => other,
+    };
+    set_scope(conn, id, scope.as_ref())
 }
 
 /// Copies a conversation, up to and including `up_to_message_id` if given, into a new one in the
@@ -498,7 +548,32 @@ mod tests {
             .query_row("SELECT source_scope FROM conversations WHERE id = ?1", [&f.id], |r| r.get(0))
             .unwrap();
         assert_eq!(scope.as_deref(), Some("{\"kind\":\"library\"}"));
+        assert_eq!(f.source_scope, Some(Scope::Library));
         assert_eq!(sources::list(&conn, &f.id).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_chosen_scope_is_checked_stored_and_cleared() {
+        use crate::domain::library::DocKind;
+        let conn = test_conn();
+        let loose = conv(&conn);
+        assert_eq!(loose.source_scope, None);
+        let d = super::super::library::insert_document(&conn, "h1", "a.pdf", DocKind::Pdf).unwrap();
+
+        assert!(change_scope(&conn, &loose.id, Some(Scope::Project)).is_err(), "no project");
+        assert!(change_scope(&conn, &loose.id, Some(Scope::Documents { ids: vec![] })).is_err(), "empty list");
+        assert!(change_scope(&conn, &loose.id, Some(Scope::Documents { ids: vec!["nope".into()] })).is_err(), "unknown id");
+        assert!(matches!(change_scope(&conn, "nope", Some(Scope::Library)), Err(AppError::NotFound)));
+        assert_eq!(get_conversation(&conn, &loose.id).unwrap().source_scope, None, "a rejected scope changes nothing");
+
+        let picked = change_scope(&conn, &loose.id, Some(Scope::Documents { ids: vec![d.id.clone(), d.id.clone()] })).unwrap();
+        assert_eq!(picked.source_scope, Some(Scope::Documents { ids: vec![d.id.clone()] }), "duplicates are dropped");
+        assert_eq!(get_conversation(&conn, &loose.id).unwrap().source_scope, picked.source_scope, "it is stored");
+
+        let p = crate::persistence::projects::create_project(&conn, "P").unwrap();
+        let in_p = create_conversation(&conn, Some(&p.id), None, "gemini", Some("m")).unwrap();
+        assert_eq!(change_scope(&conn, &in_p.id, Some(Scope::Project)).unwrap().source_scope, Some(Scope::Project));
+        assert_eq!(change_scope(&conn, &in_p.id, None).unwrap().source_scope, None, "back to the default");
     }
 
     #[test]

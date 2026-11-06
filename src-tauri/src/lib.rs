@@ -40,6 +40,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
         commands::chat::rename_conversation,
         commands::chat::archive_conversation,
         commands::chat::set_conversation_model,
+        commands::chat::set_conversation_scope,
         commands::chat::delete_conversation,
         commands::chat::list_messages,
         commands::chat::send_message,

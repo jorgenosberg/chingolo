@@ -76,6 +76,9 @@ pub struct Conversation {
     pub forked_from_title: Option<String>,
     /// Last copied message of a fork. Messages up to and including it are shown collapsed.
     pub fork_boundary_message_id: Option<Id>,
+    /// What the conversation may read. `None` is the default: its project if that has ready
+    /// documents, else the whole library.
+    pub source_scope: Option<library::Scope>,
     #[specta(type = Option<Number>)]
     pub archived_at: Option<i64>,
     #[specta(type = Number)]

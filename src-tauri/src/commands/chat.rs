@@ -1,6 +1,7 @@
 use tauri::State;
 use tauri::ipc::Channel;
 
+use crate::domain::library::Scope;
 use crate::domain::{Conversation, ConversationFilter, Message};
 use crate::error::CmdResult;
 use crate::commands::settings::pick_provider;
@@ -83,6 +84,17 @@ pub async fn set_conversation_model(
         .db
         .call(move |c| repo::set_model(c, &id, &provider, &model_id))
         .await?)
+}
+
+/// Chooses what a conversation may read. `None` goes back to the default.
+#[tauri::command]
+#[specta::specta]
+pub async fn set_conversation_scope(
+    state: State<'_, AppState>,
+    id: String,
+    scope: Option<Scope>,
+) -> CmdResult<Conversation> {
+    Ok(state.db.call(move |c| repo::change_scope(c, &id, scope)).await?)
 }
 
 #[tauri::command]

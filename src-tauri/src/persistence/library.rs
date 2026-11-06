@@ -1,9 +1,9 @@
 //! Documents, pages and passages. The ingestion worker and the library commands both use these.
 
-use rusqlite::{Connection, OptionalExtension, Row, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, Row, TransactionBehavior, params, params_from_iter};
 
 use crate::domain::library::{
-    DocKind, DocStatus, Document, MatchKind, MetadataPatch, SearchHit, fold,
+    DocFilter, DocKind, DocStatus, Document, MatchKind, MetadataPatch, SearchHit, fold,
 };
 use crate::domain::{Id, clean_name, new_id, now_ms};
 use crate::error::{AppError, Result};
@@ -59,25 +59,54 @@ pub fn find_by_hash(conn: &Connection, hash: &str) -> Result<Option<Document>> {
         .optional()?)
 }
 
+impl DocFilter {
+    pub fn from_project(project_id: Option<&str>) -> Self {
+        project_id.map_or(DocFilter::All, |p| DocFilter::Project(p.to_string()))
+    }
+}
+
+/// The one place that turns a filter into SQL, so search, vector scan, counts and listings can't
+/// disagree. `col` is the document id column (`d.id` or `id`), `first` the number of the first
+/// `?` it may use. Returns the clause (empty for everything) and its parameters, in order.
+pub fn scope_clause(filter: &DocFilter, col: &str, first: usize) -> (String, Vec<String>) {
+    match filter {
+        DocFilter::All => (String::new(), vec![]),
+        DocFilter::Project(p) => (
+            format!("AND {col} IN (SELECT document_id FROM project_documents WHERE project_id = ?{first})"),
+            vec![p.clone()],
+        ),
+        DocFilter::Documents(ids) if ids.is_empty() => ("AND 0".to_string(), vec![]),
+        DocFilter::Documents(ids) => {
+            let marks: Vec<String> = (first..first + ids.len()).map(|n| format!("?{n}")).collect();
+            (format!("AND {col} IN ({})", marks.join(", ")), ids.clone())
+        }
+    }
+}
+
 /// All documents, newest first, or only those attached to a project.
 pub fn list_documents(conn: &Connection, project_id: Option<&str>) -> Result<Vec<Document>> {
-    let (sql, args): (String, Vec<&dyn rusqlite::ToSql>) = match &project_id {
-        Some(p) => (
-            format!(
-                "SELECT {DOC_COLS} FROM documents
-                  WHERE id IN (SELECT document_id FROM project_documents WHERE project_id = ?1)
-                  ORDER BY created_at DESC, id DESC"
-            ),
-            vec![p],
-        ),
-        None => (
-            format!("SELECT {DOC_COLS} FROM documents ORDER BY created_at DESC, id DESC"),
-            vec![],
-        ),
-    };
+    list_documents_in(conn, &DocFilter::from_project(project_id))
+}
+
+/// Documents inside a filter, newest first. Includes documents that aren't ready.
+pub fn list_documents_in(conn: &Connection, filter: &DocFilter) -> Result<Vec<Document>> {
+    let (clause, args) = scope_clause(filter, "id", 1);
+    let sql = format!("SELECT {DOC_COLS} FROM documents WHERE 1 = 1 {clause} ORDER BY created_at DESC, id DESC");
     let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt.query_map(args.as_slice(), document_from_row)?;
+    let rows = stmt.query_map(params_from_iter(args.iter()), document_from_row)?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+/// Which of these ids are documents. Used to validate a scope the user chose.
+pub fn existing_ids(conn: &Connection, ids: &[Id]) -> Result<Vec<Id>> {
+    let mut stmt = conn.prepare("SELECT 1 FROM documents WHERE id = ?1")?;
+    let mut out = Vec::with_capacity(ids.len());
+    for id in ids {
+        if stmt.exists([id])? {
+            out.push(id.clone());
+        }
+    }
+    Ok(out)
 }
 
 pub fn insert_document(
@@ -302,8 +331,8 @@ fn match_expr(query: &str, all_terms: bool, prefix_last: bool) -> Option<String>
 }
 
 pub struct SearchOptions<'a> {
-    /// Only documents attached to this project.
-    pub project_id: Option<&'a str>,
+    /// Which documents may be searched.
+    pub filter: &'a DocFilter,
     pub all_terms: bool,
     pub prefix_last: bool,
     pub limit: u32,
@@ -314,11 +343,7 @@ pub fn search_passages(conn: &Connection, query: &str, opts: &SearchOptions) -> 
     let Some(expr) = match_expr(query, opts.all_terms, opts.prefix_last) else {
         return Ok(vec![]);
     };
-    let scope = if opts.project_id.is_some() {
-        "AND d.id IN (SELECT document_id FROM project_documents WHERE project_id = ?3)"
-    } else {
-        ""
-    };
+    let (scope, scope_args) = scope_clause(opts.filter, "d.id", 3);
     let sql = format!(
         "SELECT p.id, d.id, COALESCE(NULLIF(d.title, ''), d.original_name), p.page_start, p.page_end, p.text
            FROM passages_fts f
@@ -340,10 +365,9 @@ pub fn search_passages(conn: &Connection, query: &str, opts: &SearchOptions) -> 
             matched_by: MatchKind::Keyword,
         })
     };
-    let rows = match opts.project_id {
-        Some(p) => stmt.query_map(params![expr, opts.limit, p], map)?.collect::<rusqlite::Result<Vec<_>>>()?,
-        None => stmt.query_map(params![expr, opts.limit], map)?.collect::<rusqlite::Result<Vec<_>>>()?,
-    };
+    let mut args: Vec<&dyn rusqlite::ToSql> = vec![&expr, &opts.limit];
+    args.extend(scope_args.iter().map(|a| a as &dyn rusqlite::ToSql));
+    let rows = stmt.query_map(params_from_iter(args), map)?.collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(rows)
 }
 
@@ -374,19 +398,14 @@ pub fn hits_for_ids(conn: &Connection, ids: &[Id], matched_by: MatchKind) -> Res
     Ok(out)
 }
 
-/// How many documents a question could draw on: ready ones attached to the project, or in the
-/// whole library when no project is given.
-pub fn ready_document_count(conn: &Connection, project_id: Option<&str>) -> Result<u32> {
-    Ok(match project_id {
-        Some(p) => conn.query_row(
-            "SELECT COUNT(*) FROM documents d
-              WHERE d.status = 'ready'
-                AND d.id IN (SELECT document_id FROM project_documents WHERE project_id = ?1)",
-            [p],
-            |r| r.get(0),
-        )?,
-        None => conn.query_row("SELECT COUNT(*) FROM documents WHERE status = 'ready'", [], |r| r.get(0))?,
-    })
+/// How many documents a question could draw on: ready ones inside the filter.
+pub fn ready_document_count(conn: &Connection, filter: &DocFilter) -> Result<u32> {
+    let (clause, args) = scope_clause(filter, "d.id", 1);
+    Ok(conn.query_row(
+        &format!("SELECT COUNT(*) FROM documents d WHERE d.status = 'ready' {clause}"),
+        params_from_iter(args.iter()),
+        |r| r.get(0),
+    )?)
 }
 
 fn hit_from_row(r: &Row, matched_by: MatchKind) -> rusqlite::Result<SearchHit> {
@@ -473,7 +492,7 @@ mod tests {
     }
 
     fn opts() -> SearchOptions<'static> {
-        SearchOptions { project_id: None, all_terms: true, prefix_last: false, limit: 10 }
+        SearchOptions { filter: &crate::domain::library::DocFilter::All, all_terms: true, prefix_last: false, limit: 10 }
     }
 
     #[test]
@@ -508,7 +527,8 @@ mod tests {
         let p = projects::create_project(&conn, "P").unwrap();
         attach(&conn, &p.id, &a.id).unwrap();
         assert_eq!(search_passages(&conn, "shared", &opts()).unwrap().len(), 2);
-        let scoped = SearchOptions { project_id: Some(&p.id), ..opts() };
+        let pf = DocFilter::Project(p.id.clone());
+        let scoped = SearchOptions { filter: &pf, ..opts() };
         let hits = search_passages(&conn, "shared", &scoped).unwrap();
         assert_eq!((hits.len(), hits[0].document_id.as_str()), (1, a.id.as_str()));
 
