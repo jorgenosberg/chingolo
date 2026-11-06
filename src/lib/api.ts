@@ -4,6 +4,7 @@ import {
 	type ConversationFilter,
 	commands,
 	type MetadataPatch,
+	type Scope,
 	type SettingsPatch,
 	type UsagePeriod,
 } from "./bindings";
@@ -46,6 +47,8 @@ export const api = {
 		unwrap(commands.archiveConversation(id, archived)),
 	setConversationModel: (id: string, provider: string, modelId: string) =>
 		unwrap(commands.setConversationModel(id, provider, modelId)),
+	setConversationScope: (id: string, scope: Scope | null) =>
+		unwrap(commands.setConversationScope(id, scope)),
 	deleteConversation: (id: string) => unwrap(commands.deleteConversation(id)),
 	forkConversation: (id: string, fromMessageId: string | null) =>
 		unwrap(commands.forkConversation(id, fromMessageId)),

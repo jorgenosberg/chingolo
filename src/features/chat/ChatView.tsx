@@ -11,14 +11,16 @@ import { ActionMenu } from "../../components/ActionMenu";
 import { useDialogs } from "../../components/dialogs";
 import { SidebarRightIcon } from "../../components/icons";
 import { ModelPopover } from "../../components/ModelPopover";
+import { ScopePopover } from "../../components/ScopePopover";
 import { Button, IconButton, Modal_, SHORTCUTS } from "../../components/ui";
 import { api } from "../../lib/api";
-import type { Message } from "../../lib/bindings";
+import type { Message, Scope } from "../../lib/bindings";
 import { type ModelRef, providerName, sameModel } from "../../lib/providers";
 import {
 	keys,
 	sendMessage,
 	useConversations,
+	useDocuments,
 	useMessages,
 	useModels,
 	useSettings,
@@ -39,6 +41,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 	const messages = useMessages(conversationId);
 	const live = useLiveReply(conversationId);
 	const settings = useSettings();
+	const documents = useDocuments(null);
 	const models = useModels((settings.data?.apiKeys.length ?? 0) > 0);
 	const modelList = models.data?.models ?? [];
 
@@ -140,6 +143,16 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 			if (!ok) return;
 		}
 		await api.setConversationModel(conversationId, next.provider, next.id);
+		await qc.invalidateQueries({ queryKey: keys.conversations });
+	};
+
+	const changeScope = async (next: Scope | null) => {
+		try {
+			await api.setConversationScope(conversationId, next);
+			setError(null);
+		} catch (e) {
+			setError(e instanceof Error ? e.message : String(e));
+		}
 		await qc.invalidateQueries({ queryKey: keys.conversations });
 	};
 
@@ -312,13 +325,22 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 					onSend={onSend}
 					onStop={() => live?.messageId && api.cancelGeneration(live.messageId)}
 					extra={
-						<ModelPopover
-							models={modelList}
-							errors={models.data?.errors}
-							value={modelRef}
-							onChange={changeModel}
-							isDisabled={!hasKey || busy}
-						/>
+						<>
+							<ScopePopover
+								projectId={conversation?.projectId ?? null}
+								value={conversation?.sourceScope ?? null}
+								documents={documents.data ?? []}
+								onChange={changeScope}
+								isDisabled={busy}
+							/>
+							<ModelPopover
+								models={modelList}
+								errors={models.data?.errors}
+								value={modelRef}
+								onChange={changeModel}
+								isDisabled={!hasKey || busy}
+							/>
+						</>
 					}
 				/>
 			</div>
