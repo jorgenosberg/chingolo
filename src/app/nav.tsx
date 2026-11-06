@@ -64,6 +64,11 @@ type Nav = {
 	/** The centered search over conversations and projects. */
 	searchOpen: boolean;
 	setSearchOpen: (open: boolean) => void;
+	/** The left sidebar shrinks to a narrow icon rail instead of hiding. */
+	sidebarPanel: RefObject<PanelImperativeHandle | null>;
+	sidebarCollapsed: boolean;
+	setSidebarCollapsed: (collapsed: boolean) => void;
+	toggleSidebar: () => void;
 };
 
 const Ctx = createContext<Nav | null>(null);
@@ -94,6 +99,8 @@ export function NavProvider({ children }: { children: ReactNode }) {
 	const contextPanel = usePanelRef();
 	const [contextOpen, setContextOpen] = useState(true);
 	const [searchOpen, setSearchOpen] = useState(false);
+	const sidebarPanel = usePanelRef();
+	const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
 	const returnView = useRef<View>("library");
 	const openReader = useCallback((target: ReaderTarget) => {
@@ -170,6 +177,13 @@ export function NavProvider({ children }: { children: ReactNode }) {
 		else p.collapse();
 	}, [contextPanel]);
 
+	const toggleSidebar = useCallback(() => {
+		const p = sidebarPanel.current;
+		if (!p) return;
+		if (p.isCollapsed()) p.expand();
+		else p.collapse();
+	}, [sidebarPanel]);
+
 	const value = useMemo<Nav>(
 		() => ({
 			citation,
@@ -193,6 +207,10 @@ export function NavProvider({ children }: { children: ReactNode }) {
 			setContextOpen,
 			searchOpen,
 			setSearchOpen,
+			sidebarPanel,
+			sidebarCollapsed,
+			setSidebarCollapsed,
+			toggleSidebar,
 		}),
 		[
 			citation,
@@ -213,6 +231,9 @@ export function NavProvider({ children }: { children: ReactNode }) {
 			toggleContext,
 			contextOpen,
 			searchOpen,
+			sidebarPanel,
+			sidebarCollapsed,
+			toggleSidebar,
 		],
 	);
 

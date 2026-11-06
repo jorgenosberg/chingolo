@@ -15,6 +15,7 @@ import {
 	PlusIcon,
 	SearchIcon,
 	SettingsIcon,
+	SidebarRightIcon,
 } from "../../components/icons";
 import { cx, focus, IconButton, Kbd, SHORTCUTS } from "../../components/ui";
 import { api } from "../../lib/api";
@@ -363,7 +364,15 @@ function ProjectItem({
 }
 
 export function Sidebar() {
-	const { newChat, openSettings, view, openLibrary, setSearchOpen } = useNav();
+	const {
+		newChat,
+		openSettings,
+		view,
+		openLibrary,
+		setSearchOpen,
+		sidebarCollapsed,
+		toggleSidebar,
+	} = useNav();
 	const documents = useDocuments(null);
 	const { prompt } = useDialogs();
 	const qc = useQueryClient();
@@ -389,12 +398,70 @@ export function Sidebar() {
 		}
 	};
 
+	if (sidebarCollapsed) {
+		return (
+			<nav
+				aria-label="Library"
+				className="flex h-full flex-col items-center bg-sidebar"
+			>
+				<div data-tauri-drag-region className="h-12 w-full shrink-0" />
+				<div className="flex flex-1 flex-col items-center gap-1.5">
+					<IconButton
+						label="Expand sidebar"
+						shortcut={SHORTCUTS.sidebar}
+						onPress={toggleSidebar}
+						className="size-8"
+					>
+						<SidebarRightIcon className="-scale-x-100" />
+					</IconButton>
+					<IconButton
+						label="New conversation"
+						shortcut={SHORTCUTS.newChat}
+						onPress={() => newChat()}
+						className="size-8 bg-primary text-primary-foreground data-[hovered]:bg-primary data-[hovered]:text-primary-foreground data-[hovered]:opacity-90"
+					>
+						<PlusIcon />
+					</IconButton>
+					<IconButton
+						label="Search"
+						shortcut={SHORTCUTS.search}
+						onPress={() => setSearchOpen(true)}
+						className="size-8"
+					>
+						<SearchIcon />
+					</IconButton>
+					<IconButton
+						label="Library"
+						shortcut={SHORTCUTS.library}
+						onPress={() => openLibrary()}
+						className={cx(
+							"size-8",
+							view === "library" && "bg-border/60 text-foreground",
+						)}
+					>
+						<LibraryIcon />
+					</IconButton>
+				</div>
+				<div className="pb-3">
+					<IconButton
+						label="Settings"
+						shortcut={SHORTCUTS.settings}
+						onPress={openSettings}
+						className="size-8"
+					>
+						<SettingsIcon />
+					</IconButton>
+				</div>
+			</nav>
+		);
+	}
+
 	return (
 		<nav aria-label="Library" className="flex h-full flex-col bg-sidebar">
 			{/* Room for the window buttons; also drags the window. */}
 			<div
 				data-tauri-drag-region
-				className="flex h-12 shrink-0 items-center justify-end px-3"
+				className="flex h-12 shrink-0 items-center justify-end gap-1 px-3"
 			>
 				<IconButton
 					label="Search"
@@ -402,6 +469,13 @@ export function Sidebar() {
 					onPress={() => setSearchOpen(true)}
 				>
 					<SearchIcon />
+				</IconButton>
+				<IconButton
+					label="Collapse sidebar"
+					shortcut={SHORTCUTS.sidebar}
+					onPress={toggleSidebar}
+				>
+					<SidebarRightIcon className="-scale-x-100" />
 				</IconButton>
 			</div>
 

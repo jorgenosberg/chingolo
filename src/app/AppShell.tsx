@@ -60,7 +60,8 @@ function EmptyWorkspace() {
 				</Button>
 				<p className="text-xs text-muted-foreground">
 					<Kbd keys={SHORTCUTS.search} /> searches,{" "}
-					<Kbd keys={SHORTCUTS.context} /> toggles the context pane.
+					<Kbd keys={SHORTCUTS.sidebar} /> the sidebar and{" "}
+					<Kbd keys={SHORTCUTS.context} /> the context pane.
 				</p>
 			</div>
 		</div>
@@ -157,6 +158,9 @@ export function AppShell() {
 			} else if (e.key === SHORTCUTS.library) {
 				e.preventDefault();
 				nav.openLibrary();
+			} else if (e.key === SHORTCUTS.sidebar) {
+				e.preventDefault();
+				nav.toggleSidebar();
 			} else if (e.key === SHORTCUTS.context) {
 				e.preventDefault();
 				nav.toggleContext();
@@ -174,7 +178,16 @@ export function AppShell() {
 				onLayoutChanged={layout.onLayoutChanged}
 				className="h-full"
 			>
-				<Panel id="sidebar" defaultSize="260px" minSize="200px" maxSize="420px">
+				<Panel
+					id="sidebar"
+					panelRef={nav.sidebarPanel}
+					collapsible
+					collapsedSize="52px"
+					defaultSize="260px"
+					minSize="200px"
+					maxSize="420px"
+					onResize={(size) => nav.setSidebarCollapsed(size.inPixels < 100)}
+				>
 					<Sidebar />
 				</Panel>
 				<Divider />
