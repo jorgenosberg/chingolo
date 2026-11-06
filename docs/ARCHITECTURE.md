@@ -82,7 +82,7 @@ Built so far: tool mode only (whole-source mode is not built, deferred until the
 
 ## Ingestion (M2)
 
-Import, hash and dedupe, parse (pdfium for PDF with per-page char boxes, zip + quick-xml for DOCX), extract metadata, segment into passages keeping page and offsets, index, embed. Jobs are cancellable and resumable, and report progress through events. Pages with missing or garbled text are flagged. Tables and equations are not guessed at.
+Import, hash and dedupe, parse (pdfium for PDF with per-page char boxes, zip + quick-xml for DOCX), extract metadata, segment into passages keeping page and offsets, index, embed. Jobs are cancellable and resumable, and report progress through events. Pages with no text layer are rendered with pdfium and read with PP-OCRv6 through `oar-ocr` (`ingestion/ocr.rs`, models downloaded on first use, `pages.ocr` marks them), then put back into PDF user space so highlights work. `oar-ocr` is vendored in `src-tauri/third_party` to share the `ort` rc.15 runtime with `fastembed`, and sessions must use `AutoDevicePolicy::PreferCPU` (the automatic device gives wrong text). Pages with garbled text are flagged. Layout, tables and figures are planned through the same engine (see STATUS).
 
 ### Embedding
 
