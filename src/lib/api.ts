@@ -103,6 +103,8 @@ export const api = {
 	searchLibrary: (query: string, projectId: string | null, meaning: boolean) =>
 		unwrap(commands.searchLibrary(query, projectId, 30, meaning)),
 
+	ocrStatus: () => commands.ocrStatus(),
+	downloadOcrModel: () => commands.downloadOcrModel(),
 	embeddingStatus: () => commands.embeddingStatus(),
 	downloadEmbeddingModel: () => unwrap(commands.downloadEmbeddingModel()),
 	allowCloudEmbedding: () => unwrap(commands.allowCloudEmbedding()),

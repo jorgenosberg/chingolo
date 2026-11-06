@@ -742,7 +742,7 @@ mod tests {
                     NewPassage { page_start: 1, page_end: 1, text: "Iron limitation controls plankton growth.".into(), boxes: None },
                     NewPassage { page_start: 2, page_end: 2, text: "Samples were frozen.".into(), boxes: None },
                 ];
-                let pages = vec![NewPage { page_no: 1, width: 600.0, height: 800.0, quality: "ok" }];
+                let pages = vec![NewPage { page_no: 1, width: 600.0, height: 800.0, quality: "ok", ocr: false }];
                 library::store_content(c, &doc.id, &pages, &passages, &Default::default(), DocStatus::Ready, None)?;
                 let conv = repo::create_conversation(c, None, None, "fake", Some("m"))?;
                 repo::insert_message(c, &conv.id, Role::User, "q", MessageStatus::Complete, None, None)?;

@@ -26,6 +26,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../migrations/0006_api_usage.sql"),
     include_str!("../../migrations/0007_grounded_answers.sql"),
     include_str!("../../migrations/0008_usage_conversation.sql"),
+    include_str!("../../migrations/0009_page_ocr.sql"),
 ];
 
 #[derive(Clone)]

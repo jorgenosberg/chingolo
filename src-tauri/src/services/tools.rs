@@ -318,7 +318,7 @@ mod tests {
             .enumerate()
             .map(|(i, p)| NewPassage { page_start: *p, page_end: *p, text: format!("{name} passage {i}"), boxes: None })
             .collect();
-        let pages = vec![NewPage { page_no: 1, width: 600.0, height: 800.0, quality: "ok" }];
+        let pages = vec![NewPage { page_no: 1, width: 600.0, height: 800.0, quality: "ok", ocr: false }];
         repo::store_content(
             conn,
             &d.id,

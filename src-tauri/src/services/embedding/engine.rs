@@ -518,7 +518,7 @@ mod tests {
         let passages: Vec<_> = (0..n)
             .map(|i| NewPassage { page_start: 1, page_end: 1, text: format!("{hash} passage number {i}"), boxes: None })
             .collect();
-        let pages = vec![NewPage { page_no: 1, width: 1.0, height: 1.0, quality: "ok" }];
+        let pages = vec![NewPage { page_no: 1, width: 1.0, height: 1.0, quality: "ok", ocr: false }];
         repo::store_content(conn, &d.id, &pages, &passages, &Extracted::default(), DocStatus::Ready, None).unwrap();
         d.id
     }

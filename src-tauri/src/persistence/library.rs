@@ -209,6 +209,8 @@ pub struct NewPage {
     pub height: f32,
     /// "ok", "low" or "none"
     pub quality: &'static str,
+    /// The text came from text recognition, not from the file.
+    pub ocr: bool,
 }
 
 pub struct NewPassage {
@@ -246,8 +248,8 @@ pub fn store_content(
     tx.execute("DELETE FROM pages WHERE document_id = ?1", [id])?;
     for p in pages {
         tx.execute(
-            "INSERT INTO pages (document_id, page_no, width, height, quality) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![id, p.page_no, p.width, p.height, p.quality],
+            "INSERT INTO pages (document_id, page_no, width, height, quality, ocr) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![id, p.page_no, p.width, p.height, p.quality, p.ocr],
         )?;
     }
     for (i, p) in passages.iter().enumerate() {
@@ -487,7 +489,7 @@ mod tests {
     fn ready_doc(conn: &mut Connection, hash: &str, name: &str, texts: &[&str]) -> Document {
         let d = insert_document(conn, hash, name, DocKind::Pdf).unwrap();
         let passages: Vec<_> = texts.iter().enumerate().map(|(i, t)| passage(i as u32 + 1, t)).collect();
-        let pages = vec![NewPage { page_no: 1, width: 600.0, height: 800.0, quality: "ok" }];
+        let pages = vec![NewPage { page_no: 1, width: 600.0, height: 800.0, quality: "ok", ocr: false }];
         store_content(conn, &d.id, &pages, &passages, &Extracted::default(), DocStatus::Ready, None).unwrap()
     }
 

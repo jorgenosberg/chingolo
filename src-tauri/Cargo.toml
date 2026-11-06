@@ -42,6 +42,13 @@ tauri-plugin-log = "2.10.1"
 log = "0.4.35"
 fastembed = { version = "=7.6.0", default-features = false, features = ["ort-download-binaries-rustls-tls"] }
 
+# PP-OCR text, layout and tables. Vendored for the ort rc.15 port (see third_party/README.md)
+image = { version = "0.25.10", default-features = false }
+oar-ocr = { version = "=0.10.2", default-features = false, features = ["simd"] }
+
+[patch.crates-io]
+oar-ocr = { path = "third_party/oar-ocr" }
+oar-ocr-core = { path = "third_party/oar-ocr-core" }
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

@@ -65,6 +65,8 @@ fn specta_builder() -> Builder<tauri::Wry> {
         commands::library::search_library,
         commands::library::get_passage,
         commands::library::get_source,
+        commands::ocr::ocr_status,
+        commands::ocr::download_ocr_model,
         commands::embedding::embedding_status,
         commands::embedding::download_embedding_model,
         commands::embedding::allow_cloud_embedding,
@@ -192,6 +194,8 @@ pub fn run() {
                 }
             });
             let ingest = Ingestor::start(&db_path, dir.join("library"), ingest_emit)?;
+            let ocr = crate::services::ingestion::ocr::OcrModel::new(&dir);
+            ingest.set_ocr_dir(Some(ocr.dir().to_path_buf()));
             // Documents that were still being read when the app last stopped.
             let (resume_db, resume_ingest) = (db.clone(), ingest.clone());
             tauri::async_runtime::spawn(async move {
@@ -216,6 +220,7 @@ pub fn run() {
                 generations: Generations::default(),
                 ingest,
                 embedder,
+                ocr,
                 import_target: Arc::new(Mutex::new(None)),
             });
             Ok(())

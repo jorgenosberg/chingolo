@@ -167,7 +167,7 @@ mod tests {
             .enumerate()
             .map(|(i, t)| NewPassage { page_start: i as u32 + 1, page_end: i as u32 + 1, text: (*t).into(), boxes: None })
             .collect();
-        let pages = vec![NewPage { page_no: 1, width: 1.0, height: 1.0, quality: "ok" }];
+        let pages = vec![NewPage { page_no: 1, width: 1.0, height: 1.0, quality: "ok", ocr: false }];
         lib::store_content(conn, &d.id, &pages, &passages, &Extracted::default(), DocStatus::Ready, None).unwrap();
         let ids = conn
             .prepare("SELECT id FROM passages WHERE document_id = ?1 ORDER BY ordinal")

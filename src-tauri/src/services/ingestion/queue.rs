@@ -12,6 +12,7 @@ use specta::Type;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use super::ocr::OcrSlot;
 use super::pdf::PdfReader;
 use super::segment::segment;
 use super::{Extraction, docx};
@@ -42,6 +43,8 @@ struct Inner {
     tokens: Mutex<HashMap<Id, CancellationToken>>,
     library_dir: PathBuf,
     emit: Emit,
+    /// Where the text recognition models are (or will be). None turns recognition off.
+    ocr_dir: Mutex<Option<PathBuf>>,
 }
 
 #[derive(Clone)]
@@ -56,13 +59,21 @@ impl Ingestor {
     pub fn start(db_path: &Path, library_dir: PathBuf, emit: Emit) -> Result<Self> {
         let conn = Db::open_secondary(db_path)?;
         let (tx, rx) = mpsc::unbounded_channel();
-        let inner = Arc::new(Inner { tx, tokens: Mutex::new(HashMap::new()), library_dir, emit });
+        let inner = Arc::new(Inner { tx, tokens: Mutex::new(HashMap::new()), library_dir, emit, ocr_dir: Mutex::new(None) });
         let worker = inner.clone();
         std::thread::Builder::new()
             .name("ingest".into())
             .spawn(move || worker_loop(conn, rx, worker))
             .map_err(|e| AppError::Internal(format!("couldn't start the import worker: {e}")))?;
         Ok(Ingestor(inner))
+    }
+
+    /// Pages without a text layer are read with text recognition from the next job on, once
+    /// the models in `dir` are downloaded.
+    pub fn set_ocr_dir(&self, dir: Option<PathBuf>) {
+        if let Ok(mut d) = self.0.ocr_dir.lock() {
+            *d = dir;
+        }
     }
 
     pub fn library_dir(&self) -> &Path {
@@ -104,12 +115,14 @@ impl Ingestor {
 
 fn worker_loop(mut conn: Connection, mut rx: mpsc::UnboundedReceiver<Document>, inner: Arc<Inner>) {
     let mut pdf: Option<PdfReader> = None;
+    let mut ocr = OcrSlot::default();
     while let Some(doc) = rx.blocking_recv() {
+        ocr.set_dir(inner.ocr_dir.lock().ok().and_then(|d| d.clone()));
         let token = inner.tokens.lock().ok().and_then(|t| t.get(&doc.id).cloned()).unwrap_or_default();
         let path = library_path(&inner.library_dir, &doc.content_hash, doc.kind);
         let emit = |d: Document, p: Option<Progress>| (inner.emit)(DocumentChanged { document: d, progress: p });
         // A bug in a parser must not take the worker down with it.
-        let ran = std::panic::catch_unwind(AssertUnwindSafe(|| run_job(&mut conn, &mut pdf, &path, &doc, &token, &emit)));
+        let ran = std::panic::catch_unwind(AssertUnwindSafe(|| run_job(&mut conn, &mut pdf, &mut ocr, &path, &doc, &token, &emit)));
         if ran.is_err() {
             if let Ok(d) = repo::set_status(&conn, &doc.id, DocStatus::Error, Some("Reading this file crashed. It may be damaged.")) {
                 emit(d, None);
@@ -133,6 +146,7 @@ fn reader(slot: &mut Option<PdfReader>) -> Result<&PdfReader> {
 pub fn run_job(
     conn: &mut Connection,
     pdf: &mut Option<PdfReader>,
+    ocr: &mut OcrSlot,
     path: &Path,
     doc: &Document,
     token: &CancellationToken,
@@ -156,7 +170,7 @@ pub fn run_job(
     let mut last_sent = 0;
     let extraction: Result<Extraction> = match doc.kind {
         DocKind::Pdf => reader(pdf).and_then(|r| {
-            r.extract(path, &cancelled, &mut |done, total| {
+            r.extract_with(path, ocr, &cancelled, &mut |done, total| {
                 // about every 5 percent, and at the end
                 if done == total || done >= last_sent + (total / 20).max(1) {
                     last_sent = done;
@@ -177,12 +191,15 @@ pub fn run_job(
     let passages = segment(&ex.blocks);
     let (status, note) = if passages.is_empty() {
         let why = match doc.kind {
+            DocKind::Pdf if ocr.missing() => {
+                "No text found. This looks like a scan. Download the text recognition model in Settings, then read it again."
+            }
             DocKind::Pdf => "No text found. This is probably a scan without a text layer.",
             DocKind::Docx => "No text found in this document.",
         };
         (DocStatus::NoText, Some(why.to_string()))
     } else {
-        (DocStatus::Ready, page_note(&ex))
+        (DocStatus::Ready, page_note(&ex, ocr.missing()))
     };
     match repo::store_content(conn, &doc.id, &ex.pages, &passages, &ex.meta, status, note.as_deref()) {
         Ok(d) => emit(d, None),
@@ -192,17 +209,24 @@ pub fn run_job(
 }
 
 /// A short note about pages that are missing or unreliable, if any.
-fn page_note(ex: &Extraction) -> Option<String> {
+fn page_note(ex: &Extraction, ocr_missing: bool) -> Option<String> {
     let total = ex.pages.len();
     let count = |q: &str| ex.pages.iter().filter(|p| p.quality == q).count();
     let (none, low) = (count("none"), count("low"));
+    let read = ex.pages.iter().filter(|p| p.ocr).count();
     let mut parts = vec![];
+    if read > 0 {
+        parts.push(format!("{read} pages were read by text recognition and may have errors."));
+    }
     if ex.unreadable_pages > 0 {
         parts.push(format!("{} pages could not be read.", ex.unreadable_pages));
     }
     let none_other = none.saturating_sub(ex.unreadable_pages as usize);
     if none_other > 0 {
         parts.push(format!("{none_other} of {total} pages have no text (blank, images or scans)."));
+        if ocr_missing {
+            parts.push("Download the text recognition model in Settings and read it again to include scanned pages.".into());
+        }
     }
     if low > 0 {
         parts.push(format!("{low} pages have unreliable text."));
@@ -231,7 +255,7 @@ mod tests {
 
     fn run(conn: &mut Connection, path: &Path, doc: &Document, token: &CancellationToken) -> Vec<DocStatus> {
         let seen = std::cell::RefCell::new(vec![]);
-        run_job(conn, &mut None, path, doc, token, &|d, _| seen.borrow_mut().push(d.status));
+        run_job(conn, &mut None, &mut OcrSlot::default(), path, doc, token, &|d, _| seen.borrow_mut().push(d.status));
         seen.into_inner()
     }
 
@@ -284,10 +308,14 @@ mod tests {
     #[test]
     fn page_notes_describe_missing_text() {
         use crate::persistence::library::{Extracted, NewPage};
-        let page = |q| NewPage { page_no: 1, width: 1.0, height: 1.0, quality: q };
+        let page = |q| NewPage { page_no: 1, width: 1.0, height: 1.0, quality: q, ocr: false };
         let ex = |pages, unreadable| Extraction { pages, blocks: vec![], meta: Extracted::default(), unreadable_pages: unreadable };
-        assert_eq!(page_note(&ex(vec![page("ok"), page("ok")], 0)), None);
-        let n = page_note(&ex(vec![page("ok"), page("none"), page("low"), page("none")], 1)).unwrap();
+        assert_eq!(page_note(&ex(vec![page("ok"), page("ok")], 0), false), None);
+        let n = page_note(&ex(vec![page("ok"), page("none"), page("low"), page("none")], 1), false).unwrap();
+        let mut read = page("ok");
+        read.ocr = true;
+        let n2 = page_note(&ex(vec![read, page("none")], 0), true).unwrap();
+        assert!(n2.contains("1 pages were read by text recognition") && n2.contains("Download the text recognition model"), "{n2}");
         assert!(n.contains("1 pages could not be read") && n.contains("1 of 4 pages have no text") && n.contains("1 pages have unreliable"), "{n}");
     }
 

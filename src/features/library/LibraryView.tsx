@@ -438,11 +438,17 @@ export function LibraryView() {
 				run: () => api.cancelImport(d.id),
 			});
 		}
-		if (d.status === "error" || d.status === "cancelled") {
+		if (
+			d.status === "error" ||
+			d.status === "cancelled" ||
+			d.status === "ready" ||
+			d.status === "no_text"
+		) {
+			const again = d.status === "ready" || d.status === "no_text";
 			list.push({
 				id: "retry",
 				icon: <ArrowClockwiseIcon className="size-4" />,
-				label: "Try again",
+				label: again ? "Read again" : "Try again",
 				run: () => api.retryImport(d.id).catch(fail("Couldn't retry")),
 			});
 		}

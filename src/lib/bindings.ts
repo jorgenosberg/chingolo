@@ -69,6 +69,12 @@ export const commands = {
 	getPassage: (passageId: string) => typedError<PassageView, CmdError>(__TAURI_INVOKE("get_passage", { passageId })),
 	/**  The saved copy of a cited passage, for when its document was deleted or read again. */
 	getSource: (conversationId: string, handle: number) => typedError<SourceView, CmdError>(__TAURI_INVOKE("get_source", { conversationId, handle })),
+	ocrStatus: () => __TAURI_INVOKE<ModelState>("ocr_status"),
+	/**
+	 *  Downloads the text recognition models (about 31 MB), if they aren't there yet. Documents read
+	 *  afterwards use them for pages without text. Returns at once, poll `ocr_status` for progress.
+	 */
+	downloadOcrModel: () => __TAURI_INVOKE<ModelState>("download_ocr_model"),
 	embeddingStatus: () => __TAURI_INVOKE<EmbeddingStatus>("embedding_status"),
 	/**
 	 *  Starts (or resumes) the local model download, or retries loading the model if the files are

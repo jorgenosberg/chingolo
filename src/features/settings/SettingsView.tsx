@@ -12,7 +12,7 @@ import {
 	TrashIcon,
 } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
 	Radio,
 	RadioGroup,
@@ -26,6 +26,7 @@ import { useDialogs } from "../../components/dialogs";
 import { ModelSelect } from "../../components/ModelSelect";
 import { Button, cx, focus, Spinner, TextInput } from "../../components/ui";
 import { api } from "../../lib/api";
+import type { ModelState } from "../../lib/bindings";
 import { useEmbeddingStatus } from "../../lib/library";
 import {
 	type ModelRef,
@@ -126,6 +127,71 @@ function ProgressBar({
 				className="h-full bg-primary transition-[width]"
 				style={{ width: `${max ? Math.min(100, (value / max) * 100) : 0}%` }}
 			/>
+		</div>
+	);
+}
+
+/** The text recognition models that read scanned pages. They stay on this Mac. */
+function ScannedPages() {
+	const [model, setModel] = useState<ModelState | null>(null);
+	useEffect(() => {
+		api.ocrStatus().then(setModel);
+	}, []);
+	const downloading = model?.kind === "downloading";
+	useEffect(() => {
+		if (!downloading) return;
+		const timer = setInterval(() => api.ocrStatus().then(setModel), 1000);
+		return () => clearInterval(timer);
+	}, [downloading]);
+	if (!model) return null;
+	const start = () => api.downloadOcrModel().then(setModel);
+
+	return (
+		<div
+			className="flex flex-col gap-2.5 rounded-xl border border-border bg-muted/40 p-4"
+			aria-live="polite"
+		>
+			<div className="flex items-center justify-between gap-3">
+				<div className="text-[13px] font-medium">
+					Text recognition
+					<span className="font-normal text-muted-foreground">
+						{" "}
+						·{" "}
+						{model.kind === "ready"
+							? "ready"
+							: model.kind === "downloading"
+								? "downloading"
+								: model.kind === "failed"
+									? "not working"
+									: "not downloaded"}
+					</span>
+				</div>
+				{model.kind === "failed" && (
+					<Button variant="primary" onPress={start}>
+						<ArrowClockwiseIcon className="size-4" />
+						Try again
+					</Button>
+				)}
+				{model.kind === "missing" && (
+					<Button variant="primary" onPress={start}>
+						Download 31 MB
+					</Button>
+				)}
+			</div>
+			{model.kind === "downloading" && (
+				<ProgressBar
+					value={model.done ?? 0}
+					max={model.total ?? 0}
+					label="Text recognition download"
+				/>
+			)}
+			<p className="text-[13px] text-muted-foreground">
+				{model.kind === "ready"
+					? "Pages without text, like scans, are read automatically when a paper is added. To read a paper you added earlier, use Read again in the library."
+					: model.kind === "failed"
+						? model.message
+						: "Reads pages that have no text, like scans. It runs on this Mac and nothing is sent anywhere. Needs a one-time 31 MB download from GitHub."}
+			</p>
 		</div>
 	);
 }
@@ -542,6 +608,9 @@ export function SettingsView() {
 						<TabPanel id="search" className="outline-none">
 							<Section title="Search model">
 								<SearchModel />
+							</Section>
+							<Section title="Scanned pages">
+								<ScannedPages />
 							</Section>
 						</TabPanel>
 						<TabPanel id="usage" className="outline-none">

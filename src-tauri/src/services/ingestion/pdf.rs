@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use pdfium_render::prelude::*;
 
 use super::meta;
+use super::ocr::{self, Ocr, OcrSlot};
 use super::segment::{Block, Join};
 use super::Extraction;
 use crate::error::{AppError, Result};
@@ -51,9 +52,21 @@ impl PdfReader {
     }
 
     /// `cancelled` is polled between pages. `progress` gets (pages done, page count).
+    #[cfg(test)]
     pub fn extract(
         &self,
         path: &Path,
+        cancelled: &dyn Fn() -> bool,
+        progress: &mut dyn FnMut(u32, u32),
+    ) -> Result<Extraction> {
+        self.extract_with(path, &mut OcrSlot::default(), cancelled, progress)
+    }
+
+    /// Like `extract`, and pages with no text layer go through text recognition when the models are there.
+    pub fn extract_with(
+        &self,
+        path: &Path,
+        ocr: &mut OcrSlot,
         cancelled: &dyn Fn() -> bool,
         progress: &mut dyn FnMut(u32, u32),
     ) -> Result<Extraction> {
@@ -69,14 +82,31 @@ impl PdfReader {
                 return Err(AppError::Cancelled);
             }
             let page_no = i as u32 + 1;
-            let (lines, quality) = match read_page(&page) {
+            let mut failed = false;
+            let (mut lines, mut quality) = match read_page(&page) {
                 Ok(r) => r,
                 Err(_) => {
-                    unreadable += 1;
+                    failed = true;
                     (vec![], "none")
                 }
             };
-            pages.push(NewPage { page_no, width: page.width().value, height: page.height().value, quality });
+            let mut ocr_read = false;
+            if quality == "none"
+                && let Some(engine) = ocr.get()
+            {
+                match ocr_page(&page, engine) {
+                    Ok(l) if l.iter().map(|x| x.text.chars().filter(|c| c.is_alphanumeric()).count()).sum::<usize>() >= MIN_CHARS_PER_PAGE => {
+                        lines = l;
+                        quality = "ok";
+                        ocr_read = true;
+                        failed = false;
+                    }
+                    Ok(_) => {}
+                    Err(e) => log::warn!("text recognition failed on page {page_no}: {e}"),
+                }
+            }
+            unreadable += u32::from(failed);
+            pages.push(NewPage { page_no, width: page.width().value, height: page.height().value, quality, ocr: ocr_read });
             blocks.extend(lines.into_iter().map(|l| Block {
                 page: page_no,
                 text: l.text,
@@ -121,6 +151,48 @@ fn open_error(e: PdfiumError) -> AppError {
         }
         other => AppError::Invalid(format!("This PDF couldn't be opened: {other}")),
     }
+}
+
+/// A page drawn the way a viewer shows it, with what is needed to map pixels back to user space.
+struct Rendered {
+    img: image::RgbImage,
+    scale: (f32, f32),
+    crop: [f32; 4],
+    rotation: ocr::Rotation,
+}
+
+fn render(page: &PdfPage) -> Result<Rendered> {
+    let (w, h) = (page.width().value, page.height().value);
+    let scale = ocr::RENDER_SCALE.min(ocr::MAX_SIDE_PX / w.max(h));
+    let draw = |e: PdfiumError| AppError::Internal(format!("couldn't draw the page: {e}"));
+    let bitmap = page
+        .render_with_config(&PdfRenderConfig::new().scale_page_by_factor(scale).rotate_if_landscape(PdfPageRenderRotation::None, false))
+        .map_err(draw)?;
+    let img = bitmap.as_image().map_err(draw)?.to_rgb8();
+    let crop = page.boundaries().crop().or_else(|_| page.boundaries().media()).map(|x| x.bounds);
+    let crop = crop.map(|c| [c.left().value, c.bottom().value, c.right().value, c.top().value]).unwrap_or([0.0, 0.0, w, h]);
+    let rotation = match page.rotation() {
+        Ok(PdfPageRenderRotation::Degrees90) => 90,
+        Ok(PdfPageRenderRotation::Degrees180) => 180,
+        Ok(PdfPageRenderRotation::Degrees270) => 270,
+        _ => 0,
+    };
+    Ok(Rendered { scale: (img.width() as f32 / w, img.height() as f32 / h), img, crop, rotation })
+}
+
+/// Reads the page with text recognition and puts the lines back in PDF user space.
+fn ocr_page(page: &PdfPage, engine: &Ocr) -> Result<Vec<RawLine>> {
+    let Rendered { img, scale, crop, rotation } = render(page)?;
+    Ok(engine
+        .recognize(img)?
+        .into_iter()
+        .map(|l| RawLine {
+            font: (l.rect[3] - l.rect[1]) / scale.1 * 0.8,
+            rect: ocr::to_user_space(l.rect, scale, crop, rotation),
+            text: l.text,
+            tight: false,
+        })
+        .collect())
 }
 
 struct RawLine {
@@ -264,6 +336,57 @@ mod tests {
         .into_bytes()
     }
 
+    /// The tiny page with its box starting at (ox, oy) and turned by `rotate` degrees.
+    fn placed_pdf(ox: i32, oy: i32, rotate: u16) -> Vec<u8> {
+        let content = format!("BT /F1 18 Tf {} {} Td (Hello Chingui world) Tj 0 -30 Td (Second line here) Tj ET", 20 + ox, 150 + oy);
+        format!(
+            "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n\
+             2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n\
+             3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[{ox} {oy} {} {}]/Rotate {rotate}/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj\n\
+             4 0 obj<</Length {}>>stream\n{content}\nendstream endobj\n\
+             5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\n\
+             trailer<</Root 1 0 R/Size 6>>\n%%EOF\n",
+            ox + 300,
+            oy + 200,
+            content.len()
+        )
+        .into_bytes()
+    }
+
+    /// Dark pixels of the rendered page, mapped back to user space, must sit on the text layer's
+    /// boxes for every page rotation and for a box that doesn't start at the origin. This is what
+    /// keeps highlights on scanned pages in the right place.
+    #[test]
+    fn rendered_pixels_map_back_onto_the_text_layer() {
+        let Some(reader) = reader() else { return };
+        let dir = tempfile::tempdir().unwrap();
+        for (ox, oy) in [(0, 0), (100, 70)] {
+            for rotate in [0u16, 90, 180, 270] {
+                let path = dir.path().join(format!("p{ox}-{rotate}.pdf"));
+                std::fs::write(&path, placed_pdf(ox, oy, rotate)).unwrap();
+                let doc = reader.pdfium.load_pdf_from_file(&path, None).unwrap();
+                let page = doc.pages().get(0).unwrap();
+                let (lines, _) = read_page(&page).unwrap();
+                let want = lines.iter().fold([f32::MAX, f32::MAX, f32::MIN, f32::MIN], |a, l| {
+                    [a[0].min(l.rect[0]), a[1].min(l.rect[1]), a[2].max(l.rect[2]), a[3].max(l.rect[3])]
+                });
+                let r = render(&page).unwrap();
+                assert_eq!(r.rotation, rotate);
+                let mut px = [f32::MAX, f32::MAX, f32::MIN, f32::MIN];
+                for (x, y, p) in r.img.enumerate_pixels() {
+                    if p.0.iter().map(|&c| c as u32).sum::<u32>() < 300 {
+                        px = [px[0].min(x as f32), px[1].min(y as f32), px[2].max(x as f32 + 1.0), px[3].max(y as f32 + 1.0)];
+                    }
+                }
+                let got = ocr::to_user_space(px, r.scale, r.crop, r.rotation);
+                // Glyph boxes include padding above and below the ink, so allow a few points.
+                for i in 0..4 {
+                    assert!((got[i] - want[i]).abs() < 6.0, "origin ({ox},{oy}) rotate {rotate}: got {got:?}, text layer {want:?}");
+                }
+            }
+        }
+    }
+
     fn reader() -> Option<PdfReader> {
         match PdfReader::new() {
             Ok(r) => Some(r),
@@ -326,6 +449,32 @@ mod tests {
                 out.meta.year, out.meta.doi, out.meta.authors.len(),
                 f.file_name().unwrap().to_string_lossy().chars().take(30).collect::<String>()
             );
+        }
+    }
+
+    /// Reads the scans in $CHINGUI_TEST_PAPERS with the models in $CHINGUI_OCR_DIR and prints what came out.
+    /// Run: CHINGUI_TEST_PAPERS=~/papers CHINGUI_OCR_DIR=~/models cargo test ocr_scans -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn ocr_scans() {
+        let Some(reader) = reader() else { return };
+        let papers = std::env::var("CHINGUI_TEST_PAPERS").expect("set CHINGUI_TEST_PAPERS");
+        let models = std::env::var("CHINGUI_OCR_DIR").expect("set CHINGUI_OCR_DIR");
+        let mut slot = OcrSlot::new(Some(PathBuf::from(models)));
+        for name in ["383495a0.pdf", "Fs97-18-135-eng.pdf"] {
+            let t = std::time::Instant::now();
+            let out = reader.extract_with(&Path::new(&papers).join(name), &mut slot, &|| false, &mut |_, _| {}).unwrap();
+            let read = out.pages.iter().filter(|p| p.ocr).count();
+            let none = out.pages.iter().filter(|p| p.quality == "none").count();
+            let passages = crate::services::ingestion::segment::segment(&out.blocks);
+            println!("{name}: {} pages, {read} read by OCR, {none} still without text, {} passages, {:.0}s", out.pages.len(), passages.len(), t.elapsed().as_secs_f32());
+            println!("  page 1 size {}x{}", out.pages[0].width, out.pages[0].height);
+            for b in out.blocks.iter().take(4) {
+                println!("  p{} {:?} font {:.1} | {}", b.page, b.rect.map(|r| r.map(|v| v.round())), b.font_size, b.text.chars().take(70).collect::<String>());
+            }
+            for p in passages.iter().skip(2).take(2) {
+                println!("  passage p{}: {}", p.page_start, p.text.chars().take(300).collect::<String>().replace('\n', " "));
+            }
         }
     }
 

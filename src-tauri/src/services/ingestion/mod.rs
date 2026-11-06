@@ -1,9 +1,12 @@
 //! Turns imported files into searchable passages: read the file, guess metadata, split into
 //! passages, index. The queue that runs this in the background is added on top of these parts.
 
+#[cfg(test)]
+mod audit;
 pub mod docx;
 pub mod import;
 pub mod meta;
+pub mod ocr;
 pub mod pdf;
 pub mod queue;
 pub mod segment;

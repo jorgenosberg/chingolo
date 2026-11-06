@@ -186,7 +186,8 @@ async fn download_one(
         return Err(AppError::Cancelled);
     }
 
-    let url = format!("{base_url}/{REVISION}/{}", f.remote);
+    // A full URL in the manifest is used as is.
+    let url = if f.remote.starts_with("http") { f.remote.to_string() } else { format!("{base_url}/{REVISION}/{}", f.remote) };
     let mut req = client.get(&url);
     if have > 0 {
         req = req.header(reqwest::header::RANGE, format!("bytes={have}-"));
@@ -445,6 +446,20 @@ mod tests {
         assert!(matches!(r, Err(AppError::Cancelled)));
         assert!(server.ranges.lock().unwrap().is_empty());
         assert_eq!(std::fs::metadata(dir.path().join("a.bin.part")).unwrap().len(), 1_000);
+    }
+
+    #[tokio::test]
+    async fn a_full_url_in_the_manifest_is_used_as_is() {
+        let fx = fixture();
+        let server = serve(files_of(&fx), Behaviour::default());
+        let url: &'static str = Box::leak(format!("{}/any-tag/b.bin", server.base).into_boxed_str());
+        let manifest = [ManifestFile { name: "b.bin", remote: url, size: fx.b.len() as u64, sha256: fx.manifest[1].sha256 }];
+        let dir = tempfile::tempdir().unwrap();
+        // The base URL is ignored for this file, so a wrong one must not matter.
+        download(&http_client(), "http://127.0.0.1:1", &manifest, dir.path(), &CancellationToken::new(), &mut |_, _| {})
+            .await
+            .unwrap();
+        assert_eq!(std::fs::read(dir.path().join("b.bin")).unwrap(), fx.b);
     }
 
     #[tokio::test]
