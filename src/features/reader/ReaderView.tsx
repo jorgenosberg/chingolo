@@ -1,6 +1,6 @@
+import { ArrowLeftIcon, XIcon } from "@phosphor-icons/react";
 import { useEffect, useMemo } from "react";
 import type { ReaderTarget } from "../../app/nav";
-import { ChevronIcon } from "../../components/icons";
 import { Button, Note, Spinner } from "../../components/ui";
 import { useDocuments, usePassage, useSource } from "../../lib/queries";
 import { type Highlight, PdfReader } from "./PdfReader";
@@ -59,7 +59,11 @@ export default function ReaderView({
 				className={`flex h-12 shrink-0 items-center gap-3 ${compact ? "px-4" : "px-6"}`}
 			>
 				<Button variant="ghost" className="-ml-2 px-2" onPress={closeReader}>
-					{!compact && <ChevronIcon className="size-3.5 rotate-180" />}
+					{compact ? (
+						<XIcon className="size-[17px]" />
+					) : (
+						<ArrowLeftIcon className="size-[17px]" />
+					)}
 					{backLabel}
 				</Button>
 				<h1 className="min-w-0 truncate text-[15px] font-semibold">

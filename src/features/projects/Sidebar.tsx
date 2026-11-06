@@ -1,3 +1,20 @@
+import {
+	ArchiveIcon,
+	ArrowElbowDownRightIcon,
+	BooksIcon,
+	CaretRightIcon,
+	FolderIcon,
+	FolderOpenIcon,
+	FolderPlusIcon,
+	GearSixIcon,
+	GitForkIcon,
+	MagnifyingGlassIcon,
+	NotePencilIcon,
+	PencilSimpleIcon,
+	PlusIcon,
+	SidebarSimpleIcon,
+	TrashIcon,
+} from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
 import { Button as RacButton } from "react-aria-components";
@@ -7,16 +24,6 @@ import {
 	ActionMenu as RowMenu,
 } from "../../components/ActionMenu";
 import { useDialogs } from "../../components/dialogs";
-import {
-	ChevronIcon,
-	FolderIcon,
-	FolderOpenIcon,
-	LibraryIcon,
-	PlusIcon,
-	SearchIcon,
-	SettingsIcon,
-	SidebarRightIcon,
-} from "../../components/icons";
 import { cx, focus, IconButton, Kbd, SHORTCUTS } from "../../components/ui";
 import { api } from "../../lib/api";
 import type { Conversation, Project } from "../../lib/bindings";
@@ -60,7 +67,8 @@ function Row({
 				aria-expanded={expanded}
 				style={{ paddingLeft: 8 + depth * INDENT_PX }}
 				className={cx(
-					"flex h-8 w-full items-center gap-2 rounded-lg pr-8 text-left text-[13px] transition-colors",
+					"flex h-8 w-full items-center gap-2 rounded-lg text-left text-[13px] transition-colors",
+					menu ? "pr-8" : "pr-2",
 					"data-[hovered]:bg-muted",
 					selected && "bg-border/60 font-medium",
 					focus,
@@ -90,7 +98,7 @@ function SectionHeader({
 }) {
 	return (
 		<div className="flex items-center justify-between px-2 pb-1 pt-4">
-			<h2 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+			<h2 className="text-[13px] font-semibold text-muted-foreground">
 				{title}
 			</h2>
 			{onAdd && (
@@ -116,6 +124,7 @@ function useConversationActions() {
 	return (c: Conversation): Action[] => [
 		{
 			id: "rename",
+			icon: <PencilSimpleIcon className="size-4" />,
 			label: "Rename",
 			run: async () => {
 				const title = await prompt({
@@ -129,14 +138,21 @@ function useConversationActions() {
 				}
 			},
 		},
-		{ id: "fork", label: "Fork", run: () => fork(c) },
+		{
+			id: "fork",
+			icon: <GitForkIcon className="size-4" />,
+			label: "Fork",
+			run: () => fork(c),
+		},
 		{
 			id: "handoff",
+			icon: <ArrowElbowDownRightIcon className="size-4" />,
 			label: "Hand off to a new conversation",
 			run: () => handoff(c),
 		},
 		{
 			id: "archive",
+			icon: <ArchiveIcon className="size-4" />,
 			label: c.archivedAt ? "Unarchive" : "Archive",
 			run: async () => {
 				await api.archiveConversation(c.id, !c.archivedAt);
@@ -145,6 +161,7 @@ function useConversationActions() {
 		},
 		{
 			id: "delete",
+			icon: <TrashIcon className="size-4" />,
 			label: "Delete…",
 			danger: true,
 			run: async () => {
@@ -208,6 +225,7 @@ function ProjectItem({
 	const actions: Action[] = [
 		{
 			id: "chat",
+			icon: <NotePencilIcon className="size-4" />,
 			label: "New conversation",
 			run: () => {
 				setOpen(true);
@@ -216,6 +234,7 @@ function ProjectItem({
 		},
 		{
 			id: "chapter",
+			icon: <FolderPlusIcon className="size-4" />,
 			label: "Add folder…",
 			run: async () => {
 				const title = await prompt({
@@ -232,6 +251,7 @@ function ProjectItem({
 		},
 		{
 			id: "rename",
+			icon: <PencilSimpleIcon className="size-4" />,
 			label: "Rename…",
 			run: async () => {
 				const name = await prompt({
@@ -247,6 +267,7 @@ function ProjectItem({
 		},
 		{
 			id: "delete",
+			icon: <TrashIcon className="size-4" />,
 			label: "Delete…",
 			danger: true,
 			run: async () => {
@@ -269,7 +290,7 @@ function ProjectItem({
 		<div>
 			<Row
 				icon={
-					<ChevronIcon
+					<CaretRightIcon
 						className={cx("size-3.5 transition-transform", open && "rotate-90")}
 					/>
 				}
@@ -288,9 +309,9 @@ function ProjectItem({
 								depth={1}
 								icon={
 									collapsed.has(ch.id) ? (
-										<FolderIcon className="size-3.5" />
+										<FolderIcon className="size-[17px]" />
 									) : (
-										<FolderOpenIcon className="size-3.5" />
+										<FolderOpenIcon className="size-[17px]" />
 									)
 								}
 								label={ch.title}
@@ -302,11 +323,13 @@ function ProjectItem({
 										actions={[
 											{
 												id: "chat",
+												icon: <NotePencilIcon className="size-4" />,
 												label: "New conversation",
 												run: () => newChat(project.id, ch.id),
 											},
 											{
 												id: "rename",
+												icon: <PencilSimpleIcon className="size-4" />,
 												label: "Rename…",
 												run: async () => {
 													const title = await prompt({
@@ -322,6 +345,7 @@ function ProjectItem({
 											},
 											{
 												id: "delete",
+												icon: <TrashIcon className="size-4" />,
 												label: "Delete…",
 												danger: true,
 												run: async () => {
@@ -412,7 +436,7 @@ export function Sidebar() {
 						onPress={toggleSidebar}
 						className="size-8"
 					>
-						<SidebarRightIcon className="-scale-x-100" />
+						<SidebarSimpleIcon />
 					</IconButton>
 					<IconButton
 						label="New conversation"
@@ -420,7 +444,7 @@ export function Sidebar() {
 						onPress={() => newChat()}
 						className="size-8 bg-primary text-primary-foreground data-[hovered]:bg-primary data-[hovered]:text-primary-foreground data-[hovered]:opacity-90"
 					>
-						<PlusIcon />
+						<NotePencilIcon weight="bold" />
 					</IconButton>
 					<IconButton
 						label="Search"
@@ -428,7 +452,7 @@ export function Sidebar() {
 						onPress={() => setSearchOpen(true)}
 						className="size-8"
 					>
-						<SearchIcon />
+						<MagnifyingGlassIcon />
 					</IconButton>
 					<IconButton
 						label="Library"
@@ -439,7 +463,7 @@ export function Sidebar() {
 							view === "library" && "bg-border/60 text-foreground",
 						)}
 					>
-						<LibraryIcon />
+						<BooksIcon weight={view === "library" ? "fill" : "regular"} />
 					</IconButton>
 				</div>
 				<div className="pb-3">
@@ -449,7 +473,7 @@ export function Sidebar() {
 						onPress={openSettings}
 						className="size-8"
 					>
-						<SettingsIcon />
+						<GearSixIcon weight={view === "settings" ? "fill" : "regular"} />
 					</IconButton>
 				</div>
 			</nav>
@@ -468,14 +492,14 @@ export function Sidebar() {
 					shortcut={SHORTCUTS.search}
 					onPress={() => setSearchOpen(true)}
 				>
-					<SearchIcon />
+					<MagnifyingGlassIcon />
 				</IconButton>
 				<IconButton
 					label="Collapse sidebar"
 					shortcut={SHORTCUTS.sidebar}
 					onPress={toggleSidebar}
 				>
-					<SidebarRightIcon className="-scale-x-100" />
+					<SidebarSimpleIcon />
 				</IconButton>
 			</div>
 
@@ -487,19 +511,21 @@ export function Sidebar() {
 						focus,
 					)}
 				>
-					<PlusIcon />
+					<NotePencilIcon weight="bold" className="size-[17px]" />
 					New conversation
-					<Kbd
-						keys={SHORTCUTS.newChat}
-						className="ml-auto text-primary-foreground/70"
-					/>
+					<Kbd keys={SHORTCUTS.newChat} onPrimary className="ml-auto" />
 				</RacButton>
 			</div>
 
 			<div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
 				<div className="pt-2">
 					<Row
-						icon={<LibraryIcon className="size-3.5" />}
+						icon={
+							<BooksIcon
+								className="size-[17px]"
+								weight={view === "library" ? "fill" : "regular"}
+							/>
+						}
 						label={
 							documents.data?.length
 								? `Library (${documents.data.length})`
@@ -543,7 +569,7 @@ export function Sidebar() {
 						<div className="pt-4">
 							<Row
 								icon={
-									<ChevronIcon
+									<CaretRightIcon
 										className={cx(
 											"size-3.5 transition-transform",
 											showArchived && "rotate-90",
@@ -571,7 +597,11 @@ export function Sidebar() {
 						focus,
 					)}
 				>
-					<SettingsIcon /> Settings
+					<GearSixIcon
+						className="size-[17px]"
+						weight={view === "settings" ? "fill" : "regular"}
+					/>{" "}
+					Settings
 					<Kbd keys={SHORTCUTS.settings} className="ml-auto" />
 				</RacButton>
 			</footer>

@@ -1,3 +1,17 @@
+import {
+	ArrowClockwiseIcon,
+	BookOpenIcon,
+	CaretDownIcon,
+	FileIcon,
+	FilePlusIcon,
+	FolderIcon,
+	FolderMinusIcon,
+	FolderPlusIcon,
+	MagnifyingGlassIcon,
+	PencilSimpleIcon,
+	ProhibitIcon,
+	TrashIcon,
+} from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import {
@@ -14,7 +28,6 @@ import {
 import { useNav } from "../../app/nav";
 import { type Action, ActionMenu } from "../../components/ActionMenu";
 import { useDialogs } from "../../components/dialogs";
-import { ChevronIcon, PlusIcon, SearchIcon } from "../../components/icons";
 import { Button, cx, focus, Spinner } from "../../components/ui";
 import { api } from "../../lib/api";
 import type { DocStatus, Document, ImportSummary } from "../../lib/bindings";
@@ -255,7 +268,7 @@ function ImportMenu({
 	return (
 		<MenuTrigger>
 			<Button variant="primary" isDisabled={isDisabled}>
-				<PlusIcon className="size-3.5" /> Import
+				<FilePlusIcon className="size-[17px]" /> Import
 			</Button>
 			<Popover
 				placement="bottom end"
@@ -268,14 +281,16 @@ function ImportMenu({
 				>
 					<MenuItem
 						id="files"
-						className="cursor-default rounded-md px-2.5 py-1.5 text-[13px] outline-none data-[focused]:bg-muted"
+						className="flex cursor-default items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] outline-none data-[focused]:bg-muted"
 					>
+						<FileIcon className="size-4" />
 						Files…
 					</MenuItem>
 					<MenuItem
 						id="folder"
-						className="cursor-default rounded-md px-2.5 py-1.5 text-[13px] outline-none data-[focused]:bg-muted"
+						className="flex cursor-default items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] outline-none data-[focused]:bg-muted"
 					>
+						<FolderPlusIcon className="size-4" />
 						Folder…
 					</MenuItem>
 				</Menu>
@@ -309,7 +324,7 @@ function ScopeSelect({
 				)}
 			>
 				<SelectValue className="max-w-48 truncate" />
-				<ChevronIcon className="size-3.5 shrink-0 rotate-90 text-muted-foreground" />
+				<CaretDownIcon className="size-4 shrink-0 text-muted-foreground" />
 			</RacButton>
 			<Popover className="max-h-72 min-w-(--trigger-width) overflow-auto rounded-xl border border-border bg-card p-1 shadow-lg">
 				<ListBox items={items} className="outline-none">
@@ -393,14 +408,32 @@ export function LibraryView() {
 		const name = d.title || d.originalName;
 		const list: Action[] = [
 			...(d.kind === "pdf"
-				? [{ id: "open", label: "Open", run: () => open(d) }]
+				? [
+						{
+							id: "open",
+							icon: <BookOpenIcon className="size-4" />,
+							label: "Open",
+							run: () => open(d),
+						},
+					]
 				: []),
-			{ id: "edit", label: "Edit details…", run: () => setEditing(d) },
-			{ id: "projects", label: "Projects…", run: () => setProjectsFor(d.id) },
+			{
+				id: "edit",
+				icon: <PencilSimpleIcon className="size-4" />,
+				label: "Edit details…",
+				run: () => setEditing(d),
+			},
+			{
+				id: "projects",
+				icon: <FolderIcon className="size-4" />,
+				label: "Projects…",
+				run: () => setProjectsFor(d.id),
+			},
 		];
 		if (d.status === "queued" || d.status === "processing") {
 			list.push({
 				id: "cancel",
+				icon: <ProhibitIcon className="size-4" />,
 				label: "Cancel reading",
 				run: () => api.cancelImport(d.id),
 			});
@@ -408,6 +441,7 @@ export function LibraryView() {
 		if (d.status === "error" || d.status === "cancelled") {
 			list.push({
 				id: "retry",
+				icon: <ArrowClockwiseIcon className="size-4" />,
 				label: "Try again",
 				run: () => api.retryImport(d.id).catch(fail("Couldn't retry")),
 			});
@@ -415,6 +449,7 @@ export function LibraryView() {
 		if (scope) {
 			list.push({
 				id: "detach",
+				icon: <FolderMinusIcon className="size-4" />,
 				label: scopeName ? `Remove from ${scopeName}` : "Remove from project",
 				run: async () => {
 					await api.detachDocument(scope, d.id).catch(fail("Couldn't remove"));
@@ -424,6 +459,7 @@ export function LibraryView() {
 		}
 		list.push({
 			id: "delete",
+			icon: <TrashIcon className="size-4" />,
 			label: "Delete…",
 			danger: true,
 			run: async () => {
@@ -459,7 +495,7 @@ export function LibraryView() {
 
 			<div className="px-6 pb-3">
 				<div className="relative">
-					<SearchIcon className="pointer-events-none absolute left-2.5 top-2 size-4 text-muted-foreground" />
+					<MagnifyingGlassIcon className="pointer-events-none absolute left-2.5 top-2 size-4 text-muted-foreground" />
 					<input
 						type="search"
 						aria-label="Search documents"

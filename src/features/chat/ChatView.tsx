@@ -1,3 +1,9 @@
+import {
+	ArrowElbowDownRightIcon,
+	GitForkIcon,
+	PencilSimpleIcon,
+	SidebarSimpleIcon,
+} from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
 	Fragment,
@@ -9,7 +15,6 @@ import {
 import { useNav } from "../../app/nav";
 import { ActionMenu } from "../../components/ActionMenu";
 import { useDialogs } from "../../components/dialogs";
-import { SidebarRightIcon } from "../../components/icons";
 import { ModelPopover } from "../../components/ModelPopover";
 import { ScopePopover } from "../../components/ScopePopover";
 import { Button, IconButton, Modal_, SHORTCUTS } from "../../components/ui";
@@ -223,16 +228,23 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 						<ActionMenu
 							label="Conversation actions"
 							actions={[
-								{ id: "rename", label: "Rename…", run: rename },
+								{
+									id: "rename",
+									icon: <PencilSimpleIcon className="size-4" />,
+									label: "Rename…",
+									run: rename,
+								},
 								...(list.length > 0
 									? [
 											{
 												id: "fork",
+												icon: <GitForkIcon className="size-4" />,
 												label: "Fork conversation",
 												run: () => fork(conversation),
 											},
 											{
 												id: "handoff",
+												icon: <ArrowElbowDownRightIcon className="size-4" />,
 												label: "Hand off to a new conversation",
 												run: () => handoff(conversation),
 											},
@@ -251,7 +263,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 							shortcut={SHORTCUTS.context}
 							onPress={toggleContext}
 						>
-							<SidebarRightIcon />
+							<SidebarSimpleIcon mirrored />
 						</IconButton>
 					)}
 				</div>

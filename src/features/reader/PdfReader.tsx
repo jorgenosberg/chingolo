@@ -1,7 +1,14 @@
 import "pdfjs-dist/web/pdf_viewer.css";
+import {
+	CaretDownIcon,
+	CaretUpIcon,
+	FrameCornersIcon,
+	MagnifyingGlassIcon,
+	MagnifyingGlassMinusIcon,
+	MagnifyingGlassPlusIcon,
+} from "@phosphor-icons/react";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { useEffect, useRef, useState } from "react";
-import { ChevronIcon } from "../../components/icons";
 import { Button, IconButton, Spinner } from "../../components/ui";
 import type { PageBoxes } from "../../lib/bindings";
 import { clearHighlights, drawHighlights } from "./highlight";
@@ -271,15 +278,18 @@ export function PdfReader({
 					if (find.query) runFind(find.query, true);
 				}}
 			>
-				<input
-					type="search"
-					aria-label="Find in document"
-					placeholder="Find in document"
-					value={find.query}
-					disabled={!ready}
-					onChange={(e) => runFind(e.target.value)}
-					className="h-7 min-w-0 flex-1 rounded-md border border-transparent bg-muted px-2 text-[13px] outline-none placeholder:text-muted-foreground focus:border-primary/50 disabled:opacity-40"
-				/>
+				<div className="relative min-w-0 flex-1">
+					<MagnifyingGlassIcon className="pointer-events-none absolute left-2 top-1.5 size-4 text-muted-foreground" />
+					<input
+						type="search"
+						aria-label="Find in document"
+						placeholder="Find in document"
+						value={find.query}
+						disabled={!ready}
+						onChange={(e) => runFind(e.target.value)}
+						className="h-7 w-full rounded-md border border-transparent bg-muted pr-2 pl-7 text-[13px] outline-none placeholder:text-muted-foreground focus:border-primary/50 disabled:opacity-40"
+					/>
+				</div>
 				{find.query && (
 					<span
 						className={`shrink-0 text-xs ${noMatches ? "text-problem" : "text-muted-foreground"}`}
@@ -292,14 +302,14 @@ export function PdfReader({
 					isDisabled={!find.query || !find.total}
 					onPress={() => runFind(find.query, true, true)}
 				>
-					<ChevronIcon className="-rotate-90" />
+					<CaretUpIcon />
 				</IconButton>
 				<IconButton
 					label="Next match"
 					isDisabled={!find.query || !find.total}
 					onPress={() => runFind(find.query, true)}
 				>
-					<ChevronIcon className="rotate-90" />
+					<CaretDownIcon />
 				</IconButton>
 			</form>
 
@@ -331,7 +341,7 @@ export function PdfReader({
 						isDisabled={!ready || pages.current <= 1}
 						onPress={() => goTo(pages.current - 1)}
 					>
-						<ChevronIcon className="-rotate-90" />
+						<CaretUpIcon />
 					</IconButton>
 					<input
 						aria-label="Page"
@@ -350,7 +360,7 @@ export function PdfReader({
 						isDisabled={!ready || pages.current >= pages.total}
 						onPress={() => goTo(pages.current + 1)}
 					>
-						<ChevronIcon className="rotate-90" />
+						<CaretDownIcon />
 					</IconButton>
 				</div>
 				<div className="flex items-center gap-1">
@@ -359,14 +369,14 @@ export function PdfReader({
 						isDisabled={!ready}
 						onPress={() => zoom(1 / ZOOM_STEP)}
 					>
-						<span aria-hidden="true">−</span>
+						<MagnifyingGlassMinusIcon />
 					</IconButton>
 					<IconButton
 						label="Zoom in"
 						isDisabled={!ready}
 						onPress={() => zoom(ZOOM_STEP)}
 					>
-						<span aria-hidden="true">+</span>
+						<MagnifyingGlassPlusIcon />
 					</IconButton>
 					<Button
 						variant="ghost"
@@ -379,6 +389,7 @@ export function PdfReader({
 							}
 						}}
 					>
+						<FrameCornersIcon className="size-4" />
 						Fit width
 					</Button>
 				</div>

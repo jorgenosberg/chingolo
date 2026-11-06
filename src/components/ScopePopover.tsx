@@ -1,3 +1,4 @@
+import { BooksIcon, CheckIcon } from "@phosphor-icons/react";
 import { useMemo, useState } from "react";
 import {
 	Dialog,
@@ -10,7 +11,6 @@ import {
 	type Selection,
 } from "react-aria-components";
 import type { Document, Scope } from "../lib/bindings";
-import { CheckIcon, LibraryIcon } from "./icons";
 import { cx, focus } from "./ui";
 
 type Kind = "project" | "library" | "documents";
@@ -127,7 +127,7 @@ export function ScopePopover({
 					focus,
 				)}
 			>
-				<LibraryIcon className="size-3.5" />
+				<BooksIcon className="size-[17px]" />
 				<span className="max-w-32 truncate">{label}</span>
 			</RacButton>
 			<Popover
@@ -181,7 +181,7 @@ export function ScopePopover({
 												<span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
 													{STATUS_NOTE[d.status]}
 													{isSelected && (
-														<CheckIcon className="size-3.5 text-primary" />
+														<CheckIcon className="size-[17px] text-primary" />
 													)}
 												</span>
 											</>
@@ -257,7 +257,7 @@ export function ScopePopover({
 													</span>
 												</span>
 												{isSelected && (
-													<CheckIcon className="mt-0.5 size-3.5 shrink-0 text-primary" />
+													<CheckIcon className="mt-0.5 size-[17px] shrink-0 text-primary" />
 												)}
 											</>
 										)}

@@ -1,3 +1,4 @@
+import { CaretDownIcon } from "@phosphor-icons/react";
 import {
 	Button,
 	Header,
@@ -16,7 +17,6 @@ import {
 	providerName,
 	withSavedModel,
 } from "../lib/providers";
-import { ChevronIcon } from "./icons";
 import { cx, focus } from "./ui";
 
 export function ModelSelect({
@@ -59,7 +59,7 @@ export function ModelSelect({
 				)}
 			>
 				<SelectValue className="truncate data-[placeholder]:text-muted-foreground" />
-				<ChevronIcon className="size-3.5 shrink-0 rotate-90 text-muted-foreground" />
+				<CaretDownIcon className="size-4 shrink-0 text-muted-foreground" />
 			</Button>
 			<Popover className="max-h-72 min-w-(--trigger-width) overflow-auto rounded-xl border border-border bg-card p-1 shadow-lg">
 				<ListBox className="outline-none">

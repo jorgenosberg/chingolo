@@ -1,3 +1,4 @@
+import { CheckIcon, SparkleIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import {
 	Dialog,
@@ -19,7 +20,6 @@ import {
 	sameModel,
 	withSavedModel,
 } from "../lib/providers";
-import { CheckIcon, SparkleIcon } from "./icons";
 import { formatTokens } from "./ModelSelect";
 import { IconButton } from "./ui";
 
@@ -112,7 +112,7 @@ export function ModelPopover({
 														? formatTokens(m.inputTokenLimit)
 														: null}
 													{isSelected && (
-														<CheckIcon className="size-3.5 text-primary" />
+														<CheckIcon className="size-[17px] text-primary" />
 													)}
 												</span>
 											</>

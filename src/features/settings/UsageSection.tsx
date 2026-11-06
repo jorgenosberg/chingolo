@@ -1,3 +1,4 @@
+import { ArrowClockwiseIcon, FolderOpenIcon } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Radio, RadioGroup, Switch } from "react-aria-components";
@@ -211,7 +212,7 @@ export function UsageSection() {
 				</Switch>
 				<div className="flex items-center gap-3">
 					<Button onPress={updateNow} isDisabled={updating}>
-						{updating && <Spinner />}
+						{updating ? <Spinner /> : <ArrowClockwiseIcon className="size-4" />}
 						Update prices now
 					</Button>
 					<span className="text-[13px] text-muted-foreground">
@@ -225,7 +226,10 @@ export function UsageSection() {
 				)}
 			</div>
 			<div>
-				<Button onPress={() => api.showLogs()}>Show log folder</Button>
+				<Button onPress={() => api.showLogs()}>
+					<FolderOpenIcon className="size-4" />
+					Show log folder
+				</Button>
 			</div>
 		</div>
 	);

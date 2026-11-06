@@ -1,6 +1,6 @@
+import { ArrowUpIcon, StopIcon } from "@phosphor-icons/react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Button as RacButton } from "react-aria-components";
-import { SendIcon, StopIcon } from "../../components/icons";
 import { cx, focus } from "../../components/ui";
 
 // Unsent text per conversation, kept for the session.
@@ -95,7 +95,7 @@ export function Composer({
 						focus,
 					)}
 				>
-					<StopIcon />
+					<StopIcon weight="fill" />
 				</RacButton>
 			) : (
 				<RacButton
@@ -107,7 +107,7 @@ export function Composer({
 						focus,
 					)}
 				>
-					<SendIcon />
+					<ArrowUpIcon />
 				</RacButton>
 			)}
 		</form>

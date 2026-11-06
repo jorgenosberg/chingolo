@@ -1,3 +1,4 @@
+import { InfoIcon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import {
 	Dialog,
@@ -12,7 +13,6 @@ import {
 	Tooltip,
 	TooltipTrigger,
 } from "react-aria-components";
-import { InfoIcon } from "./icons";
 
 const cx = (...parts: (string | false | null | undefined)[]) =>
 	parts.filter(Boolean).join(" ");
@@ -61,12 +61,23 @@ export const SHORTCUTS = {
 	sidebar: "b",
 } as const;
 
-/** Shows ⌘ + key, e.g. `<Kbd keys="k" />` renders "⌘K". */
-export function Kbd({ keys, className }: { keys: string; className?: string }) {
+/** Shows ⌘ + key as a small keycap, e.g. `<Kbd keys="k" />` renders "⌘K". `onPrimary` is for use on a primary-colored button. */
+export function Kbd({
+	keys,
+	className,
+	onPrimary,
+}: {
+	keys: string;
+	className?: string;
+	onPrimary?: boolean;
+}) {
 	return (
 		<kbd
 			className={cx(
-				"font-sans text-[11px] tracking-wide text-muted-foreground",
+				"inline-flex h-[18px] min-w-[18px] items-center justify-center gap-px rounded-[5px] border border-b-2 px-1 font-sans text-[11px] leading-none",
+				onPrimary
+					? "border-primary-foreground/25 bg-primary-foreground/10 text-primary-foreground/80"
+					: "border-border bg-card text-muted-foreground",
 				className,
 			)}
 		>
@@ -218,7 +229,7 @@ export function Note({
 				className,
 			)}
 		>
-			<InfoIcon className="mt-px size-4 shrink-0" />
+			<InfoIcon className="mt-px size-5 shrink-0" />
 			<div className="min-w-0">
 				{title && <p className="font-medium text-foreground">{title}</p>}
 				<p>{children}</p>

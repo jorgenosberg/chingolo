@@ -1,6 +1,6 @@
+import { CheckIcon } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Checkbox } from "react-aria-components";
-import { CheckIcon } from "../../components/icons";
 import { Button, cx, focus, Modal_ } from "../../components/ui";
 import { api } from "../../lib/api";
 import type { Document } from "../../lib/bindings";
@@ -47,7 +47,7 @@ export function ProjectsDialog({
 						)}
 					>
 						<span className="flex size-4 items-center justify-center rounded border border-input bg-card text-primary-foreground group-data-[selected]:border-primary group-data-[selected]:bg-primary">
-							<CheckIcon className="size-3 opacity-0 group-data-[selected]:opacity-100" />
+							<CheckIcon className="size-4 opacity-0 group-data-[selected]:opacity-100" />
 						</span>
 						<span className="truncate">{p.name}</span>
 					</Checkbox>

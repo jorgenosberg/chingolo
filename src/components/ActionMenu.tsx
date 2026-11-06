@@ -1,5 +1,6 @@
+import { DotsThreeIcon } from "@phosphor-icons/react";
+import type { ReactNode } from "react";
 import { Menu, MenuItem, MenuTrigger, Popover } from "react-aria-components";
-import { MoreIcon } from "./icons";
 import { cx, IconButton } from "./ui";
 
 export type Action = {
@@ -7,6 +8,7 @@ export type Action = {
 	label: string;
 	run: () => void;
 	danger?: boolean;
+	icon?: ReactNode;
 };
 
 export function ActionMenu({
@@ -19,7 +21,7 @@ export function ActionMenu({
 	return (
 		<MenuTrigger>
 			<IconButton label={label} className="size-6">
-				<MoreIcon />
+				<DotsThreeIcon />
 			</IconButton>
 			<Popover
 				placement="bottom end"
@@ -35,10 +37,11 @@ export function ActionMenu({
 							key={a.id}
 							id={a.id}
 							className={cx(
-								"cursor-default rounded-md px-2.5 py-1.5 text-[13px] outline-none data-[focused]:bg-muted",
+								"flex cursor-default items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] outline-none data-[focused]:bg-muted",
 								a.danger && "text-problem",
 							)}
 						>
+							{a.icon}
 							{a.label}
 						</MenuItem>
 					))}

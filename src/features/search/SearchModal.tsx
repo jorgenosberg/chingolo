@@ -1,3 +1,8 @@
+import {
+	ChatCircleIcon,
+	FolderIcon,
+	MagnifyingGlassIcon,
+} from "@phosphor-icons/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
 	Dialog,
@@ -7,7 +12,6 @@ import {
 	RadioGroup,
 } from "react-aria-components";
 import { useNav } from "../../app/nav";
-import { ChatIcon, FolderIcon, SearchIcon } from "../../components/icons";
 import { cx, focus } from "../../components/ui";
 import {
 	useConversationSearch,
@@ -144,7 +148,7 @@ function SearchPanel({ close }: { close: () => void }) {
 	return (
 		<div>
 			<div className="flex items-center gap-2.5 border-b border-border px-4">
-				<SearchIcon className="size-4 shrink-0 text-muted-foreground" />
+				<MagnifyingGlassIcon className="size-5 shrink-0 text-muted-foreground" />
 				<input
 					// biome-ignore lint/a11y/noAutofocus: the modal exists to type in
 					autoFocus
@@ -222,9 +226,9 @@ function SearchPanel({ close }: { close: () => void }) {
 					>
 						<span className="shrink-0 text-muted-foreground">
 							{r.icon === "chat" ? (
-								<ChatIcon className="size-3.5" />
+								<ChatCircleIcon className="size-[17px]" />
 							) : (
-								<FolderIcon className="size-3.5" />
+								<FolderIcon className="size-[17px]" />
 							)}
 						</span>
 						<span className="min-w-0 flex-1 truncate">{r.label}</span>

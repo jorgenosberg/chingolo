@@ -1,3 +1,4 @@
+import { IconContext } from "@phosphor-icons/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 import ReactDOM from "react-dom/client";
@@ -18,7 +19,9 @@ const queryClient = new QueryClient({
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
 	<React.StrictMode>
 		<QueryClientProvider client={queryClient}>
-			<App />
+			<IconContext.Provider value={{ size: 20, weight: "regular" }}>
+				<App />
+			</IconContext.Provider>
 		</QueryClientProvider>
 	</React.StrictMode>,
 );

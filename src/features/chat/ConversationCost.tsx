@@ -1,3 +1,4 @@
+import { PiggyBankIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Dialog, DialogTrigger, Popover } from "react-aria-components";
@@ -28,9 +29,7 @@ export function ConversationCost({
 	return (
 		<DialogTrigger isOpen={open} onOpenChange={setOpen}>
 			<IconButton label="Cost of this conversation">
-				<span aria-hidden="true" className="text-[15px] font-semibold">
-					$
-				</span>
+				<PiggyBankIcon />
 			</IconButton>
 			<Popover
 				placement="bottom end"

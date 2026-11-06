@@ -1,7 +1,7 @@
+import { CheckIcon, CopyIcon, GitForkIcon } from "@phosphor-icons/react";
 import { math } from "@streamdown/math";
 import { memo, useState } from "react";
 import { Streamdown } from "streamdown";
-import { CheckIcon, CopyIcon, ForkIcon } from "../../components/icons";
 import { IconButton } from "../../components/ui";
 import type { Citation, Message } from "../../lib/bindings";
 import {
@@ -44,7 +44,7 @@ export const MessageItem = memo(function MessageItem({
 							label="Fork conversation from here"
 							onPress={() => onFork(message.id)}
 						>
-							<ForkIcon />
+							<GitForkIcon />
 						</IconButton>
 					)}
 				</div>
@@ -114,7 +114,7 @@ export const MessageItem = memo(function MessageItem({
 							label="Fork conversation from here"
 							onPress={() => onFork(message.id)}
 						>
-							<ForkIcon />
+							<GitForkIcon />
 						</IconButton>
 					)}
 					<span className="opacity-0 transition-opacity group-hover:opacity-100">

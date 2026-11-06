@@ -1,3 +1,16 @@
+import {
+	ArrowClockwiseIcon,
+	ArrowLeftIcon,
+	ChartBarIcon,
+	CheckIcon,
+	KeyIcon,
+	LockSimpleIcon,
+	MagnifyingGlassIcon,
+	PauseIcon,
+	PlayIcon,
+	SlidersHorizontalIcon,
+	TrashIcon,
+} from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import {
@@ -10,7 +23,6 @@ import {
 } from "react-aria-components";
 import { useNav } from "../../app/nav";
 import { useDialogs } from "../../components/dialogs";
-import { CheckIcon, ChevronIcon } from "../../components/icons";
 import { ModelSelect } from "../../components/ModelSelect";
 import { Button, cx, focus, Spinner, TextInput } from "../../components/ui";
 import { api } from "../../lib/api";
@@ -45,7 +57,7 @@ function savedTab(): string {
 }
 
 const tabClass = cx(
-	"-mb-px cursor-default border-b-2 border-transparent px-3 py-2 text-[13px] text-muted-foreground",
+	"-mb-px flex cursor-default items-center gap-1.5 border-b-2 border-transparent px-3 py-2 text-[13px] text-muted-foreground",
 	"data-[hovered]:text-foreground data-[selected]:border-foreground data-[selected]:font-medium data-[selected]:text-foreground",
 	focus,
 );
@@ -183,7 +195,7 @@ function SearchModel() {
 								{b.tag}
 							</span>
 							<span className="ml-auto grid size-5 place-items-center rounded-full border border-border text-primary-foreground group-data-[selected]:border-primary group-data-[selected]:bg-primary">
-								<CheckIcon className="size-3 opacity-0 group-data-[selected]:opacity-100" />
+								<CheckIcon className="size-4 opacity-0 group-data-[selected]:opacity-100" />
 							</span>
 						</div>
 						<p className="text-[13px] leading-relaxed">{b.blurb}</p>
@@ -219,11 +231,17 @@ function SearchModel() {
 					</div>
 					{indexing && (
 						<Button onPress={() => api.setEmbeddingPaused(!paused)}>
+							{paused ? (
+								<PlayIcon className="size-4" />
+							) : (
+								<PauseIcon className="size-4" />
+							)}
 							{paused ? "Resume" : "Pause"}
 						</Button>
 					)}
 					{model.kind === "failed" && (
 						<Button variant="primary" onPress={start}>
+							<ArrowClockwiseIcon className="size-4" />
 							Try again
 						</Button>
 					)}
@@ -334,8 +352,12 @@ function ApiKeySection({ provider }: { provider: Provider }) {
 						Saved in the macOS Keychain.
 					</p>
 					<div className="flex gap-2">
-						<Button onPress={() => setReplacing(true)}>Replace</Button>
+						<Button onPress={() => setReplacing(true)}>
+							<KeyIcon className="size-4" />
+							Replace
+						</Button>
 						<Button variant="ghost" onPress={removeKey}>
+							<TrashIcon className="size-4" />
 							Remove
 						</Button>
 					</div>
@@ -427,7 +449,7 @@ export function SettingsView() {
 				className="flex h-12 shrink-0 items-center gap-3 px-6"
 			>
 				<Button variant="ghost" className="-ml-2 px-2" onPress={closeSettings}>
-					<ChevronIcon className="size-3.5 rotate-180" /> Back
+					<ArrowLeftIcon className="size-[17px]" /> Back
 				</Button>
 				<h1 className="text-[15px] font-semibold">Settings</h1>
 			</header>
@@ -442,15 +464,19 @@ export function SettingsView() {
 						className="mx-auto flex w-full max-w-2xl gap-1"
 					>
 						<Tab id="general" className={tabClass}>
+							<SlidersHorizontalIcon className="size-4" />
 							General
 						</Tab>
 						<Tab id="search" className={tabClass}>
+							<MagnifyingGlassIcon className="size-4" />
 							Search
 						</Tab>
 						<Tab id="usage" className={tabClass}>
+							<ChartBarIcon className="size-4" />
 							Usage
 						</Tab>
 						<Tab id="privacy" className={tabClass}>
+							<LockSimpleIcon className="size-4" />
 							Privacy
 						</Tab>
 					</TabList>

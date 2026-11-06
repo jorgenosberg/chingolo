@@ -1,3 +1,4 @@
+import { NotePencilIcon, SidebarSimpleIcon } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useCallback, useEffect, useRef } from "react";
 import {
@@ -6,7 +7,6 @@ import {
 	Separator,
 	useDefaultLayout,
 } from "react-resizable-panels";
-import { SidebarRightIcon } from "../components/icons";
 import { Button, IconButton, Kbd, SHORTCUTS, Spinner } from "../components/ui";
 import { ChatView } from "../features/chat/ChatView";
 import { LibraryView } from "../features/library/LibraryView";
@@ -52,11 +52,9 @@ function EmptyWorkspace() {
 					</p>
 				</div>
 				<Button variant="primary" onPress={() => newChat()}>
+					<NotePencilIcon weight="bold" className="size-[17px]" />
 					New conversation
-					<Kbd
-						keys={SHORTCUTS.newChat}
-						className="text-primary-foreground/70"
-					/>
+					<Kbd keys={SHORTCUTS.newChat} onPrimary />
 				</Button>
 				<p className="text-xs text-muted-foreground">
 					<Kbd keys={SHORTCUTS.search} /> searches,{" "}
@@ -82,7 +80,7 @@ function ContextPane() {
 					shortcut={SHORTCUTS.context}
 					onPress={toggleContext}
 				>
-					<SidebarRightIcon />
+					<SidebarSimpleIcon mirrored />
 				</IconButton>
 			</div>
 			<p className="px-4 text-sm text-muted-foreground">
