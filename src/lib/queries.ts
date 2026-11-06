@@ -14,6 +14,7 @@ export const keys = {
 	projects: ["projects"] as const,
 	chapters: (projectId: string) => ["chapters", projectId] as const,
 	conversations: ["conversations"] as const,
+	conversationCost: (id: string) => ["conversation-cost", id] as const,
 	search: (q: string) => ["conversations", "search", q] as const,
 	messages: (conversationId: string) => ["messages", conversationId] as const,
 	/** Prefix of every document list, whatever the scope. */

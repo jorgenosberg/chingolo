@@ -9,6 +9,7 @@ import {
 	citeComponents,
 	citePlugins,
 	citeTags,
+	SourcesList,
 } from "./citations";
 
 const plugins = { math };
@@ -96,6 +97,13 @@ export const MessageItem = memo(function MessageItem({
 				>
 					{note}
 				</p>
+			)}
+
+			{!streaming && text && (message.citations?.length ?? 0) > 0 && (
+				<SourcesList
+					citations={message.citations ?? NO_CITATIONS}
+					conversationId={message.conversationId}
+				/>
 			)}
 
 			{!streaming && text && (

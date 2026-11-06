@@ -111,6 +111,7 @@ export const api = {
 	setEmbeddingPaused: (paused: boolean) => commands.setEmbeddingPaused(paused),
 
 	getUsage: (period: UsagePeriod) => unwrap(commands.getUsage(period)),
+	getConversationCost: (id: string) => unwrap(commands.getConversationCost(id)),
 	showLogs: () => unwrap(commands.showLogs()),
 	setPricesAutoUpdate: (enabled: boolean) =>
 		unwrap(commands.setPricesAutoUpdate(enabled)),

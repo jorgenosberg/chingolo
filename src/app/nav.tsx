@@ -58,6 +58,9 @@ type Nav = {
 	closeSettings: () => void;
 	contextPanel: RefObject<PanelImperativeHandle | null>;
 	toggleContext: () => void;
+	/** Whether the right pane is showing. Kept in step with its size by `AppShell`. */
+	contextOpen: boolean;
+	setContextOpen: (open: boolean) => void;
 };
 
 const Ctx = createContext<Nav | null>(null);
@@ -86,6 +89,7 @@ export function NavProvider({ children }: { children: ReactNode }) {
 	const [reader, setReader] = useState<ReaderTarget | null>(null);
 	const [citation, setCitation] = useState<ReaderTarget | null>(null);
 	const contextPanel = usePanelRef();
+	const [contextOpen, setContextOpen] = useState(true);
 
 	const returnView = useRef<View>("library");
 	const openReader = useCallback((target: ReaderTarget) => {
@@ -149,7 +153,11 @@ export function NavProvider({ children }: { children: ReactNode }) {
 		},
 		[contextPanel],
 	);
-	const closeCitation = useCallback(() => setCitation(null), []);
+	// Closing the source closes the pane too, so it isn't left open and empty.
+	const closeCitation = useCallback(() => {
+		setCitation(null);
+		contextPanel.current?.collapse();
+	}, [contextPanel]);
 
 	const toggleContext = useCallback(() => {
 		const p = contextPanel.current;
@@ -177,6 +185,8 @@ export function NavProvider({ children }: { children: ReactNode }) {
 			closeSettings,
 			contextPanel,
 			toggleContext,
+			contextOpen,
+			setContextOpen,
 		}),
 		[
 			citation,
@@ -195,6 +205,7 @@ export function NavProvider({ children }: { children: ReactNode }) {
 			closeSettings,
 			contextPanel,
 			toggleContext,
+			contextOpen,
 		],
 	);
 

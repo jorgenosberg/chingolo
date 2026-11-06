@@ -11,24 +11,24 @@ const PERIODS: { id: UsagePeriod; label: string }[] = [
 	{ id: "all", label: "All time" },
 ];
 
-const KINDS: Record<string, string> = {
+export const KINDS: Record<string, string> = {
 	chat: "Chat replies",
 	handoff: "Hand-off notes",
 	embed_index: "Indexing papers",
 	embed_query: "Search queries",
 };
 
-const tokens = (n: number) =>
+export const tokens = (n: number) =>
 	n >= 1_000_000
 		? `${(n / 1_000_000).toFixed(2)}M`
 		: n >= 1_000
 			? `${(n / 1_000).toFixed(1)}k`
 			: String(n);
 
-const money = (usd: number) =>
+export const money = (usd: number) =>
 	usd === 0 ? "$0" : usd < 0.01 ? "<$0.01" : `$${usd.toFixed(2)}`;
 
-function Cost({
+export function Cost({
 	row,
 }: {
 	row: Pick<UsageRow, "costUsd" | "unpricedCalls" | "calls">;

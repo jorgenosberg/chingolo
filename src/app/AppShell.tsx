@@ -213,6 +213,7 @@ export function AppShell() {
 					panelRef={nav.contextPanel}
 					collapsible
 					collapsedSize="0px"
+					onResize={(size) => nav.setContextOpen(size.inPixels > 0)}
 					defaultSize="300px"
 					minSize="240px"
 					maxSize="75%"

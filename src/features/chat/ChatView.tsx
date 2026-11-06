@@ -28,12 +28,13 @@ import {
 import { useLiveReply } from "../../lib/streams";
 import { PrivacyNotice } from "../settings/PrivacyNotice";
 import { Composer } from "./Composer";
+import { ConversationCost } from "./ConversationCost";
 import { useConversationFlows } from "./flows";
 import { MessageItem } from "./MessageItem";
 
 export function ChatView({ conversationId }: { conversationId: string }) {
 	const qc = useQueryClient();
-	const { openSettings, toggleContext } = useNav();
+	const { openSettings, toggleContext, contextOpen } = useNav();
 	const { prompt, confirm } = useDialogs();
 	const { fork, handoff } = useConversationFlows();
 	const conversations = useConversations();
@@ -241,13 +242,17 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 						/>
 					)}
 				</div>
-				<IconButton
-					label="Toggle context pane"
-					shortcut={SHORTCUTS.context}
-					onPress={toggleContext}
-				>
-					<SidebarRightIcon />
-				</IconButton>
+				<ConversationCost conversationId={conversationId} />
+				{/* While the pane is open it has its own close control, so only one shows. */}
+				{!contextOpen && (
+					<IconButton
+						label="Show context pane"
+						shortcut={SHORTCUTS.context}
+						onPress={toggleContext}
+					>
+						<SidebarRightIcon />
+					</IconButton>
+				)}
 			</header>
 
 			<div
