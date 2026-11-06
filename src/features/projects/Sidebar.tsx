@@ -28,6 +28,9 @@ import {
 } from "../../lib/queries";
 import { useConversationFlows } from "../chat/flows";
 
+/** One step of nesting: project children, and chats inside a folder. */
+const INDENT_PX = 10;
+
 function Row({
 	depth = 0,
 	selected,
@@ -54,8 +57,7 @@ function Row({
 				onPress={onPress}
 				aria-current={selected ? "true" : undefined}
 				aria-expanded={expanded}
-				// Without an icon, nested titles line up with their parent's label.
-				style={{ paddingLeft: 8 + depth * 14 + (!icon && depth > 0 ? 8 : 0) }}
+				style={{ paddingLeft: 8 + depth * INDENT_PX }}
 				className={cx(
 					"flex h-8 w-full items-center gap-2 rounded-lg pr-8 text-left text-[13px] transition-colors",
 					"data-[hovered]:bg-muted",
@@ -282,7 +284,7 @@ function ProjectItem({
 					{(chapters.data ?? []).map((ch) => (
 						<div key={ch.id}>
 							<Row
-								depth={0}
+								depth={1}
 								icon={
 									collapsed.has(ch.id) ? (
 										<FolderIcon className="size-3.5" />
@@ -343,7 +345,7 @@ function ProjectItem({
 							{!collapsed.has(ch.id) &&
 								inProject
 									.filter((c) => c.chapterId === ch.id)
-									.map((c) => <ConversationRow key={c.id} c={c} depth={1} />)}
+									.map((c) => <ConversationRow key={c.id} c={c} depth={2} />)}
 						</div>
 					))}
 					{loose.map((c) => (
