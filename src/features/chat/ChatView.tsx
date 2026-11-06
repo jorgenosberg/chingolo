@@ -242,17 +242,19 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 						/>
 					)}
 				</div>
-				<ConversationCost conversationId={conversationId} />
-				{/* While the pane is open it has its own close control, so only one shows. */}
-				{!contextOpen && (
-					<IconButton
-						label="Show context pane"
-						shortcut={SHORTCUTS.context}
-						onPress={toggleContext}
-					>
-						<SidebarRightIcon />
-					</IconButton>
-				)}
+				<div className="flex shrink-0 items-center gap-1">
+					<ConversationCost conversationId={conversationId} />
+					{/* While the pane is open it has its own close control, so only one shows. */}
+					{!contextOpen && (
+						<IconButton
+							label="Show context pane"
+							shortcut={SHORTCUTS.context}
+							onPress={toggleContext}
+						>
+							<SidebarRightIcon />
+						</IconButton>
+					)}
+				</div>
 			</header>
 
 			<div
