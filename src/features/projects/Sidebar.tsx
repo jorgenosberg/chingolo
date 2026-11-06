@@ -22,7 +22,6 @@ import type { Conversation, Project } from "../../lib/bindings";
 import {
 	keys,
 	useChapters,
-	useConversationSearch,
 	useConversations,
 	useDocuments,
 	useProjects,
@@ -353,21 +352,18 @@ function ProjectItem({
 }
 
 export function Sidebar() {
-	const { newChat, openSettings, view, openLibrary } = useNav();
+	const { newChat, openSettings, view, openLibrary, setSearchOpen } = useNav();
 	const documents = useDocuments(null);
 	const { prompt } = useDialogs();
 	const qc = useQueryClient();
 	const projects = useProjects();
 	const conversations = useConversations();
-	const [query, setQuery] = useState("");
 	const [showArchived, setShowArchived] = useState(false);
-	const search = useConversationSearch(query);
 
 	const all = conversations.data ?? [];
 	const active = all.filter((c) => !c.archivedAt);
 	const archived = all.filter((c) => c.archivedAt);
 	const unassigned = active.filter((c) => !c.projectId);
-	const searching = query.trim().length > 0;
 
 	const addProject = async () => {
 		const name = await prompt({
@@ -385,118 +381,99 @@ export function Sidebar() {
 	return (
 		<nav aria-label="Library" className="flex h-full flex-col bg-sidebar">
 			{/* Room for the window buttons; also drags the window. */}
-			<div data-tauri-drag-region className="h-12 shrink-0" />
-
-			<div className="flex items-center gap-1.5 px-3 pb-2">
-				<div className="relative flex-1">
-					<SearchIcon className="pointer-events-none absolute left-2.5 top-2 size-4 text-muted-foreground" />
-					<input
-						id="sidebar-search"
-						type="search"
-						aria-label="Search conversations"
-						placeholder="Search"
-						value={query}
-						onChange={(e) => setQuery(e.target.value)}
-						onKeyDown={(e) => e.key === "Escape" && setQuery("")}
-						className="h-8 w-full rounded-lg border border-transparent bg-muted pl-8 pr-10 text-[13px] outline-none placeholder:text-muted-foreground focus:border-primary/50"
-					/>
-					{!query && (
-						<Kbd
-							keys={SHORTCUTS.search}
-							className="pointer-events-none absolute right-2.5 top-2"
-						/>
-					)}
-				</div>
+			<div
+				data-tauri-drag-region
+				className="flex h-12 shrink-0 items-center justify-end px-3"
+			>
 				<IconButton
-					label="New conversation"
-					shortcut={SHORTCUTS.newChat}
-					onPress={() => newChat()}
+					label="Search"
+					shortcut={SHORTCUTS.search}
+					onPress={() => setSearchOpen(true)}
 				>
-					<PlusIcon />
+					<SearchIcon />
 				</IconButton>
 			</div>
 
+			<div className="px-3 pb-2">
+				<RacButton
+					onPress={() => newChat()}
+					className={cx(
+						"flex h-9 w-full items-center gap-2 rounded-lg bg-primary px-3 text-[13px] font-medium text-primary-foreground transition-opacity data-[hovered]:opacity-90",
+						focus,
+					)}
+				>
+					<PlusIcon />
+					New conversation
+					<Kbd
+						keys={SHORTCUTS.newChat}
+						className="ml-auto text-primary-foreground/70"
+					/>
+				</RacButton>
+			</div>
+
 			<div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-				{searching ? (
+				<div className="pt-2">
+					<Row
+						icon={<LibraryIcon className="size-3.5" />}
+						label={
+							documents.data?.length
+								? `Library (${documents.data.length})`
+								: "Library"
+						}
+						selected={view === "library"}
+						onPress={() => openLibrary()}
+						shortcut={SHORTCUTS.library}
+					/>
+				</div>
+				<SectionHeader
+					title="Projects"
+					onAdd={addProject}
+					addLabel="New project"
+				/>
+				{projects.data?.map((p) => (
+					<ProjectItem key={p.id} project={p} conversations={active} />
+				))}
+				{projects.isSuccess && projects.data.length === 0 && (
+					<p className="px-2 text-xs text-muted-foreground">
+						Projects group your chats by thesis or course.
+					</p>
+				)}
+
+				<SectionHeader
+					title="Conversations"
+					onAdd={() => newChat()}
+					addLabel="New conversation"
+				/>
+				{unassigned.map((c) => (
+					<ConversationRow key={c.id} c={c} depth={0} />
+				))}
+				{conversations.isSuccess && unassigned.length === 0 && (
+					<p className="px-2 text-xs text-muted-foreground">
+						No conversations yet.
+					</p>
+				)}
+
+				{archived.length > 0 && (
 					<>
-						<SectionHeader title="Results" />
-						{search.isPending && (
-							<p className="px-2 text-xs text-muted-foreground">Searching…</p>
-						)}
-						{search.isError && (
-							<p role="alert" className="px-2 text-xs text-problem">
-								{search.error.message}
-							</p>
-						)}
-						{search.data?.map((c) => (
-							<ConversationRow key={c.id} c={c} depth={0} />
-						))}
-						{search.isSuccess && search.data.length === 0 && (
-							<p className="px-2 text-xs text-muted-foreground">No matches.</p>
-						)}
-					</>
-				) : (
-					<>
-						<div className="pt-2">
+						<div className="pt-4">
 							<Row
-								icon={<LibraryIcon className="size-3.5" />}
-								label={
-									documents.data?.length
-										? `Library (${documents.data.length})`
-										: "Library"
+								icon={
+									<ChevronIcon
+										className={cx(
+											"size-3.5 transition-transform",
+											showArchived && "rotate-90",
+										)}
+									/>
 								}
-								selected={view === "library"}
-								onPress={() => openLibrary()}
-								shortcut={SHORTCUTS.library}
+								label={`Archived (${archived.length})`}
+								expanded={showArchived}
+								onPress={() => setShowArchived((s) => !s)}
 							/>
 						</div>
-						<SectionHeader
-							title="Projects"
-							onAdd={addProject}
-							addLabel="New project"
-						/>
-						{projects.data?.map((p) => (
-							<ProjectItem key={p.id} project={p} conversations={active} />
-						))}
-						{projects.isSuccess && projects.data.length === 0 && (
-							<p className="px-2 text-xs text-muted-foreground">
-								Projects group your chats by thesis or course.
-							</p>
-						)}
-
-						<SectionHeader title="Conversations" />
-						{unassigned.map((c) => (
-							<ConversationRow key={c.id} c={c} depth={0} />
-						))}
-						{conversations.isSuccess && unassigned.length === 0 && (
-							<p className="px-2 text-xs text-muted-foreground">
-								No conversations yet.
-							</p>
-						)}
-
-						{archived.length > 0 && (
-							<>
-								<div className="pt-4">
-									<Row
-										icon={
-											<ChevronIcon
-												className={cx(
-													"size-3.5 transition-transform",
-													showArchived && "rotate-90",
-												)}
-											/>
-										}
-										label={`Archived (${archived.length})`}
-										expanded={showArchived}
-										onPress={() => setShowArchived((s) => !s)}
-									/>
-								</div>
-								{showArchived &&
-									archived.map((c) => (
-										<ConversationRow key={c.id} c={c} depth={1} />
-									))}
-							</>
-						)}
+						{showArchived &&
+							archived.map((c) => (
+								<ConversationRow key={c.id} c={c} depth={1} />
+							))}
 					</>
 				)}
 			</div>

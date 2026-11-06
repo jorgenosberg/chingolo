@@ -61,6 +61,9 @@ type Nav = {
 	/** Whether the right pane is showing. Kept in step with its size by `AppShell`. */
 	contextOpen: boolean;
 	setContextOpen: (open: boolean) => void;
+	/** The centered search over conversations and projects. */
+	searchOpen: boolean;
+	setSearchOpen: (open: boolean) => void;
 };
 
 const Ctx = createContext<Nav | null>(null);
@@ -90,6 +93,7 @@ export function NavProvider({ children }: { children: ReactNode }) {
 	const [citation, setCitation] = useState<ReaderTarget | null>(null);
 	const contextPanel = usePanelRef();
 	const [contextOpen, setContextOpen] = useState(true);
+	const [searchOpen, setSearchOpen] = useState(false);
 
 	const returnView = useRef<View>("library");
 	const openReader = useCallback((target: ReaderTarget) => {
@@ -187,6 +191,8 @@ export function NavProvider({ children }: { children: ReactNode }) {
 			toggleContext,
 			contextOpen,
 			setContextOpen,
+			searchOpen,
+			setSearchOpen,
 		}),
 		[
 			citation,
@@ -206,6 +212,7 @@ export function NavProvider({ children }: { children: ReactNode }) {
 			contextPanel,
 			toggleContext,
 			contextOpen,
+			searchOpen,
 		],
 	);
 

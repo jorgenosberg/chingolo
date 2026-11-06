@@ -11,6 +11,7 @@ import { Button, IconButton, Kbd, SHORTCUTS, Spinner } from "../components/ui";
 import { ChatView } from "../features/chat/ChatView";
 import { LibraryView } from "../features/library/LibraryView";
 import { Sidebar } from "../features/projects/Sidebar";
+import { SearchModal } from "../features/search/SearchModal";
 import { SettingsView } from "../features/settings/SettingsView";
 import { api } from "../lib/api";
 import { useDropActive, useLibraryEvents } from "../lib/library";
@@ -149,7 +150,7 @@ export function AppShell() {
 				nav.newChat(current?.projectId ?? null);
 			} else if (e.key === SHORTCUTS.search) {
 				e.preventDefault();
-				document.getElementById("sidebar-search")?.focus();
+				nav.setSearchOpen(!nav.searchOpen);
 			} else if (e.key === SHORTCUTS.settings) {
 				e.preventDefault();
 				nav.openSettings();
@@ -238,6 +239,7 @@ export function AppShell() {
 					)}
 				</Panel>
 			</Group>
+			<SearchModal />
 			<DropOverlay
 				targetName={
 					projects.data?.find((p) => p.id === importTarget)?.name ?? null
