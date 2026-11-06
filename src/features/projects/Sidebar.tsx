@@ -282,7 +282,7 @@ function ProjectItem({
 					{(chapters.data ?? []).map((ch) => (
 						<div key={ch.id}>
 							<Row
-								depth={1}
+								depth={0}
 								icon={
 									collapsed.has(ch.id) ? (
 										<FolderIcon className="size-3.5" />
@@ -343,7 +343,7 @@ function ProjectItem({
 							{!collapsed.has(ch.id) &&
 								inProject
 									.filter((c) => c.chapterId === ch.id)
-									.map((c) => <ConversationRow key={c.id} c={c} depth={2} />)}
+									.map((c) => <ConversationRow key={c.id} c={c} depth={1} />)}
 						</div>
 					))}
 					{loose.map((c) => (
