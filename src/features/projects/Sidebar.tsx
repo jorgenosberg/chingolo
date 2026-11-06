@@ -8,9 +8,9 @@ import {
 } from "../../components/ActionMenu";
 import { useDialogs } from "../../components/dialogs";
 import {
-	ChatIcon,
 	ChevronIcon,
 	FolderIcon,
+	FolderOpenIcon,
 	LibraryIcon,
 	PlusIcon,
 	SearchIcon,
@@ -42,7 +42,8 @@ function Row({
 	depth?: number;
 	selected?: boolean;
 	onPress: () => void;
-	icon: ReactNode;
+	/** Plain conversations have none: just their title. */
+	icon?: ReactNode;
 	label: string;
 	menu?: ReactNode;
 	expanded?: boolean;
@@ -53,7 +54,8 @@ function Row({
 				onPress={onPress}
 				aria-current={selected ? "true" : undefined}
 				aria-expanded={expanded}
-				style={{ paddingLeft: 8 + depth * 14 }}
+				// Without an icon, nested titles line up with their parent's label.
+				style={{ paddingLeft: 8 + depth * 14 + (!icon && depth > 0 ? 8 : 0) }}
 				className={cx(
 					"flex h-8 w-full items-center gap-2 rounded-lg pr-8 text-left text-[13px] transition-colors",
 					"data-[hovered]:bg-muted",
@@ -61,7 +63,7 @@ function Row({
 					focus,
 				)}
 			>
-				<span className="shrink-0 text-muted-foreground">{icon}</span>
+				{icon && <span className="shrink-0 text-muted-foreground">{icon}</span>}
 				<span className="truncate">{label}</span>
 				{shortcut && <Kbd keys={shortcut} className="ml-auto" />}
 			</RacButton>
@@ -164,7 +166,6 @@ function ConversationRow({ c, depth }: { c: Conversation; depth: number }) {
 	return (
 		<Row
 			depth={depth}
-			icon={<ChatIcon className="size-3.5" />}
 			label={c.title}
 			selected={conversationId === c.id}
 			onPress={() => select(c.id)}
@@ -282,7 +283,13 @@ function ProjectItem({
 						<div key={ch.id}>
 							<Row
 								depth={1}
-								icon={<FolderIcon className="size-3.5" />}
+								icon={
+									collapsed.has(ch.id) ? (
+										<FolderIcon className="size-3.5" />
+									) : (
+										<FolderOpenIcon className="size-3.5" />
+									)
+								}
 								label={ch.title}
 								expanded={!collapsed.has(ch.id)}
 								onPress={() => toggleChapter(ch.id)}
