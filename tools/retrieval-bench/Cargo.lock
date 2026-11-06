@@ -2104,6 +2104,7 @@ dependencies = [
  "fastembed",
  "rusqlite",
  "serde_json",
+ "ureq",
 ]
 
 [[package]]

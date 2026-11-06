@@ -1,6 +1,6 @@
 //! Retrieval benchmark: embedding models and BM25 over passages built from the pdf_spike output.
 //!
-//! Env: CHINGUI_BENCH_DIR  folder holding bench.json (the question set, next to the test papers)
+//! Env: CHINGUI_BENCH_DIR  folder holding the question set (bench.json, or set CHINGUI_BENCH_FILE=bench-no.json)
 //!      CHINGUI_BENCH_WORK scratch folder with spike-out/ (from `cargo run --example pdf_spike`),
 //!                         models/ (model cache, models/granite97 for Granite) and bench-out/
 //! Usage: retrieval-bench <bm25|e5s|e5b|gemma|gemma4|granite|hybrid:<model>|app> [out_dir]
@@ -10,7 +10,10 @@
 //! (CHINGUI_BENCH_DB=<path to chingui.sqlite>, read only), so the real segmenter is used.
 //! Queries are embedded with the same model. It reports BM25, vectors and hybrid. The papers
 //! must have been imported and fully indexed in the app, and the file names must match the
-//! ones in bench.json. CHINGUI_BENCH_WORK still names the model cache and output folder.
+//! ones in the question file. CHINGUI_BENCH_WORK still names the model cache and output folder.
+//! Query vectors follow the model stored with the vectors: Gemini needs GEMINI_API_KEY (without it
+//! only BM25 is reported), anything else loads EmbeddingGemma. CHINGUI_BENCH_STOP=more adds a
+//! larger Norwegian stop word list to the BM25 side.
 
 use std::collections::HashSet;
 use std::fs;
@@ -103,6 +106,91 @@ fn load_passages_db() -> Vec<Passage> {
 }
 
 type Ranking = Vec<(usize, f32)>;
+
+/// Same as `COMMON` in src-tauri/src/persistence/library.rs. Keep in sync. CHINGUI_BENCH_STOP=more
+/// adds Norwegian question words and common function words, to measure what a bigger list changes.
+const APP_COMMON: &[&str] = &[
+    "the", "and", "for", "are", "was", "were", "what", "how", "when", "why", "which", "who", "does", "did", "has",
+    "have", "had", "that", "this", "with", "from", "into", "than", "then", "them", "they", "their", "there",
+    "these", "those", "can", "could", "would", "should", "about", "over", "under", "after", "before", "between",
+    "during", "each", "other", "some", "such", "only", "also", "not", "but", "out", "any", "all", "its", "our",
+    "your", "you", "his", "her", "she", "him", "where", "whose", "been", "being", "more", "most", "very", "much",
+    "many", "may", "might", "own", "same", "too", "via", "per", "og", "som", "det", "til", "med", "den", "det",
+    "ikke", "har", "var", "kan", "vil", "hva", "hvordan", "hvorfor", "hvilke", "hvilken", "hvem", "fra", "etter",
+    "mellom", "om",
+];
+const MORE_NORWEGIAN: &[&str] = &[
+    "hvor", "mange", "mye", "ble", "blir", "bli", "ved", "seg", "sin", "sine", "sitt", "noe", "nar", "skal", "alle",
+    "hele", "siden", "ogsa", "kun", "bare", "men", "eller", "har", "hadde", "ifolge", "mot", "uten", "inne", "ute",
+    "hvilket", "hvilke", "disse", "denne", "dette", "der", "her", "nar", "sa", "da", "sammenlignet", "gjennom",
+];
+
+fn fold(s: &str) -> String {
+    s.chars().flat_map(char::to_lowercase).flat_map(|c| match c {
+        'æ' => "ae".chars().collect::<Vec<_>>(),
+        'ø' => vec!['o'],
+        'å' => vec!['a'],
+        c => vec![c],
+    }).collect()
+}
+
+/// BM25 as the app does it: folded text and queries, any term matches, common words dropped.
+fn bm25_app(passages: &[Passage], queries: &[String]) -> Vec<Ranking> {
+    let more = std::env::var("CHINGUI_BENCH_STOP").is_ok_and(|v| v == "more");
+    let conn = rusqlite::Connection::open_in_memory().unwrap();
+    conn.execute_batch("CREATE VIRTUAL TABLE fts USING fts5(text, tokenize='unicode61 remove_diacritics 2')").unwrap();
+    {
+        let mut ins = conn.prepare("INSERT INTO fts(rowid, text) VALUES (?1, ?2)").unwrap();
+        for (i, p) in passages.iter().enumerate() {
+            ins.execute((i as i64, fold(&p.text))).unwrap();
+        }
+    }
+    queries
+        .iter()
+        .map(|q| {
+            let folded = fold(q);
+            let all: Vec<&str> = folded.split(|c: char| !c.is_alphanumeric()).filter(|t| !t.is_empty()).collect();
+            let kept: Vec<&str> = all
+                .iter()
+                .copied()
+                .filter(|t| t.chars().count() > 2 && !APP_COMMON.contains(t) && !(more && MORE_NORWEGIAN.contains(t)))
+                .collect();
+            let terms: Vec<String> = (if kept.is_empty() { all } else { kept }).iter().map(|t| format!("\"{t}\"")).collect();
+            if terms.is_empty() {
+                return vec![];
+            }
+            let mut st = conn.prepare("SELECT rowid, bm25(fts) FROM fts WHERE fts MATCH ?1 ORDER BY bm25(fts) LIMIT 50").unwrap();
+            st.query_map([terms.join(" OR ")], |r| Ok((r.get::<_, i64>(0)? as usize, -(r.get::<_, f64>(1)? as f32))))
+                .unwrap()
+                .map(|x| x.unwrap())
+                .collect()
+        })
+        .collect()
+}
+
+/// Query vectors from the Gemini API, built the way the app builds them (no task prefix, 768 dims).
+/// None when GEMINI_API_KEY is not set.
+fn gemini_queries(queries: &[String]) -> Option<Vec<Vec<f32>>> {
+    let key = std::env::var("GEMINI_API_KEY").ok()?;
+    let mut out = vec![];
+    for chunk in queries.chunks(32) {
+        let reqs: Vec<Value> = chunk
+            .iter()
+            .map(|t| json!({ "model": "models/gemini-embedding-2", "content": { "parts": [{ "text": t }] }, "outputDimensionality": 768 }))
+            .collect();
+        let mut resp = ureq::post("https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2:batchEmbedContents")
+            .header("x-goog-api-key", &key)
+            .send_json(json!({ "requests": reqs }))
+            .expect("Gemini request failed");
+        let v: Value = resp.body_mut().read_json().unwrap();
+        for e in v["embeddings"].as_array().expect("no embeddings in response") {
+            let vals: Vec<f32> = e["values"].as_array().unwrap().iter().map(|x| x.as_f64().unwrap() as f32).collect();
+            assert_eq!(vals.len(), 768);
+            out.push(normalize(vals));
+        }
+    }
+    Some(out)
+}
 
 fn bm25(passages: &[Passage], queries: &[String]) -> Vec<Ranking> {
     let conn = rusqlite::Connection::open_in_memory().unwrap();
@@ -217,7 +305,8 @@ fn dense(name: &str, passages: &[Passage], queries: &[String]) -> (Vec<Ranking>,
 
 fn main() {
     let base = base();
-    let bench_path = format!("{}/bench.json", std::env::var("CHINGUI_BENCH_DIR").expect("set CHINGUI_BENCH_DIR"));
+    let bench_file = std::env::var("CHINGUI_BENCH_FILE").unwrap_or_else(|_| "bench.json".into());
+    let bench_path = format!("{}/{bench_file}", std::env::var("CHINGUI_BENCH_DIR").expect("set CHINGUI_BENCH_DIR"));
     let mut args = std::env::args().skip(1);
     let name = args.next().expect("model");
     let out_dir = args.next().unwrap_or_else(|| format!("{base}/bench-out"));
@@ -248,6 +337,13 @@ fn main() {
     report(&name, &passages, qs, rankings, &out_dir, timing);
 }
 
+/// Model name stored with the vectors in the app database.
+fn stored_model() -> String {
+    let path = std::env::var("CHINGUI_BENCH_DB").expect("set CHINGUI_BENCH_DB");
+    let conn = rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+    conn.query_row("SELECT model FROM passage_vectors GROUP BY model ORDER BY COUNT(*) DESC LIMIT 1", [], |r| r.get(0)).unwrap_or_default()
+}
+
 /// BM25, stored vectors and their fusion over the passages the app built.
 fn run_app(qs: &[Value], queries: &[String], out_dir: &str) {
     let passages = load_passages_db();
@@ -258,9 +354,25 @@ fn run_app(qs: &[Value], queries: &[String], out_dir: &str) {
         println!("  warning: {} passages have no vector yet, the vector ranking ignores them", passages.len() - embedded);
     }
 
-    let (mut model, qp, _) = embedder("gemma4");
-    let qs_text: Vec<String> = queries.iter().map(|q| format!("{qp}{q}")).collect();
-    let qvecs: Vec<Vec<f32>> = model.embed(&qs_text, Some(32)).unwrap().into_iter().map(normalize).collect();
+    let keyword = bm25_app(&passages, queries);
+    let qvecs: Option<Vec<Vec<f32>>> = match stored_model().as_str() {
+        m if m.starts_with("gemini") => {
+            let q = gemini_queries(queries);
+            if q.is_none() {
+                println!("  GEMINI_API_KEY not set: the vectors in the database are Gemini's, so only BM25 is reported");
+            }
+            q
+        }
+        _ => {
+            let (mut model, qp, _) = embedder("gemma4");
+            let qs_text: Vec<String> = queries.iter().map(|q| format!("{qp}{q}")).collect();
+            Some(model.embed(&qs_text, Some(32)).unwrap().into_iter().map(normalize).collect())
+        }
+    };
+    let Some(qvecs) = qvecs else {
+        println!("app-bm25");
+        return report("app-bm25", &passages, qs, keyword, out_dir, None);
+    };
     let vector: Vec<Ranking> = qvecs
         .iter()
         .map(|q| {
@@ -274,7 +386,6 @@ fn run_app(qs: &[Value], queries: &[String], out_dir: &str) {
             s
         })
         .collect();
-    let keyword = bm25(&passages, queries);
     let both = fuse(&keyword, &vector);
 
     for (label, rankings) in [("app-bm25", keyword), ("app-vector", vector), ("app-hybrid", both)] {
