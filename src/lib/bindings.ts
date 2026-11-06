@@ -81,6 +81,11 @@ export const commands = {
 	setEmbeddingBackend: (backend: Backend) => typedError<EmbeddingStatus, CmdError>(__TAURI_INVOKE("set_embedding_backend", { backend })),
 	/**  What the paid API calls used and roughly cost, by model and purpose. */
 	getUsage: (period: UsagePeriod) => typedError<UsageReport, CmdError>(__TAURI_INVOKE("get_usage", { period })),
+	/**
+	 *  What the calls made for one conversation used and roughly cost. Calls from before this was
+	 *  recorded, and search queries, aren't included.
+	 */
+	getConversationCost: (id: string) => typedError<UsageRow[], CmdError>(__TAURI_INVOKE("get_conversation_cost", { id })),
 	/**  Turns the weekly price download on or off. Turning it on checks right away. */
 	setPricesAutoUpdate: (enabled: boolean) => typedError<null, CmdError>(__TAURI_INVOKE("set_prices_auto_update", { enabled })),
 	/**  Fetches the price list now, whatever the schedule or the switch says. */

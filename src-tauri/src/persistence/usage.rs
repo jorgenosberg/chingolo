@@ -17,13 +17,15 @@ pub struct NewUsage<'a> {
     pub estimated: bool,
     pub latency_ms: u32,
     pub ok: bool,
+    /// The conversation the call was made for, if any.
+    pub conversation_id: Option<&'a str>,
 }
 
 pub fn record(conn: &Connection, u: &NewUsage) -> Result<()> {
     let cost = pricing::cost(u.provider, u.model, u.input_tokens, u.output_tokens, u.cached_tokens);
     conn.execute(
-        "INSERT INTO api_usage (at, provider, model, kind, input_tokens, output_tokens, cached_tokens, estimated, latency_ms, ok, cost_usd)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        "INSERT INTO api_usage (at, provider, model, kind, input_tokens, output_tokens, cached_tokens, estimated, latency_ms, ok, cost_usd, conversation_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
         params![
             now_ms(),
             u.provider,
@@ -35,7 +37,8 @@ pub fn record(conn: &Connection, u: &NewUsage) -> Result<()> {
             u.estimated,
             u.latency_ms,
             u.ok,
-            cost
+            cost,
+            u.conversation_id
         ],
     )?;
     Ok(())
@@ -47,17 +50,26 @@ pub fn summary(conn: &Connection, period: UsagePeriod) -> Result<Vec<UsageRow>> 
         UsagePeriod::Week => now_ms() - 7 * 24 * 3_600_000,
         UsagePeriod::All => 0,
     };
+    rows(conn, since, None)
+}
+
+/// What the calls made for one conversation used, grouped like `summary`.
+pub fn conversation_summary(conn: &Connection, conversation_id: &str) -> Result<Vec<UsageRow>> {
+    rows(conn, 0, Some(conversation_id))
+}
+
+fn rows(conn: &Connection, since: i64, conversation_id: Option<&str>) -> Result<Vec<UsageRow>> {
     let mut stmt = conn.prepare(
         "SELECT provider, model, kind, COUNT(*), SUM(ok = 0),
                 SUM(input_tokens), SUM(output_tokens), SUM(cached_tokens),
                 CAST(AVG(latency_ms) AS INTEGER), COALESCE(SUM(cost_usd), 0.0),
                 SUM(cost_usd IS NULL), MAX(estimated)
-         FROM api_usage WHERE at >= ?1
+         FROM api_usage WHERE at >= ?1 AND (?2 IS NULL OR conversation_id = ?2)
          GROUP BY provider, model, kind
          ORDER BY COALESCE(SUM(cost_usd), 0.0) DESC, COUNT(*) DESC",
     )?;
     let rows = stmt
-        .query_map([since], |r| {
+        .query_map(params![since, conversation_id], |r| {
             Ok(UsageRow {
                 provider: r.get(0)?,
                 model: r.get(1)?,
@@ -93,6 +105,7 @@ mod tests {
             estimated: false,
             latency_ms: 100,
             ok,
+            conversation_id: None,
         }
     }
 
@@ -114,6 +127,25 @@ mod tests {
         assert_eq!(query.errors, 1);
         let unknown = rows.iter().find(|r| r.model == "some-unknown-model").unwrap();
         assert_eq!((unknown.unpriced_calls, unknown.cost_usd), (1, 0.0));
+    }
+
+    #[test]
+    fn a_conversation_sees_only_its_own_calls() {
+        let conn = test_conn();
+        let mut mine = u("gemini-3-flash", "chat", 1_000, true);
+        mine.conversation_id = Some("c1");
+        record(&conn, &mine).unwrap();
+        record(&conn, &mine).unwrap();
+        let mut other = u("gemini-3-flash", "chat", 5_000, true);
+        other.conversation_id = Some("c2");
+        record(&conn, &other).unwrap();
+        record(&conn, &u("gemini-embedding-2", "embed_index", 9_000, true)).unwrap();
+
+        let rows = conversation_summary(&conn, "c1").unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!((rows[0].calls, rows[0].input_tokens), (2, 2_000));
+        assert!(conversation_summary(&conn, "nope").unwrap().is_empty());
+        assert_eq!(summary(&conn, UsagePeriod::All).unwrap().iter().map(|r| r.calls).sum::<u32>(), 4);
     }
 
     #[test]

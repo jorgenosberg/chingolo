@@ -67,6 +67,7 @@ async fn record_usage(
     tokens: (u32, u32, u32),
     started: Instant,
     ok: bool,
+    conversation_id: String,
 ) {
     let latency_ms = started.elapsed().as_millis() as u32;
     let result = db
@@ -83,6 +84,7 @@ async fn record_usage(
                     estimated: false,
                     latency_ms,
                     ok,
+                    conversation_id: Some(&conversation_id),
                 },
             )
         })
@@ -416,7 +418,7 @@ async fn run_generation(
         // A cancelled request with no usage report was not billed as far as we know.
         if !(matches!(end, Outcome::Cancelled) && round.usage.is_none()) {
             let ok = matches!(end, Outcome::Done);
-            record_usage(&db, provider_id, model_id.clone(), "chat", tokens, round_started, ok).await;
+            record_usage(&db, provider_id, model_id.clone(), "chat", tokens, round_started, ok, assistant.conversation_id.clone()).await;
         }
         match end {
             Outcome::Done => {}
@@ -642,7 +644,7 @@ pub async fn handoff_summary(state: &AppState, conversation_id: String) -> Resul
         tokens.1,
         tokens.2
     );
-    record_usage(&state.db, provider_id, model_id, "handoff", tokens, started, collected.is_ok()).await;
+    record_usage(&state.db, provider_id, model_id, "handoff", tokens, started, collected.is_ok(), conversation_id.clone()).await;
     let text = collected?;
     let text = text.trim().to_string();
     if text.is_empty() {

@@ -70,6 +70,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
         commands::embedding::allow_cloud_embedding,
         commands::embedding::set_embedding_backend,
         commands::usage::get_usage,
+        commands::usage::get_conversation_cost,
         commands::usage::set_prices_auto_update,
         commands::usage::update_prices_now,
         commands::usage::show_logs,

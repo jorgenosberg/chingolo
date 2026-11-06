@@ -343,6 +343,7 @@ impl Embedder {
                 estimated,
                 latency_ms: started.elapsed().as_millis() as u32,
                 ok: out.is_ok(),
+                conversation_id: None,
             };
             if let Err(e) = usage::record(&lock(&self.0.usage_db), &row) {
                 log::warn!("couldn't record embedding usage: {e}");

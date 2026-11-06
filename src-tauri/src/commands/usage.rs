@@ -1,6 +1,6 @@
 use tauri::{AppHandle, Manager, State};
 
-use crate::domain::usage::{UsagePeriod, UsageReport};
+use crate::domain::usage::{UsagePeriod, UsageReport, UsageRow};
 use crate::error::{AppError, CmdResult};
 use crate::persistence::{settings, usage};
 use crate::services::pricing;
@@ -21,6 +21,14 @@ pub async fn get_usage(state: State<'_, AppState>, period: UsagePeriod) -> CmdRe
         prices_fetched: prices.fetched_at.clone(),
         prices_auto_update: auto,
     })
+}
+
+/// What the calls made for one conversation used and roughly cost. Calls from before this was
+/// recorded, and search queries, aren't included.
+#[tauri::command]
+#[specta::specta]
+pub async fn get_conversation_cost(state: State<'_, AppState>, id: String) -> CmdResult<Vec<UsageRow>> {
+    Ok(state.db.call(move |c| usage::conversation_summary(c, &id)).await?)
 }
 
 /// Turns the weekly price download on or off. Turning it on checks right away.
