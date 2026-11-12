@@ -14,6 +14,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import {
+	Checkbox,
 	Radio,
 	RadioGroup,
 	Tab,
@@ -191,6 +192,41 @@ function ScannedPages() {
 					: model.kind === "failed"
 						? model.message
 						: "Reads pages that have no text, like scans. It runs on this Mac and nothing is sent anywhere. Needs a one-time 31 MB download from GitHub."}
+			</p>
+		</div>
+	);
+}
+
+/** Lets the chat model put the best of the top search results first. Sends those passages to its provider. */
+function SharpenResults() {
+	const { data: settings } = useSettings();
+	const qc = useQueryClient();
+	if (!settings) return null;
+	const toggle = async (on: boolean) => {
+		await api.updateSettings({ rerankEnabled: on });
+		await qc.invalidateQueries({ queryKey: keys.settings });
+	};
+	return (
+		<div className="flex flex-col gap-2">
+			<Checkbox
+				isSelected={settings.rerankEnabled}
+				onChange={toggle}
+				className={cx(
+					"group flex cursor-default items-center gap-2.5 text-[13px]",
+					focus,
+				)}
+			>
+				<span className="flex size-4 items-center justify-center rounded border border-input bg-card text-primary-foreground group-data-[selected]:border-primary group-data-[selected]:bg-primary">
+					<CheckIcon className="size-4 opacity-0 group-data-[selected]:opacity-100" />
+				</span>
+				Sharpen search results with the chat model
+			</Checkbox>
+			<p className="text-sm leading-relaxed text-muted-foreground">
+				When the model searches your library, it first reads the 20 best
+				matches and puts the most relevant first. This finds the right passage
+				more often, especially for Norwegian papers. The 20 passages go to the
+				provider of the model you chat with, using your API key, and each
+				search takes a few seconds longer and costs a little more.
 			</p>
 		</div>
 	);
@@ -609,6 +645,9 @@ export function SettingsView() {
 							<Section title="Search model">
 								<SearchModel />
 							</Section>
+							<Section title="Search results">
+								<SharpenResults />
+							</Section>
 							<Section title="Scanned pages">
 								<ScannedPages />
 							</Section>
@@ -625,7 +664,9 @@ export function SettingsView() {
 									go to the provider of the model you chose, Google (Gemini) or
 									OpenAI, with your own API key for it. Meaning search sends
 									passages of your papers to Gemini to be indexed, and only if
-									you agree. The local search model keeps them on this Mac,
+									you agree. Sharpening search results, if you turn it on, sends
+									the top 20 passages of each search to your chat model's
+									provider. The local search model keeps them on this Mac,
 									after a one-time download from Hugging Face. About once a week
 									the app also downloads a public price list from models.dev for
 									cost estimates, which sends nothing of yours.

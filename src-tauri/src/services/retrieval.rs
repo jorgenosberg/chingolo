@@ -1,5 +1,5 @@
-//! Hybrid search: keyword ranking (BM25) and meaning ranking (vectors) merged by reciprocal
-//! rank fusion. Either list alone is fine when the other is empty.
+//! Hybrid search: keyword ranking (BM25) and meaning ranking (vectors) merged by scaled score
+//! fusion. Either list alone is fine when the other is empty.
 
 use std::collections::HashMap;
 
@@ -11,20 +11,28 @@ use crate::error::Result;
 use crate::persistence::library::{self as repo, SearchOptions};
 use crate::persistence::vectors;
 
-/// The constant from the original paper, and the one the benchmark used.
-const RRF_K: f32 = 60.0;
 /// How many candidates each ranking contributes.
 const POOL: u32 = 50;
+/// Share of the fused score that comes from the keyword side. The benchmark (STATUS, "Fusion
+/// experiments") found 0.5 equal to the old rank fusion on English and much better on Norwegian.
+const KEYWORD_SHARE: f32 = 0.5;
 
-/// Merges two ranked lists of passage ids. A passage scores `1 / (60 + rank)` in each list it
-/// appears in (rank starts at 1). Ties keep the keyword order.
-pub fn fuse(keyword: &[Id], meaning: &[Id]) -> Vec<(Id, MatchKind)> {
+/// Merges two scored lists of passage ids. Each list's scores are scaled to 0..1 (best is 1, the
+/// last candidate 0), then added with `KEYWORD_SHARE` on the keyword side. A passage missing from
+/// a list gets 0 from it. Ties keep the keyword order.
+pub fn fuse(keyword: &[(Id, f32)], meaning: &[(Id, f32)]) -> Vec<(Id, MatchKind)> {
+    let scale = |list: &[(Id, f32)]| -> Vec<f32> {
+        let hi = list.iter().map(|x| x.1).fold(f32::MIN, f32::max);
+        let lo = list.iter().map(|x| x.1).fold(f32::MAX, f32::min);
+        list.iter().map(|x| if hi > lo { (x.1 - lo) / (hi - lo) } else { 1.0 }).collect()
+    };
     let mut seen: HashMap<&str, (f32, bool, bool, usize)> = HashMap::new();
     for (list_is_meaning, list) in [(false, keyword), (true, meaning)] {
-        for (i, id) in list.iter().enumerate() {
+        let share = if list_is_meaning { 1.0 - KEYWORD_SHARE } else { KEYWORD_SHARE };
+        for ((id, _), s) in list.iter().zip(scale(list)) {
             let next = seen.len();
             let e = seen.entry(id).or_insert((0.0, false, false, next));
-            e.0 += 1.0 / (RRF_K + (i + 1) as f32);
+            e.0 += share * s;
             if list_is_meaning {
                 e.2 = true;
             } else {
@@ -57,14 +65,14 @@ pub fn hybrid_search(
     limit: u32,
 ) -> Result<Vec<SearchHit>> {
     let opts = SearchOptions { filter, all_terms: false, prefix_last: false, limit: POOL };
-    let keyword = repo::search_passages(conn, query, &opts)?;
+    let keyword = repo::search_passages_scored(conn, query, &opts)?;
     let meaning = vectors::scan(conn, query_vec, identity.0, identity.1, filter, POOL as usize)?;
 
-    let keyword_ids: Vec<Id> = keyword.iter().map(|h| h.passage_id.clone()).collect();
-    let meaning_ids: Vec<Id> = meaning.into_iter().map(|s| s.passage_id).collect();
-    let mut known: HashMap<Id, SearchHit> = keyword.into_iter().map(|h| (h.passage_id.clone(), h)).collect();
+    let keyword_scored: Vec<(Id, f32)> = keyword.iter().map(|(h, s)| (h.passage_id.clone(), *s)).collect();
+    let meaning_scored: Vec<(Id, f32)> = meaning.into_iter().map(|s| (s.passage_id, s.score)).collect();
+    let mut known: HashMap<Id, SearchHit> = keyword.into_iter().map(|(h, _)| (h.passage_id.clone(), h)).collect();
 
-    let ranked = fuse(&keyword_ids, &meaning_ids);
+    let ranked = fuse(&keyword_scored, &meaning_scored);
     let missing: Vec<Id> = ranked.iter().filter(|(id, _)| !known.contains_key(id)).map(|(id, _)| id.clone()).collect();
     for hit in repo::hits_for_ids(conn, &missing, MatchKind::Meaning)? {
         known.insert(hit.passage_id.clone(), hit);
@@ -97,21 +105,21 @@ mod tests {
     use crate::persistence::test_conn;
     use crate::services::embedding::{MODEL_NAME, model::REVISION};
 
-    fn ids(v: &[&str]) -> Vec<Id> {
-        v.iter().map(|s| s.to_string()).collect()
+    fn scored(v: &[(&str, f32)]) -> Vec<(Id, f32)> {
+        v.iter().map(|(i, s)| (i.to_string(), *s)).collect()
     }
 
     #[test]
     fn fusion_matches_a_hand_computed_case() {
-        // keyword: a, b, c   meaning: c, a, d
-        // a: 1/61 + 1/62   b: 1/62   c: 1/63 + 1/61   d: 1/63
-        let out = fuse(&ids(&["a", "b", "c"]), &ids(&["c", "a", "d"]));
+        // keyword scores a 10, b 6, c 2 scale to 1, 0.5, 0   meaning c 0.8, a 0.7, d 0.6 scale to 1, 0.5, 0
+        // a: 0.5*1 + 0.5*0.5 = 0.75   b: 0.25   c: 0 + 0.5 = 0.5   d: 0
+        let out = fuse(&scored(&[("a", 10.0), ("b", 6.0), ("c", 2.0)]), &scored(&[("c", 0.8), ("a", 0.7), ("d", 0.6)]));
         let got: Vec<_> = out.iter().map(|(i, k)| (i.as_str(), *k)).collect();
         assert_eq!(
             got,
             [
-                ("a", MatchKind::Both), // 0.03252
-                ("c", MatchKind::Both), // 0.03227
+                ("a", MatchKind::Both),
+                ("c", MatchKind::Both),
                 ("b", MatchKind::Keyword),
                 ("d", MatchKind::Meaning),
             ]
@@ -120,17 +128,17 @@ mod tests {
 
     #[test]
     fn a_passage_in_both_lists_beats_one_that_tops_a_single_list() {
-        let out = fuse(&ids(&["x", "shared"]), &ids(&["y", "shared"]));
+        let out = fuse(&scored(&[("x", 9.0), ("shared", 8.0), ("z", 1.0)]), &scored(&[("y", 0.9), ("shared", 0.88), ("w", 0.5)]));
         assert_eq!(out[0].0, "shared");
-        // x and y tie at 1/61: keyword order decides
+        // x and y tie at 0.5: keyword order decides
         assert_eq!((out[1].0.as_str(), out[2].0.as_str()), ("x", "y"));
     }
 
     #[test]
     fn one_empty_list_keeps_the_other_order() {
-        let out = fuse(&ids(&["a", "b"]), &[]);
+        let out = fuse(&scored(&[("a", 3.0), ("b", 2.0)]), &[]);
         assert_eq!(out, [("a".to_string(), MatchKind::Keyword), ("b".to_string(), MatchKind::Keyword)]);
-        let out = fuse(&[], &ids(&["m", "n"]));
+        let out = fuse(&[], &scored(&[("m", 0.9), ("n", 0.8)]));
         assert_eq!(out, [("m".to_string(), MatchKind::Meaning), ("n".to_string(), MatchKind::Meaning)]);
         assert!(fuse(&[], &[]).is_empty());
     }

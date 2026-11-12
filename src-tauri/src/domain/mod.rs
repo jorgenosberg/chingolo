@@ -223,6 +223,8 @@ pub struct AppSettings {
     pub api_keys: Vec<String>,
     /// The user chose "Not now" on the search model download notice.
     pub embedding_notice_dismissed: bool,
+    /// Search results are reordered by the chat model (sends the top passages to its provider).
+    pub rerank_enabled: bool,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Type)]
@@ -233,6 +235,7 @@ pub struct SettingsPatch {
     pub default_model: Option<String>,
     pub default_provider: Option<String>,
     pub embedding_notice_dismissed: Option<bool>,
+    pub rerank_enabled: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]

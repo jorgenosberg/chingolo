@@ -19,6 +19,7 @@ use crate::services::ai::{
     FinishReason, GenerationEvent, GenerationRequest, Part, Provider, Replay, Turn, TurnRole,
 };
 use crate::services::citations;
+use crate::services::rerank::RerankCtx;
 use crate::services::tools::{self, ToolCtx};
 use crate::state::{AppState, Generations};
 
@@ -148,6 +149,8 @@ pub async fn send(
     let provider_id = provider.id().to_string();
     let can_use_tools = provider.capabilities().tools;
     let (embedder, db) = (state.embedder.clone(), state.db.clone());
+    let rerank_provider = provider.clone();
+    let rerank_key = api_key.clone();
     let prepared = state
         .db
         .call(move |c| {
@@ -172,11 +175,13 @@ pub async fn send(
             // Tools only when there is something to read and the model can call them.
             let scope = if can_use_tools { tools::scope_for(&tx, &conv)? } else { None };
             tx.commit()?;
+            let rerank = settings::get_bool(c, "rerank_enabled")?;
             let tool_ctx = scope.map(|filter| ToolCtx {
                 db,
                 embedder,
                 conversation_id: conv.id.clone(),
                 filter,
+                rerank: rerank.then(|| RerankCtx { provider: rerank_provider, api_key: rerank_key, model: model.clone() }),
             });
             Ok(Prepared {
                 user_message,
@@ -759,7 +764,7 @@ mod tests {
             }
             Ok(())
         });
-        let ctx = ToolCtx { db: db.clone(), embedder, conversation_id: conv.clone(), filter: crate::domain::library::DocFilter::All };
+        let ctx = ToolCtx { db: db.clone(), embedder, conversation_id: conv.clone(), filter: crate::domain::library::DocFilter::All, rerank: None };
         Setup { _dir: dir, db, conv, assistant, ctx, seen: Arc::new(Mutex::new(Vec::new())), events, channel }
     }
 

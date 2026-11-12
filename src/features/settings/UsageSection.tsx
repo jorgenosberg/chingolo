@@ -17,6 +17,7 @@ export const KINDS: Record<string, string> = {
 	handoff: "Hand-off notes",
 	embed_index: "Indexing papers",
 	embed_query: "Search queries",
+	rerank: "Sharpening search results",
 };
 
 export const tokens = (n: number) =>

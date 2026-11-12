@@ -10,9 +10,11 @@ use crate::domain::library::{DocFilter, DocStatus, Scope, SearchHit};
 use crate::error::{AppError, Result};
 use crate::persistence::library::{self as repo, SearchOptions};
 use crate::persistence::sources::{self, NewSource};
+use crate::persistence::usage::{self, NewUsage};
 use crate::persistence::Db;
 use crate::services::ai::ToolSpec;
 use crate::services::embedding::engine::Embedder;
+use crate::services::rerank::{self, RerankCtx};
 use crate::services::retrieval;
 
 const SEARCH_LIMIT_DEFAULT: u32 = 6;
@@ -29,6 +31,8 @@ pub struct ToolCtx {
     pub conversation_id: String,
     /// Which documents every tool may read.
     pub filter: DocFilter,
+    /// Set when the user turned on reranking in Settings.
+    pub rerank: Option<RerankCtx>,
 }
 
 /// Which documents a conversation can draw on, or `None` when there are none to read.
@@ -165,16 +169,63 @@ async fn search(ctx: &ToolCtx, args: &Value) -> Result<Value> {
     };
     let by_meaning = vector.is_some();
     let identity = ctx.embedder.backend().identity();
-    let (conversation_id, filter) = (ctx.conversation_id.clone(), ctx.filter.clone());
+    let filter = ctx.filter.clone();
+    // With reranking on, the model sees a wider pool and the best `limit` of it come back.
+    let pool = if ctx.rerank.is_some() { rerank::CANDIDATES.max(limit) } else { limit };
+    let text = query.clone();
+    let mut hits = ctx
+        .db
+        .call(move |c| match vector {
+            Some(v) => retrieval::hybrid_search(c, &text, &v, identity, &filter, pool),
+            None => {
+                let opts = SearchOptions { filter: &filter, all_terms: false, prefix_last: false, limit: pool };
+                repo::search_passages(c, &text, &opts)
+            }
+        })
+        .await?;
+
+    if let (Some(r), true) = (&ctx.rerank, hits.len() > 1) {
+        let result = rerank::rerank(r, &query, hits.clone()).await;
+        let (tokens, latency_ms, ok) = match &result {
+            Ok(x) => (x.tokens, x.latency_ms, true),
+            Err(e) => {
+                log::warn!("tool search: rerank failed, keeping the search order: {e}");
+                ((0, 0, 0), 0, false)
+            }
+        };
+        if let Ok(x) = result {
+            hits = x.hits;
+        }
+        let (provider, model, conv) = (r.provider.id(), r.model.clone(), ctx.conversation_id.clone());
+        let recorded = ctx
+            .db
+            .call(move |c| {
+                usage::record(
+                    c,
+                    &NewUsage {
+                        provider,
+                        model: &model,
+                        kind: "rerank",
+                        input_tokens: tokens.0,
+                        output_tokens: tokens.1,
+                        cached_tokens: tokens.2,
+                        estimated: false,
+                        latency_ms,
+                        ok,
+                        conversation_id: Some(&conv),
+                    },
+                )
+            })
+            .await;
+        if let Err(e) = recorded {
+            log::warn!("couldn't record rerank usage: {e}");
+        }
+    }
+    hits.truncate(limit as usize);
+
+    let conversation_id = ctx.conversation_id.clone();
     ctx.db
         .call(move |c| {
-            let hits = match vector {
-                Some(v) => retrieval::hybrid_search(c, &query, &v, identity, &filter, limit)?,
-                None => {
-                    let opts = SearchOptions { filter: &filter, all_terms: false, prefix_last: false, limit };
-                    repo::search_passages(c, &query, &opts)?
-                }
-            };
             let mut out = results_json(c, &conversation_id, &hits)?;
             if !by_meaning {
                 out["note"] = json!(

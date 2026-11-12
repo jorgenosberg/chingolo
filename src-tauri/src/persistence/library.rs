@@ -342,12 +342,17 @@ pub struct SearchOptions<'a> {
 
 /// Keyword search over passages of documents that are ready, best match first.
 pub fn search_passages(conn: &Connection, query: &str, opts: &SearchOptions) -> Result<Vec<SearchHit>> {
+    Ok(search_passages_scored(conn, query, opts)?.into_iter().map(|(h, _)| h).collect())
+}
+
+/// Like `search_passages`, with each hit's BM25 score (higher is better).
+pub fn search_passages_scored(conn: &Connection, query: &str, opts: &SearchOptions) -> Result<Vec<(SearchHit, f32)>> {
     let Some(expr) = match_expr(query, opts.all_terms, opts.prefix_last) else {
         return Ok(vec![]);
     };
     let (scope, scope_args) = scope_clause(opts.filter, "d.id", 3);
     let sql = format!(
-        "SELECT p.id, d.id, COALESCE(NULLIF(d.title, ''), d.original_name), p.page_start, p.page_end, p.text
+        "SELECT p.id, d.id, COALESCE(NULLIF(d.title, ''), d.original_name), p.page_start, p.page_end, p.text, -bm25(passages_fts)
            FROM passages_fts f
            JOIN passages p ON p.rowid = f.rowid
            JOIN documents d ON d.id = p.document_id
@@ -357,7 +362,7 @@ pub fn search_passages(conn: &Connection, query: &str, opts: &SearchOptions) -> 
     );
     let mut stmt = conn.prepare(&sql)?;
     let map = |r: &Row| {
-        Ok(SearchHit {
+        let hit = SearchHit {
             passage_id: r.get(0)?,
             document_id: r.get(1)?,
             document_title: r.get(2)?,
@@ -365,7 +370,8 @@ pub fn search_passages(conn: &Connection, query: &str, opts: &SearchOptions) -> 
             page_end: r.get(4)?,
             text: r.get(5)?,
             matched_by: MatchKind::Keyword,
-        })
+        };
+        Ok((hit, r.get::<_, f64>(6)? as f32))
     };
     let mut args: Vec<&dyn rusqlite::ToSql> = vec![&expr, &opts.limit];
     args.extend(scope_args.iter().map(|a| a as &dyn rusqlite::ToSql));

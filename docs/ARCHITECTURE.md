@@ -68,7 +68,7 @@ macOS Keychain "Always Allow" is tied to the app's code signature. Ad-hoc dev bu
 Two modes, chosen per request from the provider's context window and the size of the selected sources:
 
 1. **Whole-source mode.** Selected documents are sent as passages tagged with app-assigned IDs. Provider caching keeps repeat questions cheap.
-2. **Tool mode.** The model gets `search_library`, `read_section` and `get_page` over a local hybrid index: FTS5 (unicode61, remove diacritics, for æøå) plus EmbeddingGemma vectors in a plain SQLite table scored in Rust (`persistence/vectors.rs`), merged by rank fusion (`services/retrieval.rs`), with neighbor expansion.
+2. **Tool mode.** The model gets `search_library`, `read_section` and `get_page` over a local hybrid index: FTS5 (unicode61, remove diacritics, for æøå) plus EmbeddingGemma vectors in a plain SQLite table scored in Rust (`persistence/vectors.rs`), merged by scaled score fusion (`services/retrieval.rs`), with neighbor expansion.
 
 Built so far: tool mode only (whole-source mode is not built, deferred until the slice 9 benchmark). A conversation gets the four tools when the provider reports `capabilities().tools` and its scope has a ready document.
 
@@ -91,7 +91,7 @@ Import, hash and dedupe, parse (pdfium for PDF with per-page char boxes, zip + q
 - Two backends (`Backend` in `services/embedding/mod.rs`), both 768 dimensions: `gemini` (default, `services/embedding/cloud.rs`, `gemini-embedding-2` through `batchEmbedContents`, key read from the Keychain per call, retries 429/500/503) and `local`. Each has its own model name and revision stored on every vector, and the worker drops vectors that don't match the current backend before it starts, so a switch re-indexes. Gemini starts only after the user's yes (settings key `embedding_cloud_accepted`). The choice is the settings key `embedding_backend`; without one, Gemini, except for users who already accepted the local download.
 - `services/embedding/model.rs` (local backend): the pinned model files (revision and SHA-256 in the manifest), downloaded by Rust with `.part` files and Range resume, checksum verified before a file gets its real name. Files live in `<app data>/models/embeddinggemma-300m-q4/<revision>/`. The download starts only after the user agrees (settings key `embedding_download_accepted`) and resumes at startup.
 - `services/embedding/mod.rs`: loads the model from those files through fastembed's user-defined model API (weights passed from memory), on CPU only. Documents get the prefix `title: none | text: `, queries `task: search result | query: `.
-- Search (`search_library`): with a model and a query of 3 or more characters it embeds the query, then merges BM25 (any term, common words dropped) and the vector scan by reciprocal rank fusion (k = 60). Otherwise it is the old keyword search.
+- Search (`search_library`): with a model and a query of 3 or more characters it embeds the query, then merges BM25 (any term, common words dropped) and the vector scan by scaled score fusion (each list scaled to 0..1, half the weight each). With the Sharpen search results setting on, the top 20 go to the conversation's model, which puts the relevant ones first (`services/rerank.rs`, usage kind `rerank`). Otherwise it is the old keyword search.
 
 ## Frontend shell
 

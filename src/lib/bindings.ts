@@ -120,6 +120,8 @@ export type AppSettings = {
 	apiKeys: string[],
 	/**  The user chose "Not now" on the search model download notice. */
 	embeddingNoticeDismissed: boolean,
+	/**  Search results are reordered by the chat model (sends the top passages to its provider). */
+	rerankEnabled: boolean,
 };
 
 /**
@@ -392,6 +394,7 @@ export type SettingsPatch = {
 	defaultModel: string | null,
 	defaultProvider: string | null,
 	embeddingNoticeDismissed: boolean | null,
+	rerankEnabled: boolean | null,
 };
 
 export type SkippedFile = {
