@@ -13,7 +13,10 @@
 //! ones in the question file. CHINGUI_BENCH_WORK still names the model cache and output folder.
 //! Query vectors follow the model stored with the vectors: Gemini needs GEMINI_API_KEY (without it
 //! only BM25 is reported), anything else loads EmbeddingGemma. CHINGUI_BENCH_STOP=more adds a
-//! larger Norwegian stop word list to the BM25 side.
+//! larger Norwegian stop word list to the BM25 side. CHINGUI_BENCH_VARIANTS=1 runs the fusion and
+//! query experiments in experiments.rs instead (cached in <out_dir>/cache.json).
+
+mod experiments;
 
 use std::collections::HashSet;
 use std::fs;
@@ -254,18 +257,24 @@ fn hybrid(out_dir: &str, dense_name: &str) -> Vec<Ranking> {
     fuse(&load("bm25"), &load(dense_name))
 }
 
+/// Scaled score fusion with an equal share per side, as the app does (services/retrieval.rs).
 fn fuse(a: &[Ranking], b: &[Ranking]) -> Vec<Ranking> {
+    let scale = |r: &Ranking| -> Vec<(usize, f32)> {
+        let hi = r.iter().map(|x| x.1).fold(f32::MIN, f32::max);
+        let lo = r.iter().map(|x| x.1).fold(f32::MAX, f32::min);
+        r.iter().map(|(i, s)| (*i, if hi > lo { (s - lo) / (hi - lo) } else { 1.0 })).collect()
+    };
     a.iter()
         .zip(b)
         .map(|(x, y)| {
             let mut s: std::collections::HashMap<usize, f32> = Default::default();
             for r in [x, y] {
-                for (rank, (i, _)) in r.iter().enumerate() {
-                    *s.entry(*i).or_default() += 1.0 / (60.0 + rank as f32 + 1.0);
+                for (i, v) in scale(r) {
+                    *s.entry(i).or_default() += 0.5 * v;
                 }
             }
             let mut v: Vec<(usize, f32)> = s.into_iter().collect();
-            v.sort_by(|a, b| b.1.total_cmp(&a.1));
+            v.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
             v.truncate(50);
             v
         })
@@ -354,6 +363,10 @@ fn run_app(qs: &[Value], queries: &[String], out_dir: &str) {
         println!("  warning: {} passages have no vector yet, the vector ranking ignores them", passages.len() - embedded);
     }
 
+    if std::env::var("CHINGUI_BENCH_VARIANTS").is_ok() {
+        let file = std::env::var("CHINGUI_BENCH_FILE").unwrap_or_else(|_| "bench.json".into());
+        return experiments::run(&passages, qs, queries, out_dir, &file);
+    }
     let keyword = bm25_app(&passages, queries);
     let qvecs: Option<Vec<Vec<f32>>> = match stored_model().as_str() {
         m if m.starts_with("gemini") => {
