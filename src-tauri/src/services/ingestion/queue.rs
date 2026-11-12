@@ -12,6 +12,7 @@ use specta::Type;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use super::activity::Activity;
 use super::ocr::OcrSlot;
 use super::pdf::PdfReader;
 use super::segment::segment;
@@ -51,6 +52,7 @@ struct Inner {
     emit: Emit,
     /// Where the text recognition models are (or will be). None turns recognition off.
     ocr_dir: Mutex<Option<PathBuf>>,
+    activity: Mutex<Option<Activity>>,
 }
 
 #[derive(Clone)]
@@ -65,7 +67,7 @@ impl Ingestor {
     pub fn start(db_path: &Path, library_dir: PathBuf, emit: Emit) -> Result<Self> {
         let conn = Db::open_secondary(db_path)?;
         let (tx, rx) = mpsc::unbounded_channel();
-        let inner = Arc::new(Inner { tx, tokens: Mutex::new(HashMap::new()), library_dir, emit, ocr_dir: Mutex::new(None) });
+        let inner = Arc::new(Inner { tx, tokens: Mutex::new(HashMap::new()), library_dir, emit, ocr_dir: Mutex::new(None), activity: Mutex::new(None) });
         let worker = inner.clone();
         std::thread::Builder::new()
             .name("ingest".into())
@@ -80,6 +82,17 @@ impl Ingestor {
         if let Ok(mut d) = self.0.ocr_dir.lock() {
             *d = dir;
         }
+    }
+
+    /// Where details jobs are reported while they wait and run.
+    pub fn set_activity(&self, activity: Activity) {
+        if let Ok(mut a) = self.0.activity.lock() {
+            *a = Some(activity);
+        }
+    }
+
+    fn activity(&self) -> Option<Activity> {
+        self.0.activity.lock().ok().and_then(|a| a.clone())
     }
 
     pub fn library_dir(&self) -> &Path {
@@ -100,6 +113,9 @@ impl Ingestor {
     /// Reads the file properties and first pages again and refreshes the details. Passages,
     /// status and vectors stay as they are.
     pub fn enqueue_details(&self, doc: &Document) {
+        if let Some(a) = self.activity() {
+            a.start(&doc.id);
+        }
         let _ = self.0.tx.send(Job::Details(doc.clone()));
     }
 
@@ -146,6 +162,11 @@ fn worker_loop(mut conn: Connection, mut rx: mpsc::UnboundedReceiver<Job>, inner
             if let Ok(d) = repo::set_status(&conn, &doc.id, DocStatus::Error, Some("Reading this file crashed. It may be damaged.")) {
                 emit(d, None);
             }
+        }
+        if matches!(job, Job::Details(_))
+            && let Some(a) = inner.activity.lock().ok().and_then(|a| a.clone())
+        {
+            a.finish(&doc.id);
         }
         if matches!(job, Job::Read(_))
             && let Ok(mut t) = inner.tokens.lock()

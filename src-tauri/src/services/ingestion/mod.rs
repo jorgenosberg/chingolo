@@ -3,6 +3,7 @@
 
 #[cfg(test)]
 mod audit;
+pub mod activity;
 pub mod crossref;
 pub mod detect;
 pub mod details_ai;

@@ -110,6 +110,7 @@ export const commands = {
 
 /** Events */
 export const events = {
+	detailsActivity: makeEvent<DetailsActivity, DetailsActivity>("details-activity"),
 	documentChanged: makeEvent<DocumentChanged, DocumentChanged>("document-changed"),
 	dropHover: makeEvent<DropHover, DropHover>("drop-hover"),
 	embeddingStatus: makeEvent<EmbeddingStatus, EmbeddingStatus>("embedding-status"),
@@ -226,6 +227,11 @@ export type ConversationFilter = {
 	includeArchived?: boolean,
 	/**  Matches titles and message text. */
 	query: string | null,
+};
+
+/**  Sent whenever the list changes. `ids` is everything still being worked on. */
+export type DetailsActivity = {
+	ids: string[],
 };
 
 export type DocKind = "pdf" | "docx";

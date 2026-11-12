@@ -19,13 +19,14 @@ use crate::domain::library::DocStatus;
 use crate::services::embedding::Backend;
 use crate::services::embedding::engine::{Embedder, EmbeddingStatus, StatusEmit};
 use crate::services::ingestion::import::{ImportSummary, import_paths};
+use crate::services::ingestion::activity::{Activity, DetailsActivity};
 use crate::services::ingestion::queue::{DocumentChanged, Emit, Ingestor};
 use crate::state::{AppState, Generations};
 
 fn specta_builder() -> Builder<tauri::Wry> {
     Builder::<tauri::Wry>::new()
         .disable_serde_phases()
-        .events(collect_events![DocumentChanged, ImportSummary, DropHover, EmbeddingStatus])
+        .events(collect_events![DocumentChanged, DetailsActivity, ImportSummary, DropHover, EmbeddingStatus])
         .commands(collect_commands![
         commands::projects::list_projects,
         commands::projects::create_project,
@@ -189,7 +190,11 @@ pub fn run() {
             // document events skip this, so it doesn't wake itself.
             // It also queues the document for a details lookup, which has its own emit.
             let providers = Providers::new();
-            let enricher = crate::services::ingestion::enrich::Enricher::start(db.clone(), emit.clone(), providers.clone());
+            let activity_handle = app.handle().clone();
+            let activity = Activity::new(move |e| {
+                let _ = e.emit(&activity_handle);
+            });
+            let enricher = crate::services::ingestion::enrich::Enricher::start(db.clone(), emit.clone(), providers.clone(), activity.clone());
             let (wake, raw_emit) = (embedder.clone(), emit);
             let ingest_emit: Emit = Arc::new(move |e| {
                 let ready = e.document.status == DocStatus::Ready;
@@ -201,6 +206,7 @@ pub fn run() {
                 }
             });
             let ingest = Ingestor::start(&db_path, dir.join("library"), ingest_emit)?;
+            ingest.set_activity(activity);
             let ocr = crate::services::ingestion::ocr::OcrModel::new(&dir);
             ingest.set_ocr_dir(Some(ocr.dir().to_path_buf()));
             // Documents that were still being read when the app last stopped.

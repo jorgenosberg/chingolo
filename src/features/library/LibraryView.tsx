@@ -33,6 +33,8 @@ import { api } from "../../lib/api";
 import type { DocStatus, Document, ImportSummary } from "../../lib/bindings";
 import {
 	setImportSummary,
+	useDetailsBusy,
+	useDetailsCount,
 	useEmbeddingStatus,
 	useImportSummary,
 	useProgress,
@@ -153,6 +155,7 @@ function DocumentRow({
 	onOpen?: () => void;
 }) {
 	const progress = useProgress(doc.id);
+	const detailsBusy = useDetailsBusy(doc.id);
 	const embedding = useEmbeddingStatus();
 	const indexing =
 		doc.status === "ready" &&
@@ -224,6 +227,11 @@ function DocumentRow({
 							<Spinner className="size-3" />
 						)}
 					</div>
+				)}
+				{detailsBusy && doc.status !== "processing" && (
+					<p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+						<Spinner className="size-3" /> Updating details
+					</p>
 				)}
 				{doc.status === "no_text" && (
 					<p className="mt-1 text-xs text-muted-foreground">
@@ -398,6 +406,7 @@ export function LibraryView() {
 				: (docs.data ?? []),
 		[docs.data, query],
 	);
+	const detailsCount = useDetailsCount();
 	const projectsDoc = docs.data?.find((d) => d.id === projectsFor) ?? null;
 
 	const pick = async (folder: boolean) => {
@@ -519,11 +528,22 @@ export function LibraryView() {
 					<h1 className="text-[15px] font-semibold">Library</h1>
 					<ScopeSelect value={scope} onChange={setLibraryScope} />
 				</div>
-				<ImportMenu
-					onPick={pick}
-					onRefreshAll={refreshAll}
-					isDisabled={importing}
-				/>
+				<div className="flex items-center gap-3">
+					{detailsCount > 0 && (
+						<span
+							role="status"
+							className="flex items-center gap-1.5 text-xs text-muted-foreground"
+						>
+							<Spinner className="size-3" /> Updating details for{" "}
+							{plural(detailsCount, "document")}
+						</span>
+					)}
+					<ImportMenu
+						onPick={pick}
+						onRefreshAll={refreshAll}
+						isDisabled={importing}
+					/>
+				</div>
 			</header>
 
 			<div className="px-6 pb-3">

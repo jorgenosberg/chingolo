@@ -5,6 +5,7 @@
 
 use tokio::sync::mpsc;
 
+use super::activity::Activity;
 use super::details_ai::{self, Missing, Target};
 use super::{crossref, pdf::current_year};
 use super::queue::{DocumentChanged, Emit};
@@ -19,10 +20,11 @@ use crate::services::ai::Providers;
 pub const CROSSREF_KEY: &str = "crossref_enabled";
 
 #[derive(Clone)]
-pub struct Enricher(mpsc::UnboundedSender<Id>);
+pub struct Enricher(mpsc::UnboundedSender<Id>, Activity);
 
 impl Enricher {
-    pub fn start(db: Db, emit: Emit, providers: Providers) -> Self {
+    pub fn start(db: Db, emit: Emit, providers: Providers, activity: Activity) -> Self {
+        let busy = activity.clone();
         let (tx, mut rx) = mpsc::unbounded_channel::<Id>();
         tauri::async_runtime::spawn(async move {
             let client = crossref::http_client();
@@ -37,14 +39,16 @@ impl Enricher {
                 match enrich(&db, &client, crossref::BASE, target.as_ref(), &id).await {
                     Ok(Some(document)) => emit(DocumentChanged { document, progress: None }),
                     Ok(None) => {}
-                    Err(e) => log::warn!("details lookup failed for document {id}: {e}"),
+                    Err(e) => log::debug!("details lookup for document {id} ended early: {e}"),
                 }
+                busy.finish(&id);
             }
         });
-        Enricher(tx)
+        Enricher(tx, activity)
     }
 
     pub fn queue(&self, id: &str) {
+        self.1.start(id);
         let _ = self.0.send(id.to_string());
     }
 }

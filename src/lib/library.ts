@@ -18,6 +18,8 @@ import { keys } from "./queries";
  */
 type State = {
 	progress: ReadonlyMap<string, Progress>;
+	/** Documents whose details are being refreshed or looked up. */
+	details: ReadonlySet<string>;
 	dropActive: boolean;
 	summary: ImportSummary | null;
 	embedding: EmbeddingStatus | null;
@@ -25,6 +27,7 @@ type State = {
 
 let state: State = {
 	progress: new Map(),
+	details: new Set(),
 	dropActive: false,
 	summary: null,
 	embedding: null,
@@ -47,6 +50,9 @@ function useStore<T>(pick: (s: State) => T): T {
 
 export const useProgress = (id: string) =>
 	useStore((s) => s.progress.get(id) ?? null);
+export const useDetailsBusy = (id: string) =>
+	useStore((s) => s.details.has(id));
+export const useDetailsCount = () => useStore((s) => s.details.size);
 export const useDropActive = () => useStore((s) => s.dropActive);
 export const useImportSummary = () => useStore((s) => s.summary);
 export const useEmbeddingStatus = () => useStore((s) => s.embedding);
@@ -115,6 +121,11 @@ export function useLibraryEvents(qc: QueryClient, onSummary: () => void) {
 					qc.invalidateQueries({ queryKey: ["library-search"] });
 				}
 			}),
+		);
+		keep(
+			events.detailsActivity.listen(({ payload }) =>
+				set({ details: new Set(payload.ids) }),
+			),
 		);
 		keep(
 			events.embeddingStatus.listen(({ payload }) => {
