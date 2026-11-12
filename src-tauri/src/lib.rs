@@ -60,6 +60,8 @@ fn specta_builder() -> Builder<tauri::Wry> {
         commands::library::delete_document,
         commands::library::cancel_import,
         commands::library::retry_import,
+        commands::library::refresh_details,
+        commands::library::refresh_all_details,
         commands::library::attach_document,
         commands::library::detach_document,
         commands::library::search_library,

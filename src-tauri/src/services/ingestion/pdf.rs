@@ -14,6 +14,8 @@ use crate::persistence::library::{Extracted, NewPage};
 
 /// Pages with fewer letters than this count as having no text.
 const MIN_CHARS_PER_PAGE: usize = 20;
+/// Pages read for details. NINA reports put their citation line on page 4.
+const META_PAGES: usize = 4;
 /// A page is "low" quality when more than 1 in 20 characters is a replacement or private-use mark.
 const LOW_QUALITY_ODD_RATIO: usize = 20;
 
@@ -70,14 +72,31 @@ impl PdfReader {
         cancelled: &dyn Fn() -> bool,
         progress: &mut dyn FnMut(u32, u32),
     ) -> Result<Extraction> {
+        self.read(path, ocr, cancelled, progress, usize::MAX)
+    }
+
+    /// Only the details: the file properties and the first pages, which is where titles,
+    /// authors and citation lines are. Nothing is stored, so nothing needs indexing again.
+    pub fn extract_meta(&self, path: &Path, ocr: &mut OcrSlot) -> Result<Extracted> {
+        Ok(self.read(path, ocr, &|| false, &mut |_, _| {}, META_PAGES)?.meta)
+    }
+
+    fn read(
+        &self,
+        path: &Path,
+        ocr: &mut OcrSlot,
+        cancelled: &dyn Fn() -> bool,
+        progress: &mut dyn FnMut(u32, u32),
+        max_pages: usize,
+    ) -> Result<Extraction> {
         let doc = self.pdfium.load_pdf_from_file(path, None).map_err(open_error)?;
-        let total = doc.pages().len() as u32;
+        let total = (doc.pages().len() as usize).min(max_pages) as u32;
 
         let mut pages = Vec::new();
         let mut blocks = Vec::new();
         let mut unreadable = 0u32;
 
-        for (i, page) in doc.pages().iter().enumerate() {
+        for (i, page) in doc.pages().iter().enumerate().take(max_pages) {
             if cancelled() {
                 return Err(AppError::Cancelled);
             }
@@ -126,6 +145,7 @@ impl PdfReader {
             authors: info(PdfDocumentMetadataTagType::Author).map(|a| meta::split_authors(&a)).unwrap_or_default(),
             year: meta::find_year(&head_text, current_year()),
             doi: meta::find_doi(&head_text, &path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()),
+            ..Default::default()
         };
         Ok(Extraction { pages, blocks, meta, unreadable_pages: unreadable })
     }

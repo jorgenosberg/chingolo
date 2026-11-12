@@ -12,14 +12,26 @@ const DOC_COLS: &str = "id, content_hash, original_name, kind, title, authors, y
     status, error, created_at, updated_at,
     (SELECT count(*) FROM passages p WHERE p.document_id = documents.id),
     (SELECT json_group_array(project_id) FROM project_documents pd WHERE pd.document_id = documents.id),
-    (SELECT count(*) FROM passage_vectors v JOIN passages p ON p.id = v.passage_id WHERE p.document_id = documents.id)";
+    (SELECT count(*) FROM passage_vectors v JOIN passages p ON p.id = v.passage_id WHERE p.document_id = documents.id),
+    journal, publisher, volume, issue, pages, series, isbn, issn, meta_edited, meta_source";
 
 fn document_from_row(r: &Row) -> rusqlite::Result<Document> {
     let kind: String = r.get(3)?;
     let authors: String = r.get(5)?;
     let status: String = r.get(9)?;
     let project_ids: String = r.get(14)?;
+    let (edited, source): (String, String) = (r.get(24)?, r.get(25)?);
     Ok(Document {
+        journal: r.get(16)?,
+        publisher: r.get(17)?,
+        volume: r.get(18)?,
+        issue: r.get(19)?,
+        pages: r.get(20)?,
+        series: r.get(21)?,
+        isbn: r.get(22)?,
+        issn: r.get(23)?,
+        meta_edited: serde_json::from_str(&edited).unwrap_or_default(),
+        meta_source: serde_json::from_str(&source).unwrap_or_default(),
         id: r.get(0)?,
         content_hash: r.get(1)?,
         original_name: r.get(2)?,
@@ -160,11 +172,26 @@ pub fn delete_document(conn: &Connection, id: &str) -> Result<(String, DocKind)>
 }
 
 pub fn update_metadata(conn: &Connection, id: &str, patch: &MetadataPatch) -> Result<Document> {
-    get_document(conn, id)?;
+    let doc = get_document(conn, id)?;
     let blank = |s: &str| if s.trim().is_empty() { None } else { Some(s.trim().to_string()) };
-    if let Some(t) = &patch.title {
-        let t = blank(t).map(|t| clean_name(&t, "Title")).transpose()?;
+    let mut edited = doc.meta_edited;
+    let mut source = doc.meta_source;
+    let mut mark = |field: &str| {
+        if !edited.iter().any(|f| f == field) {
+            edited.push(field.to_string());
+        }
+        source.remove(field);
+    };
+    if let Some(y) = patch.year
+        && y != 0
+        && !(1000..=2200).contains(&y)
+    {
+        return Err(AppError::Invalid("That year doesn't look right.".into()));
+    }
+    let title = patch.title.as_deref().map(|t| blank(t).map(|t| clean_name(&t, "Title")).transpose()).transpose()?;
+    if let Some(t) = title {
         conn.execute("UPDATE documents SET title = ?1 WHERE id = ?2", params![t, id])?;
+        mark("title");
     }
     if let Some(a) = &patch.authors {
         let a: Vec<String> = a.iter().filter_map(|s| blank(s)).collect();
@@ -172,21 +199,39 @@ pub fn update_metadata(conn: &Connection, id: &str, patch: &MetadataPatch) -> Re
             "UPDATE documents SET authors = ?1 WHERE id = ?2",
             params![serde_json::to_string(&a).unwrap_or_else(|_| "[]".into()), id],
         )?;
+        mark("authors");
     }
     if let Some(y) = patch.year {
-        if y != 0 && !(1000..=2200).contains(&y) {
-            return Err(AppError::Invalid("That year doesn't look right.".into()));
+        conn.execute("UPDATE documents SET year = ?1 WHERE id = ?2", params![(y != 0).then_some(y), id])?;
+        mark("year");
+    }
+    let text_fields = [
+        ("doi", &patch.doi),
+        ("journal", &patch.journal),
+        ("publisher", &patch.publisher),
+        ("volume", &patch.volume),
+        ("issue", &patch.issue),
+        ("pages", &patch.pages),
+        ("series", &patch.series),
+        ("isbn", &patch.isbn),
+        ("issn", &patch.issn),
+    ];
+    for (col, value) in text_fields {
+        if let Some(v) = value {
+            // The column names above are constants, never user input.
+            conn.execute(&format!("UPDATE documents SET {col} = ?1 WHERE id = ?2"), params![blank(v), id])?;
+            mark(col);
         }
-        conn.execute(
-            "UPDATE documents SET year = ?1 WHERE id = ?2",
-            params![(y != 0).then_some(y), id],
-        )?;
     }
-    if let Some(d) = &patch.doi {
-        conn.execute("UPDATE documents SET doi = ?1 WHERE id = ?2", params![blank(d), id])?;
-    }
-    conn.execute("UPDATE documents SET updated_at = ?1 WHERE id = ?2", params![now_ms(), id])?;
+    conn.execute(
+        "UPDATE documents SET meta_edited = ?1, meta_source = ?2, updated_at = ?3 WHERE id = ?4",
+        params![to_json(&edited), to_json(&source), now_ms(), id],
+    )?;
     get_document(conn, id)
+}
+
+fn to_json<T: serde::Serialize>(v: &T) -> String {
+    serde_json::to_string(v).unwrap_or_default()
 }
 
 /// Documents that were queued or being processed when the app stopped. They go back in the queue.
@@ -221,14 +266,64 @@ pub struct NewPassage {
     pub boxes: Option<String>,
 }
 
-/// Metadata read from the file. Only fills fields the document doesn't have yet,
-/// so a re-run never overwrites what the user corrected.
+/// Metadata detected from the file, Crossref or a model. `apply_metadata` stores it
+/// and never touches a field the user edited.
 #[derive(Debug, Default, Clone)]
 pub struct Extracted {
     pub title: Option<String>,
     pub authors: Vec<String>,
     pub year: Option<i32>,
     pub doi: Option<String>,
+    pub journal: Option<String>,
+    pub publisher: Option<String>,
+    pub volume: Option<String>,
+    pub issue: Option<String>,
+    pub pages: Option<String>,
+    pub series: Option<String>,
+    pub isbn: Option<String>,
+    pub issn: Option<String>,
+}
+
+/// Writes detected metadata. Fields in `meta_edited` are skipped. With `replace`, a field the
+/// detection found nothing for is cleared (a fresh read of the file is the whole truth). Without
+/// it, only found values are written, so Crossref or a model can add to what the file gave.
+/// `source` ("file", "crossref" or "ai") is recorded for every field written.
+pub fn apply_metadata(conn: &Connection, id: &str, m: &Extracted, source: &str, replace: bool) -> Result<()> {
+    let doc = get_document(conn, id)?;
+    let mut sources = doc.meta_source;
+    let text = |v: &Option<String>| v.as_ref().map(|s| rusqlite::types::Value::Text(s.clone()));
+    let fields: [(&str, Option<rusqlite::types::Value>); 12] = [
+        ("title", text(&m.title)),
+        ("authors", (!m.authors.is_empty()).then(|| rusqlite::types::Value::Text(to_json(&m.authors)))),
+        ("year", m.year.map(|y| rusqlite::types::Value::Integer(y.into()))),
+        ("doi", text(&m.doi)),
+        ("journal", text(&m.journal)),
+        ("publisher", text(&m.publisher)),
+        ("volume", text(&m.volume)),
+        ("issue", text(&m.issue)),
+        ("pages", text(&m.pages)),
+        ("series", text(&m.series)),
+        ("isbn", text(&m.isbn)),
+        ("issn", text(&m.issn)),
+    ];
+    for (col, value) in fields {
+        if doc.meta_edited.iter().any(|f| f == col) || (value.is_none() && !replace) {
+            continue;
+        }
+        let value = match (value, col) {
+            (None, "authors") => Some(rusqlite::types::Value::Text("[]".into())),
+            (v, _) => v,
+        };
+        match &value {
+            Some(rusqlite::types::Value::Text(t)) if col == "authors" && t == "[]" => sources.remove(col),
+            Some(_) => sources.insert(col.to_string(), source.to_string()),
+            None => sources.remove(col),
+        };
+        // The column names above are constants, never user input.
+        conn.execute(&format!("UPDATE documents SET {col} = ?1 WHERE id = ?2"), params![value, id])?;
+    }
+    conn.execute("UPDATE documents SET meta_source = ?1, updated_at = ?2 WHERE id = ?3", params![to_json(&sources), now_ms(), id])?;
+    Ok(())
 }
 
 /// Replaces everything indexed for a document in one transaction, then sets its final status.
@@ -259,28 +354,11 @@ pub fn store_content(
             params![new_id(), id, i as i64, p.page_start, p.page_end, p.text, fold(&p.text), p.boxes],
         )?;
     }
-    let authors = serde_json::to_string(&meta.authors).unwrap_or_else(|_| "[]".into());
     tx.execute(
-        "UPDATE documents SET
-            page_count = ?1,
-            title   = COALESCE(NULLIF(title, ''), ?2),
-            authors = CASE WHEN authors = '[]' THEN ?3 ELSE authors END,
-            year    = COALESCE(year, ?4),
-            doi     = COALESCE(NULLIF(doi, ''), ?5),
-            status = ?6, error = ?7, updated_at = ?8
-          WHERE id = ?9",
-        params![
-            (!pages.is_empty()).then_some(pages.len() as u32),
-            meta.title,
-            authors,
-            meta.year,
-            meta.doi,
-            status.as_str(),
-            note,
-            now_ms(),
-            id
-        ],
+        "UPDATE documents SET page_count = ?1, status = ?2, error = ?3, updated_at = ?4 WHERE id = ?5",
+        params![(!pages.is_empty()).then_some(pages.len() as u32), status.as_str(), note, now_ms(), id],
     )?;
+    apply_metadata(&tx, id, meta, "file", true)?;
     tx.commit()?;
     get_document(conn, id)
 }
@@ -582,18 +660,56 @@ mod tests {
             authors: vec!["A. Author".into()],
             year: Some(2004),
             doi: Some("10.1/x".into()),
+            journal: Some("Nature".into()),
+            ..Default::default()
         };
         let out = store_content(&mut conn, &d.id, &[], &[], &meta, DocStatus::NoText, Some("scan")).unwrap();
         assert_eq!(out.title.as_deref(), Some("My title"));
         assert_eq!((out.authors.as_slice(), out.year, out.doi.as_deref()), (&["A. Author".to_string()][..], Some(2004), Some("10.1/x")));
         assert_eq!((out.status, out.page_count), (DocStatus::NoText, None));
+        assert_eq!(out.meta_edited, ["title"]);
+        assert_eq!(out.meta_source.get("journal").map(String::as_str), Some("file"));
+        assert!(!out.meta_source.contains_key("title"));
+    }
+
+    #[test]
+    fn a_fresh_read_replaces_stale_details_but_merging_only_adds() {
+        let conn = test_conn();
+        let d = insert_document(&conn, "h1", "a.pdf", DocKind::Pdf).unwrap();
+        let first = Extracted { title: Some("Old".into()), authors: vec!["X".into()], year: Some(1990), ..Default::default() };
+        apply_metadata(&conn, &d.id, &first, "file", true).unwrap();
+        // a read that finds a new title and nothing else clears the rest
+        let again = Extracted { title: Some("New".into()), ..Default::default() };
+        apply_metadata(&conn, &d.id, &again, "file", true).unwrap();
+        let out = get_document(&conn, &d.id).unwrap();
+        assert_eq!((out.title.as_deref(), out.authors.len(), out.year), (Some("New"), 0, None));
+        assert!(!out.meta_source.contains_key("year") && !out.meta_source.contains_key("authors"));
+        // a lookup that only knows the year and journal adds them and keeps the title
+        let more = Extracted { year: Some(2004), journal: Some("Nature".into()), ..Default::default() };
+        apply_metadata(&conn, &d.id, &more, "crossref", false).unwrap();
+        let out = get_document(&conn, &d.id).unwrap();
+        assert_eq!((out.title.as_deref(), out.year, out.journal.as_deref()), (Some("New"), Some(2004), Some("Nature")));
+        assert_eq!(out.meta_source.get("year").map(String::as_str), Some("crossref"));
+        assert_eq!(out.meta_source.get("title").map(String::as_str), Some("file"));
+    }
+
+    #[test]
+    fn clearing_a_field_counts_as_an_edit_and_survives_a_refresh() {
+        let conn = test_conn();
+        let d = insert_document(&conn, "h1", "a.pdf", DocKind::Pdf).unwrap();
+        apply_metadata(&conn, &d.id, &Extracted { year: Some(1990), isbn: Some("978".into()), ..Default::default() }, "file", true).unwrap();
+        let cleared = update_metadata(&conn, &d.id, &MetadataPatch { year: Some(0), ..Default::default() }).unwrap();
+        assert_eq!((cleared.year, cleared.meta_edited.as_slice()), (None, &["year".to_string()][..]));
+        apply_metadata(&conn, &d.id, &Extracted { year: Some(2001), isbn: Some("979".into()), ..Default::default() }, "file", true).unwrap();
+        let out = get_document(&conn, &d.id).unwrap();
+        assert_eq!((out.year, out.isbn.as_deref()), (None, Some("979")));
     }
 
     #[test]
     fn metadata_patch_validates_and_clears() {
         let conn = test_conn();
         let d = insert_document(&conn, "h1", "a.pdf", DocKind::Pdf).unwrap();
-        let set = MetadataPatch { title: Some(" T ".into()), authors: Some(vec![" A ".into(), "".into()]), year: Some(1999), doi: Some("10.1/x".into()) };
+        let set = MetadataPatch { title: Some(" T ".into()), authors: Some(vec![" A ".into(), "".into()]), year: Some(1999), doi: Some("10.1/x".into()), ..Default::default() };
         let out = update_metadata(&conn, &d.id, &set).unwrap();
         assert_eq!((out.title.as_deref(), out.authors.len(), out.year), (Some("T"), 1, Some(1999)));
         let clear = MetadataPatch { title: Some("".into()), year: Some(0), doi: Some("".into()), ..Default::default() };

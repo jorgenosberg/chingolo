@@ -144,7 +144,12 @@ pub fn extract(path: &Path, cancelled: &dyn Fn() -> bool) -> Result<Extraction> 
     Ok(Extraction {
         pages: vec![],
         blocks,
-        meta: Extracted { title, authors, year: None, doi: meta::find_doi(&head, &path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()) },
+        meta: Extracted {
+            title,
+            authors,
+            doi: meta::find_doi(&head, &path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()),
+            ..Default::default()
+        },
         unreadable_pages: 0,
     })
 }

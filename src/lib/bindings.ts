@@ -56,6 +56,13 @@ export const commands = {
 	cancelImport: (id: string) => __TAURI_INVOKE<boolean>("cancel_import", { id }),
 	/**  Reads a failed or cancelled document again. */
 	retryImport: (id: string) => typedError<Document, CmdError>(__TAURI_INVOKE("retry_import", { id })),
+	/**
+	 *  Looks at the file properties and first pages again and refreshes the details. Fields you
+	 *  edited are kept. Nothing is indexed again.
+	 */
+	refreshDetails: (id: string) => typedError<null, CmdError>(__TAURI_INVOKE("refresh_details", { id })),
+	/**  The same for every document that is ready or has no text. Returns how many were queued. */
+	refreshAllDetails: () => typedError<number, CmdError>(__TAURI_INVOKE("refresh_all_details")),
 	attachDocument: (projectId: string, documentId: string) => typedError<null, CmdError>(__TAURI_INVOKE("attach_document", { projectId, documentId })),
 	/**  Takes the document out of a project. It stays in the library. */
 	detachDocument: (projectId: string, documentId: string) => typedError<null, CmdError>(__TAURI_INVOKE("detach_document", { projectId, documentId })),
@@ -227,6 +234,21 @@ export type Document = {
 	authors: string[],
 	year: number | null,
 	doi: string | null,
+	/**  Journal for papers. */
+	journal: string | null,
+	/**  Publisher or institute, mostly for reports. */
+	publisher: string | null,
+	volume: string | null,
+	issue: string | null,
+	pages: string | null,
+	/**  Report series and number, such as "NIVA-rapport 7132-2017". */
+	series: string | null,
+	isbn: string | null,
+	issn: string | null,
+	/**  Fields the user changed. A refresh leaves these alone. */
+	metaEdited: string[],
+	/**  Where each detected field came from: "file", "crossref" or "ai". */
+	metaSource: { [key in string]: string },
 	pageCount: number | null,
 	status: DocStatus,
 	/**  Why the document failed, or a note such as how many pages could not be read. */
@@ -312,6 +334,14 @@ export type MetadataPatch = {
 	/**  Zero clears the year. */
 	year: number | null,
 	doi: string | null,
+	journal: string | null,
+	publisher: string | null,
+	volume: string | null,
+	issue: string | null,
+	pages: string | null,
+	series: string | null,
+	isbn: string | null,
+	issn: string | null,
 };
 
 export type ModelInfo = {

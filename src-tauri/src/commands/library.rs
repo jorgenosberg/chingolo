@@ -107,6 +107,28 @@ pub async fn retry_import(state: State<'_, AppState>, id: String) -> CmdResult<D
     Ok(doc)
 }
 
+/// Looks at the file properties and first pages again and refreshes the details. Fields you
+/// edited are kept. Nothing is indexed again.
+#[tauri::command]
+#[specta::specta]
+pub async fn refresh_details(state: State<'_, AppState>, id: String) -> CmdResult<()> {
+    let doc = state.db.call(move |c| repo::get_document(c, &id)).await?;
+    state.ingest.enqueue_details(&doc);
+    Ok(())
+}
+
+/// The same for every document that is ready or has no text. Returns how many were queued.
+#[tauri::command]
+#[specta::specta]
+pub async fn refresh_all_details(state: State<'_, AppState>) -> CmdResult<u32> {
+    let docs = state.db.call(|c| repo::list_documents(c, None)).await?;
+    let docs: Vec<_> = docs.into_iter().filter(|d| matches!(d.status, DocStatus::Ready | DocStatus::NoText)).collect();
+    for d in &docs {
+        state.ingest.enqueue_details(d);
+    }
+    Ok(docs.len() as u32)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn attach_document(state: State<'_, AppState>, project_id: String, document_id: String) -> CmdResult<()> {

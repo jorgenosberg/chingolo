@@ -83,6 +83,21 @@ pub struct Document {
     pub authors: Vec<String>,
     pub year: Option<i32>,
     pub doi: Option<String>,
+    /// Journal for papers.
+    pub journal: Option<String>,
+    /// Publisher or institute, mostly for reports.
+    pub publisher: Option<String>,
+    pub volume: Option<String>,
+    pub issue: Option<String>,
+    pub pages: Option<String>,
+    /// Report series and number, such as "NIVA-rapport 7132-2017".
+    pub series: Option<String>,
+    pub isbn: Option<String>,
+    pub issn: Option<String>,
+    /// Fields the user changed. A refresh leaves these alone.
+    pub meta_edited: Vec<String>,
+    /// Where each detected field came from: "file", "crossref" or "ai".
+    pub meta_source: std::collections::HashMap<String, String>,
     pub page_count: Option<u32>,
     pub status: DocStatus,
     /// Why the document failed, or a note such as how many pages could not be read.
@@ -158,6 +173,14 @@ pub struct MetadataPatch {
     /// Zero clears the year.
     pub year: Option<i32>,
     pub doi: Option<String>,
+    pub journal: Option<String>,
+    pub publisher: Option<String>,
+    pub volume: Option<String>,
+    pub issue: Option<String>,
+    pub pages: Option<String>,
+    pub series: Option<String>,
+    pub isbn: Option<String>,
+    pub issn: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]

@@ -4,12 +4,46 @@ import { Button, cx, focus, Modal_, TextInput } from "../../components/ui";
 import { api } from "../../lib/api";
 import type { Document, MetadataPatch } from "../../lib/bindings";
 
+const EXTRA_FIELDS = [
+	{ key: "journal", label: "Journal", placeholder: "Harmful Algae" },
+	{ key: "publisher", label: "Publisher", placeholder: "NIVA" },
+	{ key: "series", label: "Report series", placeholder: "NIVA-rapport 7132-2017" },
+	{ key: "volume", label: "Volume", placeholder: "118" },
+	{ key: "issue", label: "Issue", placeholder: "3" },
+	{ key: "pages", label: "Pages", placeholder: "105-114" },
+	{ key: "isbn", label: "ISBN", placeholder: "978-82-577-6867-6" },
+	{ key: "issn", label: "ISSN", placeholder: "1894-7948" },
+] as const;
+
+type Form = {
+	title: string;
+	authors: string;
+	year: string;
+	doi: string;
+} & Record<(typeof EXTRA_FIELDS)[number]["key"], string>;
+
+const SOURCE_NAMES: Record<string, string> = {
+	file: "the file",
+	crossref: "Crossref",
+	ai: "a model",
+};
+
+/** Where the detected values came from, for the intro line. */
+function sourceNote(doc: Document): string {
+	const used = new Set(Object.values(doc.metaSource));
+	const names = ["file", "crossref", "ai"]
+		.filter((s) => used.has(s))
+		.map((s) => SOURCE_NAMES[s]);
+	return names.length ? names.join(", ") : "the file";
+}
+
 /** Builds a patch with only the fields the user changed. Empty text clears a field. */
-function buildPatch(
-	doc: Document,
-	form: { title: string; authors: string; year: string; doi: string },
-): Partial<MetadataPatch> {
+function buildPatch(doc: Document, form: Form): Partial<MetadataPatch> {
 	const patch: Partial<MetadataPatch> = {};
+	for (const { key } of EXTRA_FIELDS) {
+		const v = form[key].trim();
+		if (v !== (doc[key] ?? "")) patch[key] = v;
+	}
 	const title = form.title.trim();
 	if (title !== (doc.title ?? "")) patch.title = title;
 	const authors = form.authors
@@ -38,10 +72,13 @@ export function MetadataDialog({
 		authors: doc.authors.join("\n"),
 		year: doc.year ? String(doc.year) : "",
 		doi: doc.doi ?? "",
+		...(Object.fromEntries(
+			EXTRA_FIELDS.map(({ key }) => [key, doc[key] ?? ""]),
+		) as Record<(typeof EXTRA_FIELDS)[number]["key"], string>),
 	});
 	const [error, setError] = useState<string | null>(null);
 	const [saving, setSaving] = useState(false);
-	const set = (k: keyof typeof form) => (v: string) =>
+	const set = (k: keyof Form) => (v: string) =>
 		setForm((f) => ({ ...f, [k]: v }));
 
 	const yearOk = form.year.trim() === "" || /^\d{4}$/.test(form.year.trim());
@@ -74,8 +111,9 @@ export function MetadataDialog({
 				}}
 			>
 				<p className="text-xs text-muted-foreground">
-					Chingui guessed these from the file ({doc.originalName}). Fix anything
-					that's wrong. Your edits are kept if the file is read again.
+					Detected from {sourceNote(doc)} ({doc.originalName}). Fix anything
+					that's wrong. Fields you change are kept when details are refreshed
+					or the file is read again.
 				</p>
 				<TextInput
 					label="Title"
@@ -115,6 +153,22 @@ export function MetadataDialog({
 						placeholder="10.1000/xyz123"
 					/>
 				</div>
+				<details className="group rounded-lg border border-border px-3 py-2">
+					<summary className="cursor-default text-[13px] font-medium outline-none">
+						More details
+					</summary>
+					<div className="mt-3 grid grid-cols-2 gap-3">
+						{EXTRA_FIELDS.map(({ key, label, placeholder }) => (
+							<TextInput
+								key={key}
+								label={label}
+								value={form[key]}
+								onChange={set(key)}
+								placeholder={placeholder}
+							/>
+						))}
+					</div>
+				</details>
 				{error && (
 					<p role="alert" className="text-sm text-problem">
 						{error}

@@ -102,9 +102,9 @@ fn compare(m: &Extracted, want: &Value) -> [Verdict; 4] {
 #[test]
 fn verdicts_distinguish_hit_blank_and_wrong() {
     let want: Value = serde_json::json!({ "title": "Iron <i>enrichment</i> and diatoms", "authors": ["Boyd"], "year": [2003, 2004], "doi": "10.1/x" });
-    let got = Extracted { title: Some("iron enrichment and diatoms".into()), authors: vec!["P. W. Boyd".into()], year: Some(2004), doi: Some("10.1/X".into()) };
+    let got = Extracted { title: Some("iron enrichment and diatoms".into()), authors: vec!["P. W. Boyd".into()], year: Some(2004), doi: Some("10.1/X".into()), ..Default::default() };
     assert_eq!(compare(&got, &want), [Verdict::Hit; 4]);
-    let bad = Extracted { title: Some("Abstract of something else entirely".into()), authors: vec!["[Personer]".into()], year: Some(1999), doi: Some("10.1/y".into()) };
+    let bad = Extracted { title: Some("Abstract of something else entirely".into()), authors: vec!["[Personer]".into()], year: Some(1999), doi: Some("10.1/y".into()), ..Default::default() };
     assert_eq!(compare(&bad, &want), [Verdict::Wrong; 4]);
     assert_eq!(compare(&Extracted::default(), &want), [Verdict::Blank; 4]);
     let none = serde_json::json!({ "title": "T", "authors": [], "year": null, "doi": null });

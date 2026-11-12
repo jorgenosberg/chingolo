@@ -260,9 +260,11 @@ function DocumentRow({
 
 function ImportMenu({
 	onPick,
+	onRefreshAll,
 	isDisabled,
 }: {
 	onPick: (folder: boolean) => void;
+	onRefreshAll: () => void;
 	isDisabled: boolean;
 }) {
 	return (
@@ -276,7 +278,9 @@ function ImportMenu({
 			>
 				<Menu
 					aria-label="Import"
-					onAction={(k) => onPick(k === "folder")}
+					onAction={(k) =>
+						k === "refresh" ? onRefreshAll() : onPick(k === "folder")
+					}
 					className="outline-none"
 				>
 					<MenuItem
@@ -292,6 +296,13 @@ function ImportMenu({
 					>
 						<FolderPlusIcon className="size-4" />
 						Folder…
+					</MenuItem>
+					<MenuItem
+						id="refresh"
+						className="flex cursor-default items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] outline-none data-[focused]:bg-muted"
+					>
+						<ArrowClockwiseIcon className="size-4" />
+						Refresh all details
 					</MenuItem>
 				</Menu>
 			</Popover>
@@ -401,6 +412,9 @@ export function LibraryView() {
 		}
 	};
 
+	const refreshAll = () =>
+		api.refreshAllDetails().catch(fail("Couldn't refresh the details"));
+
 	const open = (d: Document) =>
 		openReader({ documentId: d.id, page: 1, passageId: null });
 
@@ -452,6 +466,15 @@ export function LibraryView() {
 				run: () => api.retryImport(d.id).catch(fail("Couldn't retry")),
 			});
 		}
+		if (d.status === "ready" || d.status === "no_text") {
+			list.push({
+				id: "refresh-details",
+				icon: <ArrowClockwiseIcon className="size-4" />,
+				label: "Refresh details",
+				run: () =>
+					api.refreshDetails(d.id).catch(fail("Couldn't refresh the details")),
+			});
+		}
 		if (scope) {
 			list.push({
 				id: "detach",
@@ -496,7 +519,11 @@ export function LibraryView() {
 					<h1 className="text-[15px] font-semibold">Library</h1>
 					<ScopeSelect value={scope} onChange={setLibraryScope} />
 				</div>
-				<ImportMenu onPick={pick} isDisabled={importing} />
+				<ImportMenu
+					onPick={pick}
+					onRefreshAll={refreshAll}
+					isDisabled={importing}
+				/>
 			</header>
 
 			<div className="px-6 pb-3">

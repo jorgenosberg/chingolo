@@ -38,8 +38,14 @@ pub struct DocumentChanged {
 
 pub type Emit = Arc<dyn Fn(DocumentChanged) + Send + Sync>;
 
+/// Read everything again, or only look at the details (title, authors and so on).
+enum Job {
+    Read(Document),
+    Details(Document),
+}
+
 struct Inner {
-    tx: mpsc::UnboundedSender<Document>,
+    tx: mpsc::UnboundedSender<Job>,
     tokens: Mutex<HashMap<Id, CancellationToken>>,
     library_dir: PathBuf,
     emit: Emit,
@@ -88,7 +94,13 @@ impl Ingestor {
         if let Ok(mut t) = self.0.tokens.lock() {
             t.insert(doc.id.clone(), CancellationToken::new());
         }
-        let _ = self.0.tx.send(doc.clone());
+        let _ = self.0.tx.send(Job::Read(doc.clone()));
+    }
+
+    /// Reads the file properties and first pages again and refreshes the details. Passages,
+    /// status and vectors stay as they are.
+    pub fn enqueue_details(&self, doc: &Document) {
+        let _ = self.0.tx.send(Job::Details(doc.clone()));
     }
 
     /// True if the document was queued or running.
@@ -113,24 +125,59 @@ impl Ingestor {
     }
 }
 
-fn worker_loop(mut conn: Connection, mut rx: mpsc::UnboundedReceiver<Document>, inner: Arc<Inner>) {
+fn worker_loop(mut conn: Connection, mut rx: mpsc::UnboundedReceiver<Job>, inner: Arc<Inner>) {
     let mut pdf: Option<PdfReader> = None;
     let mut ocr = OcrSlot::default();
-    while let Some(doc) = rx.blocking_recv() {
+    while let Some(job) = rx.blocking_recv() {
+        let (Job::Read(doc) | Job::Details(doc)) = &job;
+        let doc = doc.clone();
         ocr.set_dir(inner.ocr_dir.lock().ok().and_then(|d| d.clone()));
         let token = inner.tokens.lock().ok().and_then(|t| t.get(&doc.id).cloned()).unwrap_or_default();
         let path = library_path(&inner.library_dir, &doc.content_hash, doc.kind);
         let emit = |d: Document, p: Option<Progress>| (inner.emit)(DocumentChanged { document: d, progress: p });
         // A bug in a parser must not take the worker down with it.
-        let ran = std::panic::catch_unwind(AssertUnwindSafe(|| run_job(&mut conn, &mut pdf, &mut ocr, &path, &doc, &token, &emit)));
-        if ran.is_err() {
+        let ran = std::panic::catch_unwind(AssertUnwindSafe(|| match &job {
+            Job::Read(_) => run_job(&mut conn, &mut pdf, &mut ocr, &path, &doc, &token, &emit),
+            Job::Details(_) => run_details(&conn, &mut pdf, &mut ocr, &path, &doc, &emit),
+        }));
+        if ran.is_err() && matches!(job, Job::Details(_)) {
+            log::warn!("reading the details of {} crashed", doc.original_name);
+        } else if ran.is_err() {
             if let Ok(d) = repo::set_status(&conn, &doc.id, DocStatus::Error, Some("Reading this file crashed. It may be damaged.")) {
                 emit(d, None);
             }
         }
-        if let Ok(mut t) = inner.tokens.lock() {
+        if matches!(job, Job::Read(_))
+            && let Ok(mut t) = inner.tokens.lock()
+        {
             t.remove(&doc.id);
         }
+    }
+}
+
+/// Refreshes title, authors, year and the rest from the file. Failures only log: the document
+/// keeps the details it has.
+pub fn run_details(
+    conn: &Connection,
+    pdf: &mut Option<PdfReader>,
+    ocr: &mut OcrSlot,
+    path: &Path,
+    doc: &Document,
+    emit: &dyn Fn(Document, Option<Progress>),
+) {
+    let found = match doc.kind {
+        DocKind::Pdf => reader(pdf).and_then(|r| r.extract_meta(path, ocr)),
+        DocKind::Docx => docx::extract(path, &|| false).map(|ex| ex.meta),
+    };
+    let result = found.and_then(|m| repo::apply_metadata(conn, &doc.id, &m, "file", true));
+    match result {
+        Ok(()) => {
+            if let Ok(d) = repo::get_document(conn, &doc.id) {
+                emit(d, None);
+            }
+        }
+        Err(AppError::NotFound) => {}
+        Err(e) => log::warn!("couldn't refresh the details of {}: {e}", doc.original_name),
     }
 }
 
