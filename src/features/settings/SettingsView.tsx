@@ -715,7 +715,7 @@ export function SettingsView() {
 						</Tab>
 					</TabList>
 				</div>
-				<div className="min-h-0 flex-1 overflow-y-auto">
+				<div className="relative min-h-0 flex-1 overflow-y-auto">
 					<div className="mx-auto flex w-full max-w-2xl flex-col px-6 pt-2 pb-12">
 						<TabPanel id="general" className="outline-none">
 							{PROVIDERS.map((p) => (
