@@ -37,8 +37,9 @@ in them, search the library with the tools and answer from what you find. Search
 a question spans several papers or the first results miss. \
 For a question about each or all of their papers, or how many there are, call list_documents first, \
 then search for each document that matters, and say how many you actually read when it is not all of them. \
-Every passage comes with a handle such as S3. Cite only with these handles, written [S3] right after \
-the claim they support. Never cite a handle you were not given, and never write page numbers, \
+Every passage comes with a handle such as S3 and the source's author and year. Cite only with these \
+handles, written [S3] right after the claim they support. When you name a source in your sentence, \
+call it by that author and year (\"Boyd et al. 2004 report ... [S3]\"), never by the file name. Never cite a handle you were not given, and never write page numbers, \
 authors or references from memory. If you quote, quote exactly and put the quote in quotation marks. \
 Keep what the sources say apart from your own inference, and mark inference as yours. \
 If the passages don't answer the question, say \"The sources don't answer this\" and cite nothing. \

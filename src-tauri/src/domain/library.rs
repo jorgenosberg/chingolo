@@ -114,6 +114,44 @@ pub struct Document {
     pub updated_at: i64,
 }
 
+/// "Løvik", "van Dorst", "Boyd": the surname of "Jarl Eivind Løvik", "Renee Mina van Dorst" or
+/// "Boyd, P. W.".
+pub fn surname(name: &str) -> String {
+    if let Some((s, _)) = name.split_once(',') {
+        return s.trim().to_string();
+    }
+    const PARTICLES: &[&str] = &["van", "von", "de", "der", "den", "da", "di", "du", "la", "le", "dos", "ter", "ten", "af", "al", "bin"];
+    let toks: Vec<&str> = name.split_whitespace().collect();
+    let mut start = toks.len().saturating_sub(1);
+    while start > 1 && PARTICLES.contains(&toks[start - 1]) {
+        start -= 1;
+    }
+    toks[start..].join(" ")
+}
+
+/// How a source is named in prose: "Boyd 2004", "Yang & Albright 1992", "Boyd et al. 2004". A
+/// report without personal authors uses its publisher. Empty when neither is known.
+pub fn short_label(authors: &[String], year: Option<i32>, publisher: Option<&str>) -> String {
+    let who = match authors {
+        [] => publisher.map(str::trim).unwrap_or_default().to_string(),
+        [a] => surname(a),
+        [a, b] => format!("{} & {}", surname(a), surname(b)),
+        [a, ..] => format!("{} et al.", surname(a)),
+    };
+    match (who.is_empty(), year) {
+        (true, _) => String::new(),
+        (false, Some(y)) => format!("{who} {y}"),
+        (false, None) => who,
+    }
+}
+
+impl Document {
+    /// See `short_label`.
+    pub fn label(&self) -> String {
+        short_label(&self.authors, self.year, self.publisher.as_deref())
+    }
+}
+
 /// What a conversation may read, as chosen in the composer. Stored as JSON in
 /// `conversations.source_scope`. `Project` means the conversation's own project.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -227,6 +265,20 @@ pub fn fold(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn sources_are_named_by_surname_and_year() {
+        let a = |n: &[&str]| n.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(short_label(&a(&["P. W. Boyd"]), Some(2004), None), "Boyd 2004");
+        assert_eq!(short_label(&a(&["C. Z. Yang", "L. J. Albright"]), Some(1992), None), "Yang & Albright 1992");
+        assert_eq!(short_label(&a(&["Philip W. Boyd", "Tim Jickells", "Cliff Law"]), Some(2004), None), "Boyd et al. 2004");
+        assert_eq!(short_label(&a(&["Hallegraeff, Gustaaf M.", "Anderson, Don M."]), None, None), "Hallegraeff & Anderson");
+        assert_eq!(short_label(&[], Some(2025), Some("Veterinærinstituttet")), "Veterinærinstituttet 2025");
+        assert_eq!(short_label(&[], Some(2025), None), "");
+        assert_eq!(surname("Renee Mina van Dorst"), "van Dorst");
+        assert_eq!(surname("Jan-Erik Thrane"), "Thrane");
+        assert_eq!(surname("Boyd"), "Boyd");
+    }
+
     use super::*;
 
     #[test]

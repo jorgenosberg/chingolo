@@ -92,6 +92,7 @@ pub fn check(text: &str, sources: &HashMap<u32, Source>) -> Checked {
                     passage_id: src.passage_id.clone(),
                     document_id: src.document_id.clone(),
                     title: src.title.clone(),
+                    label: src.label.clone(),
                     page: src.page,
                     snippet: src.text.chars().take(SNIPPET_CHARS).collect(),
                 }
@@ -272,6 +273,7 @@ mod tests {
                         passage_id: format!("p{h}"),
                         document_id: "d".into(),
                         title: format!("Paper {h}"),
+                        label: String::new(),
                         page: 3,
                         text: (*t).into(),
                     },

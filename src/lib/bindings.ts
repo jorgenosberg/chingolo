@@ -172,6 +172,8 @@ export type Citation = {
 	passageId: string,
 	documentId: string,
 	title: string,
+	/**  Author and year such as "Boyd et al. 2004", empty if the document had neither. */
+	label: string,
 	/**  First page, 0 for Word documents. */
 	page: number,
 	snippet: string,

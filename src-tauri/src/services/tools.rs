@@ -261,7 +261,17 @@ fn list_documents_sync(conn: &Connection, filter: &DocFilter) -> Result<Value> {
                 DocStatus::NoText => "no text could be read (probably a scan), not searchable",
                 DocStatus::Error | DocStatus::Cancelled => "could not be read, not searchable",
             };
-            json!({ "title": title, "year": d.year, "pages": d.page_count, "status": status })
+            let by: Vec<&String> = d.authors.iter().take(3).collect();
+            json!({
+                "cite_as": d.label(),
+                "title": title,
+                "authors": by,
+                "year": d.year,
+                "journal": d.journal,
+                "series": d.series,
+                "pages": d.page_count,
+                "status": status
+            })
         })
         .collect();
     let mut out = json!({ "total": docs.len(), "ready": ready, "documents": items });
@@ -325,11 +335,14 @@ fn parse_handle(v: &Value) -> Result<u32> {
     parsed.ok_or_else(|| AppError::Invalid("handle must look like S3.".into()))
 }
 
-fn source_label(h: &SearchHit) -> String {
+/// What the model sees for a passage: who wrote it and when, the title and the pages, such as
+/// `Boyd et al. 2004, "The decline and fate...", p. 3`.
+fn source_label(h: &SearchHit, label: &str) -> String {
+    let named = if label.is_empty() { h.document_title.clone() } else { format!("{label}, \"{}\"", h.document_title) };
     match (h.page_start, h.page_end) {
-        (0, _) => h.document_title.clone(),
-        (a, b) if a == b => format!("{}, p. {a}", h.document_title),
-        (a, b) => format!("{}, pp. {a}-{b}", h.document_title),
+        (0, _) => named,
+        (a, b) if a == b => format!("{named}, p. {a}"),
+        (a, b) => format!("{named}, pp. {a}-{b}"),
     }
 }
 
@@ -337,7 +350,13 @@ fn source_label(h: &SearchHit) -> String {
 fn results_json(conn: &mut Connection, conversation_id: &str, hits: &[SearchHit]) -> Result<Value> {
     let tx = conn.transaction()?;
     let mut results = Vec::with_capacity(hits.len());
+    let mut labels: std::collections::HashMap<&str, String> = std::collections::HashMap::new();
     for h in hits {
+        if !labels.contains_key(h.document_id.as_str()) {
+            let label = repo::get_document(&tx, &h.document_id).map(|d| d.label()).unwrap_or_default();
+            labels.insert(&h.document_id, label);
+        }
+        let label = labels[h.document_id.as_str()].as_str();
         let handle = sources::handle_for(
             &tx,
             conversation_id,
@@ -345,11 +364,12 @@ fn results_json(conn: &mut Connection, conversation_id: &str, hits: &[SearchHit]
                 passage_id: &h.passage_id,
                 document_id: &h.document_id,
                 title: &h.document_title,
+                label,
                 page: h.page_start,
                 text: &h.text,
             },
         )?;
-        results.push(json!({ "handle": format!("S{handle}"), "source": source_label(h), "text": h.text }));
+        results.push(json!({ "handle": format!("S{handle}"), "source": source_label(h, label), "text": h.text }));
     }
     tx.commit()?;
     Ok(json!({ "results": results }))
@@ -410,6 +430,25 @@ mod tests {
         let again = results_json(&mut conn, &conv.id, &all[1..]).unwrap();
         assert_eq!(again["results"][0]["handle"], "S2", "a passage keeps its handle");
         assert_eq!(again["results"][1]["handle"], "S3");
+    }
+
+    #[test]
+    fn sources_carry_author_and_year_to_the_model_and_the_snapshot() {
+        use crate::persistence::library::{Extracted, apply_metadata};
+        let mut conn = test_conn();
+        let conv = chat::create_conversation(&conn, None, None, "gemini", Some("m")).unwrap();
+        let d = doc(&mut conn, "h1", "Alpha", &[1, 2]);
+        let m = Extracted { authors: vec!["Philip W. Boyd".into(), "Tim Jickells".into(), "Cliff Law".into()], year: Some(2004), journal: Some("Nature".into()), ..Default::default() };
+        apply_metadata(&conn, &d, &m, "file", true).unwrap();
+        let all = hits(&conn, &d);
+        let out = results_json(&mut conn, &conv.id, &all[1..2]).unwrap();
+        assert_eq!(out["results"][0]["source"], "Boyd et al. 2004, \"Alpha\", p. 2");
+        let saved = sources::get(&conn, &conv.id, 1).unwrap().unwrap();
+        assert_eq!(saved.label, "Boyd et al. 2004");
+        let listed = list_documents_sync(&conn, &DocFilter::All).unwrap();
+        let first = &listed["documents"][0];
+        assert_eq!((first["cite_as"].as_str(), first["journal"].as_str()), (Some("Boyd et al. 2004"), Some("Nature")));
+        assert_eq!(first["authors"].as_array().unwrap().len(), 3);
     }
 
     #[test]

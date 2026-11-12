@@ -11,6 +11,8 @@ pub struct Source {
     pub passage_id: String,
     pub document_id: String,
     pub title: String,
+    /// Author and year, empty if the document had neither.
+    pub label: String,
     /// First page, 0 for DOCX.
     pub page: u32,
     pub text: String,
@@ -21,11 +23,12 @@ pub struct NewSource<'a> {
     pub passage_id: &'a str,
     pub document_id: &'a str,
     pub title: &'a str,
+    pub label: &'a str,
     pub page: u32,
     pub text: &'a str,
 }
 
-const COLS: &str = "handle, passage_id, document_id, title, page, text";
+const COLS: &str = "handle, passage_id, document_id, title, page, text, label";
 
 fn from_row(r: &rusqlite::Row) -> rusqlite::Result<Source> {
     Ok(Source {
@@ -35,6 +38,7 @@ fn from_row(r: &rusqlite::Row) -> rusqlite::Result<Source> {
         title: r.get(3)?,
         page: r.get(4)?,
         text: r.get(5)?,
+        label: r.get(6)?,
     })
 }
 
@@ -53,11 +57,11 @@ pub fn handle_for(conn: &Connection, conversation_id: &str, s: &NewSource) -> Re
     }
     conn.execute(
         "INSERT INTO conversation_sources
-           (conversation_id, handle, passage_id, document_id, title, page, text, created_at)
+           (conversation_id, handle, passage_id, document_id, title, page, text, created_at, label)
          VALUES (?1,
                  (SELECT COALESCE(MAX(handle), 0) + 1 FROM conversation_sources WHERE conversation_id = ?1),
-                 ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![conversation_id, s.passage_id, s.document_id, s.title, s.page, s.text, now_ms()],
+                 ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![conversation_id, s.passage_id, s.document_id, s.title, s.page, s.text, now_ms(), s.label],
     )?;
     Ok(conn.query_row(
         "SELECT handle FROM conversation_sources WHERE conversation_id = ?1 AND passage_id = ?2",
@@ -88,8 +92,8 @@ pub fn list(conn: &Connection, conversation_id: &str) -> Result<Vec<Source>> {
 pub fn copy_all(conn: &Connection, from: &str, to: &str) -> Result<()> {
     conn.execute(
         "INSERT INTO conversation_sources
-           (conversation_id, handle, passage_id, document_id, title, page, text, created_at)
-         SELECT ?2, handle, passage_id, document_id, title, page, text, created_at
+           (conversation_id, handle, passage_id, document_id, title, page, text, created_at, label)
+         SELECT ?2, handle, passage_id, document_id, title, page, text, created_at, label
            FROM conversation_sources WHERE conversation_id = ?1",
         params![from, to],
     )?;
@@ -102,7 +106,7 @@ mod tests {
     use crate::persistence::{chat, test_conn};
 
     fn src<'a>(passage: &'a str, text: &'a str) -> NewSource<'a> {
-        NewSource { passage_id: passage, document_id: "d1", title: "A paper", page: 3, text }
+        NewSource { passage_id: passage, document_id: "d1", title: "A paper", label: "Boyd 2004", page: 3, text }
     }
 
     #[test]

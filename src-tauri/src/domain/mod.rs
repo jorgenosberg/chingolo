@@ -192,6 +192,8 @@ pub struct Citation {
     pub passage_id: Id,
     pub document_id: Id,
     pub title: String,
+    /// Author and year such as "Boyd et al. 2004", empty if the document had neither.
+    pub label: String,
     /// First page, 0 for Word documents.
     pub page: u32,
     pub snippet: String,

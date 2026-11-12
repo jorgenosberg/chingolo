@@ -67,7 +67,8 @@ function warningFor(c: Citation): string | null {
 }
 
 function where(c: Citation): string {
-	return c.page > 0 ? `${c.title}, p. ${c.page}` : c.title;
+	const name = c.label ? `${c.label} · ${c.title}` : c.title;
+	return c.page > 0 ? `${name}, p. ${c.page}` : name;
 }
 
 /** Shown when a chip is hovered or focused: what it points to and any warning. */
@@ -137,7 +138,7 @@ function Cite({ children }: { children?: ReactNode }) {
 	return (
 		<TooltipTrigger delay={300} closeDelay={100}>
 			<Button
-				aria-label={`Open source ${c.handle}: ${c.title}${c.page > 0 ? `, page ${c.page}` : ""}${flagged ? " (not fully supported)" : ""}`}
+				aria-label={`Open source ${c.handle}: ${where(c)}${flagged ? " (not fully supported)" : ""}`}
 				onPress={() => ctx.open(targetOf(c, ctx.conversationId))}
 				className={`${base} cursor-pointer outline-none transition-colors data-[focus-visible]:ring-2 data-[focus-visible]:ring-primary/60 ${
 					flagged
@@ -186,7 +187,18 @@ export function SourcesList({
 			<ul className="mt-1 flex flex-col gap-1.5 border-l border-border pl-3">
 				{docs.map((passages) => (
 					<li key={passages[0].documentId} className="flex flex-col gap-0.5">
-						<span className="font-medium">{passages[0].title}</span>
+						<span>
+							{passages[0].label && (
+								<span className="font-medium">{passages[0].label} </span>
+							)}
+							<span
+								className={
+									passages[0].label ? "text-muted-foreground" : "font-medium"
+								}
+							>
+								{passages[0].title}
+							</span>
+						</span>
 						<span className="flex flex-wrap items-center">
 							{passages.map((c) => (
 								<TooltipTrigger key={c.handle} delay={300} closeDelay={100}>

@@ -532,7 +532,7 @@ mod tests {
         let a = reply(&conn, &c.id, "answer [S1]", MessageStatus::Complete, Some(10));
         set_turns(&conn, &a.id, "[{\"role\":\"model\",\"parts\":[]}]").unwrap();
         set_citations(&conn, &a.id, "[{\"handle\":1,\"status\":\"ok\"}]").unwrap();
-        let s = sources::NewSource { passage_id: "p1", document_id: "d1", title: "T", page: 2, text: "x" };
+        let s = sources::NewSource { passage_id: "p1", document_id: "d1", title: "T", label: "", page: 2, text: "x" };
         sources::handle_for(&conn, &c.id, &s).unwrap();
 
         let f = fork_conversation(&mut conn, &c.id, None).unwrap();
