@@ -34,7 +34,7 @@ import type { DocStatus, Document, ImportSummary } from "../../lib/bindings";
 import {
 	setImportSummary,
 	useDetailsBusy,
-	useDetailsCount,
+	useDetailsIds,
 	useEmbeddingStatus,
 	useImportSummary,
 	useProgress,
@@ -142,6 +142,25 @@ function SummaryBanner({
 			</RacButton>
 		</div>
 	);
+}
+
+/** One line for the header: what the library is busy with right now. */
+function workSummary(docs: Document[], details: ReadonlySet<string>) {
+	let reading = 0;
+	let updating = 0;
+	let both = 0;
+	for (const d of docs) {
+		const r = d.status === "queued" || d.status === "processing";
+		const u = details.has(d.id);
+		if (r) reading++;
+		if (u) updating++;
+		if (r || u) both++;
+	}
+	if (both === 0) return null;
+	if (updating === 0) return `Reading ${plural(reading, "document")}`;
+	if (reading === 0)
+		return `Updating details for ${plural(updating, "document")}`;
+	return `Updating ${plural(both, "document")}`;
 }
 
 function DocumentRow({
@@ -406,7 +425,8 @@ export function LibraryView() {
 				: (docs.data ?? []),
 		[docs.data, query],
 	);
-	const detailsCount = useDetailsCount();
+	const detailsIds = useDetailsIds();
+	const working = workSummary(docs.data ?? [], detailsIds);
 	const projectsDoc = docs.data?.find((d) => d.id === projectsFor) ?? null;
 
 	const pick = async (folder: boolean) => {
@@ -529,13 +549,12 @@ export function LibraryView() {
 					<ScopeSelect value={scope} onChange={setLibraryScope} />
 				</div>
 				<div className="flex items-center gap-3">
-					{detailsCount > 0 && (
+					{working && (
 						<span
 							role="status"
 							className="flex items-center gap-1.5 text-xs text-muted-foreground"
 						>
-							<Spinner className="size-3" /> Updating details for{" "}
-							{plural(detailsCount, "document")}
+							<Spinner className="size-3" /> {working}
 						</span>
 					)}
 					<ImportMenu

@@ -52,7 +52,7 @@ export const useProgress = (id: string) =>
 	useStore((s) => s.progress.get(id) ?? null);
 export const useDetailsBusy = (id: string) =>
 	useStore((s) => s.details.has(id));
-export const useDetailsCount = () => useStore((s) => s.details.size);
+export const useDetailsIds = () => useStore((s) => s.details);
 export const useDropActive = () => useStore((s) => s.dropActive);
 export const useImportSummary = () => useStore((s) => s.summary);
 export const useEmbeddingStatus = () => useStore((s) => s.embedding);
