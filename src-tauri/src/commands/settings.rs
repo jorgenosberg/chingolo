@@ -27,6 +27,8 @@ pub async fn pick_provider(state: &AppState) -> crate::error::Result<String> {
     Ok(providers_with_keys(state).await?.into_iter().next().unwrap_or_else(|| "gemini".to_string()))
 }
 
+use crate::services::ingestion::details_ai;
+
 async fn read_settings(state: &AppState) -> crate::error::Result<AppSettings> {
     let api_keys = providers_with_keys(state).await?;
     state
@@ -43,6 +45,9 @@ async fn read_settings(state: &AppState) -> crate::error::Result<AppSettings> {
                 rerank_model: repo::get(c, "rerank_model")?.filter(|m| !m.is_empty()),
                 rerank_provider: repo::get(c, "rerank_provider")?.filter(|m| !m.is_empty()),
                 crossref_enabled: repo::get_bool(c, crate::services::ingestion::enrich::CROSSREF_KEY)?,
+                metadata_ai_enabled: repo::get_bool(c, details_ai::ENABLED_KEY)?,
+                metadata_model: repo::get(c, details_ai::MODEL_KEY)?.filter(|m| !m.is_empty()),
+                metadata_provider: repo::get(c, details_ai::PROVIDER_KEY)?.filter(|m| !m.is_empty()),
             })
         })
         .await
@@ -89,6 +94,15 @@ pub async fn update_settings(
             }
             if let Some(v) = patch.crossref_enabled {
                 repo::set_bool(c, crate::services::ingestion::enrich::CROSSREF_KEY, v)?;
+            }
+            if let Some(v) = patch.metadata_ai_enabled {
+                repo::set_bool(c, details_ai::ENABLED_KEY, v)?;
+            }
+            if let Some(v) = patch.metadata_model {
+                repo::set(c, details_ai::MODEL_KEY, &v)?;
+            }
+            if let Some(v) = patch.metadata_provider {
+                repo::set(c, details_ai::PROVIDER_KEY, &v)?;
             }
             Ok(())
         })

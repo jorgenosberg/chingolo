@@ -230,6 +230,11 @@ pub struct AppSettings {
     pub rerank_provider: Option<String>,
     /// Look up a document's DOI in Crossref for exact details. Only the DOI is sent.
     pub crossref_enabled: bool,
+    /// A model reads the first pages of papers whose title, authors or year are missing.
+    pub metadata_ai_enabled: bool,
+    /// Model for that and the provider it belongs to. Without them the default chat model is used.
+    pub metadata_model: Option<String>,
+    pub metadata_provider: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Type)]
@@ -245,6 +250,10 @@ pub struct SettingsPatch {
     pub rerank_model: Option<String>,
     pub rerank_provider: Option<String>,
     pub crossref_enabled: Option<bool>,
+    pub metadata_ai_enabled: Option<bool>,
+    /// An empty string goes back to the default chat model.
+    pub metadata_model: Option<String>,
+    pub metadata_provider: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]

@@ -148,7 +148,7 @@ impl PdfReader {
     }
 }
 
-fn current_year() -> i32 {
+pub fn current_year() -> i32 {
     // Seconds per average year, good enough for an upper bound on plausible years.
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

@@ -147,6 +147,31 @@ impl Providers {
     }
 }
 
+/// Runs one request to the end and returns its text with the token counts (input, output,
+/// cached). For short calls that need the whole reply, such as picking an order or reading details.
+pub async fn collect_text(
+    provider: &Arc<dyn Provider>,
+    api_key: &str,
+    request: GenerationRequest,
+    timeout: std::time::Duration,
+) -> Result<(String, (u32, u32, u32))> {
+    use futures_util::StreamExt;
+    let mut stream = provider.generate(api_key.to_string(), request);
+    let (mut reply, mut tokens) = (String::new(), (0, 0, 0));
+    let read = async {
+        while let Some(ev) = stream.next().await {
+            match ev? {
+                GenerationEvent::Text(t) => reply.push_str(&t),
+                GenerationEvent::Usage { input_tokens, output_tokens, cached_tokens } => tokens = (input_tokens, output_tokens, cached_tokens),
+                _ => {}
+            }
+        }
+        Ok::<(), AppError>(())
+    };
+    tokio::time::timeout(timeout, read).await.map_err(|_| AppError::Invalid("The request timed out.".into()))??;
+    Ok((reply, tokens))
+}
+
 /// Providers want alternating roles. Join consecutive turns from the same role. Text that meets
 /// text is joined with a blank line. A merged turn loses its replay record.
 pub fn merge_turns(turns: Vec<Turn>) -> Vec<Turn> {

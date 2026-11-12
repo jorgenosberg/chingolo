@@ -18,6 +18,7 @@ export const KINDS: Record<string, string> = {
 	embed_index: "Indexing papers",
 	embed_query: "Search queries",
 	rerank: "Sharpening search results",
+	metadata: "Reading paper details",
 };
 
 export const tokens = (n: number) =>

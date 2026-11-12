@@ -298,6 +298,72 @@ function DetailsLookup() {
 	);
 }
 
+/** Lets a model read the first pages of papers whose title, authors or year are missing. Sends those pages to its provider. */
+function DetailsModel() {
+	const { data: settings } = useSettings();
+	const qc = useQueryClient();
+	const hasKeys = (settings?.apiKeys.length ?? 0) > 0;
+	const models = useModels(hasKeys);
+	if (!settings) return null;
+	const toggle = async (on: boolean) => {
+		await api.updateSettings({ metadataAiEnabled: on });
+		await qc.invalidateQueries({ queryKey: keys.settings });
+	};
+	const chosen: ModelRef | null =
+		settings.metadataModel && settings.metadataProvider
+			? { provider: settings.metadataProvider, id: settings.metadataModel }
+			: null;
+	const choose = async (m: ModelRef | null) => {
+		await api.updateSettings({
+			metadataModel: m?.id ?? "",
+			metadataProvider: m?.provider ?? "",
+		});
+		await qc.invalidateQueries({ queryKey: keys.settings });
+	};
+	return (
+		<div className="flex flex-col gap-2">
+			<Checkbox
+				isSelected={settings.metadataAiEnabled}
+				onChange={toggle}
+				className={cx(
+					"group flex cursor-default items-center gap-2.5 text-[13px]",
+					focus,
+				)}
+			>
+				<span className="flex size-4 items-center justify-center rounded border border-input bg-card text-primary-foreground group-data-[selected]:border-primary group-data-[selected]:bg-primary">
+					<CheckIcon className="size-4 opacity-0 group-data-[selected]:opacity-100" />
+				</span>
+				Fill in missing details with a model
+			</Checkbox>
+			<p className="text-sm leading-relaxed text-muted-foreground">
+				For a paper or report whose title, authors or year are still missing,
+				the text of its first pages goes to the provider of the model below,
+				using your API key, and costs a little. The model's answer is kept only
+				where the same words are printed in the paper, and never replaces
+				something you edited. Papers you already added are covered by Refresh
+				all details in the library.
+			</p>
+			{settings.metadataAiEnabled && (
+				<div className="flex items-center gap-2">
+					<ModelSelect
+						label="Model for details"
+						models={models.data?.models ?? []}
+						value={chosen}
+						onChange={choose}
+						isDisabled={!hasKeys}
+						placeholder="Same model as new chats"
+					/>
+					{chosen && (
+						<Button variant="ghost" onPress={() => choose(null)}>
+							Use the default model
+						</Button>
+					)}
+				</div>
+			)}
+		</div>
+	);
+}
+
 /** Two option cards for the model behind meaning search, and a status panel for the chosen one. */
 function SearchModel() {
 	const status = useEmbeddingStatus();
@@ -718,7 +784,10 @@ export function SettingsView() {
 								<ScannedPages />
 							</Section>
 							<Section title="Paper details">
-								<DetailsLookup />
+								<div className="flex flex-col gap-6">
+									<DetailsLookup />
+									<DetailsModel />
+								</div>
 							</Section>
 						</TabPanel>
 						<TabPanel id="usage" className="outline-none">

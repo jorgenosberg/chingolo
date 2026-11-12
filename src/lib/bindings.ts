@@ -134,6 +134,11 @@ export type AppSettings = {
 	rerankProvider: string | null,
 	/**  Look up a document's DOI in Crossref for exact details. Only the DOI is sent. */
 	crossrefEnabled: boolean,
+	/**  A model reads the first pages of papers whose title, authors or year are missing. */
+	metadataAiEnabled: boolean,
+	/**  Model for that and the provider it belongs to. Without them the default chat model is used. */
+	metadataModel: string | null,
+	metadataProvider: string | null,
 };
 
 /**
@@ -434,6 +439,10 @@ export type SettingsPatch = {
 	rerankModel: string | null,
 	rerankProvider: string | null,
 	crossrefEnabled: boolean | null,
+	metadataAiEnabled: boolean | null,
+	/**  An empty string goes back to the default chat model. */
+	metadataModel: string | null,
+	metadataProvider: string | null,
 };
 
 export type SkippedFile = {

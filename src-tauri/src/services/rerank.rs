@@ -6,12 +6,11 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use futures_util::StreamExt;
 use serde_json::Value;
 
 use crate::domain::library::SearchHit;
 use crate::error::{AppError, Result};
-use crate::services::ai::{GenerationEvent, GenerationRequest, Provider, Turn, TurnRole};
+use crate::services::ai::{GenerationRequest, Provider, Turn, TurnRole, collect_text};
 
 /// Candidates the model sees.
 pub const CANDIDATES: u32 = 20;
@@ -82,20 +81,7 @@ pub async fn rerank(ctx: &RerankCtx, query: &str, hits: Vec<SearchHit>) -> Resul
         tools: Vec::new(),
         no_tool_calls: false,
     };
-    let mut stream = ctx.provider.generate(ctx.api_key.clone(), request);
-    let mut reply = String::new();
-    let mut tokens = (0, 0, 0);
-    let read = async {
-        while let Some(ev) = stream.next().await {
-            match ev? {
-                GenerationEvent::Text(t) => reply.push_str(&t),
-                GenerationEvent::Usage { input_tokens, output_tokens, cached_tokens } => tokens = (input_tokens, output_tokens, cached_tokens),
-                _ => {}
-            }
-        }
-        Ok::<(), AppError>(())
-    };
-    tokio::time::timeout(TIMEOUT, read).await.map_err(|_| AppError::Invalid("The rerank request timed out.".into()))??;
+    let (reply, tokens) = collect_text(&ctx.provider, &ctx.api_key, request, TIMEOUT).await?;
     let order = parse_order(&reply, hits.len());
     let latency_ms = started.elapsed().as_millis() as u32;
     if order.is_empty() {
@@ -108,6 +94,7 @@ pub async fn rerank(ctx: &RerankCtx, query: &str, hits: Vec<SearchHit>) -> Resul
 mod tests {
     use super::*;
     use crate::domain::library::MatchKind;
+    use crate::services::ai::GenerationEvent;
 
     fn hit(id: &str) -> SearchHit {
         SearchHit {

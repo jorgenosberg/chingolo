@@ -5,6 +5,7 @@
 mod audit;
 pub mod crossref;
 pub mod detect;
+pub mod details_ai;
 pub mod docx;
 pub mod enrich;
 pub mod import;

@@ -188,7 +188,8 @@ pub fn run() {
             // A document that becomes ready wakes the embedding worker. The worker's own
             // document events skip this, so it doesn't wake itself.
             // It also queues the document for a details lookup, which has its own emit.
-            let enricher = crate::services::ingestion::enrich::Enricher::start(db.clone(), emit.clone());
+            let providers = Providers::new();
+            let enricher = crate::services::ingestion::enrich::Enricher::start(db.clone(), emit.clone(), providers.clone());
             let (wake, raw_emit) = (embedder.clone(), emit);
             let ingest_emit: Emit = Arc::new(move |e| {
                 let ready = e.document.status == DocStatus::Ready;
@@ -222,7 +223,7 @@ pub fn run() {
             }
             app.manage(AppState {
                 db,
-                providers: Providers::new(),
+                providers,
                 generations: Generations::default(),
                 ingest,
                 embedder,
