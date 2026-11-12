@@ -11,6 +11,7 @@ import {
 	PencilSimpleIcon,
 	ProhibitIcon,
 	TrashIcon,
+	WarningIcon,
 } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
@@ -30,8 +31,15 @@ import { type Action, ActionMenu } from "../../components/ActionMenu";
 import { useDialogs } from "../../components/dialogs";
 import { Button, cx, focus, Spinner } from "../../components/ui";
 import { api } from "../../lib/api";
-import type { DocStatus, Document, ImportSummary } from "../../lib/bindings";
+import type {
+	DocStatus,
+	Document,
+	ImportSummary,
+	MetadataPatch,
+} from "../../lib/bindings";
 import {
+	attentionFor,
+	missingFields,
 	setImportSummary,
 	useDetailsBusy,
 	useDetailsIds,
@@ -167,14 +175,21 @@ function DocumentRow({
 	doc,
 	actions,
 	onOpen,
+	onEdit,
+	onKeep,
 }: {
 	doc: Document;
 	actions: Action[];
+	onEdit: () => void;
+	/** Accepts the blanks as they are. */
+	onKeep: () => void;
 	/** Set when the document can be opened in the reader. */
 	onOpen?: () => void;
 }) {
 	const progress = useProgress(doc.id);
 	const detailsBusy = useDetailsBusy(doc.id);
+	// While a lookup runs it may still fill the gaps, so wait for it.
+	const attention = detailsBusy ? [] : attentionFor(doc);
 	const embedding = useEmbeddingStatus();
 	const indexing =
 		doc.status === "ready" &&
@@ -250,6 +265,32 @@ function DocumentRow({
 				{detailsBusy && doc.status !== "processing" && (
 					<p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
 						<Spinner className="size-3" /> Updating details
+					</p>
+				)}
+				{attention.length > 0 && (
+					<p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-foreground/80">
+						<WarningIcon className="size-3.5 shrink-0 text-problem" />
+						{attention.join(" · ")}
+						<RacButton
+							onPress={onEdit}
+							className={cx(
+								"rounded text-primary underline-offset-2 hover:underline",
+								focus,
+							)}
+						>
+							Edit details
+						</RacButton>
+						{missingFields(doc).length > 0 && (
+							<RacButton
+								onPress={onKeep}
+								className={cx(
+									"rounded text-muted-foreground underline-offset-2 hover:underline",
+									focus,
+								)}
+							>
+								Leave blank
+							</RacButton>
+						)}
 					</p>
 				)}
 				{doc.status === "no_text" && (
@@ -418,14 +459,20 @@ export function LibraryView() {
 	const fail = (title: string) => (e: unknown) =>
 		alert({ title, message: errorText(e) });
 
-	const shown = useMemo(
-		() =>
-			query.trim()
-				? (docs.data ?? []).filter((d) => matches(d, query))
-				: (docs.data ?? []),
-		[docs.data, query],
-	);
 	const detailsIds = useDetailsIds();
+	const [attentionOnly, setAttentionOnly] = useState(false);
+	const needing = useMemo(
+		() =>
+			(docs.data ?? []).filter(
+				(d) => !detailsIds.has(d.id) && attentionFor(d).length > 0,
+			),
+		[docs.data, detailsIds],
+	);
+	const shown = useMemo(() => {
+		const all =
+			attentionOnly && needing.length > 0 ? needing : (docs.data ?? []);
+		return query.trim() ? all.filter((d) => matches(d, query)) : all;
+	}, [docs.data, needing, attentionOnly, query]);
 	const working = workSummary(docs.data ?? [], detailsIds);
 	const projectsDoc = docs.data?.find((d) => d.id === projectsFor) ?? null;
 
@@ -439,6 +486,20 @@ export function LibraryView() {
 		} finally {
 			setImporting(false);
 		}
+	};
+
+	// Saying a blank is right marks it as the user's, so a refresh won't ask again.
+	const keepBlank = (d: Document) => {
+		const patch: Partial<MetadataPatch> = {};
+		for (const f of missingFields(d)) {
+			if (f === "title") patch.title = "";
+			else if (f === "authors") patch.authors = [];
+			else patch.year = 0;
+		}
+		api
+			.updateDocumentMetadata(d.id, patch)
+			.then(refresh)
+			.catch(fail("Couldn't save"));
 	};
 
 	const refreshAll = () =>
@@ -587,6 +648,24 @@ export function LibraryView() {
 				</div>
 			</div>
 
+			{needing.length > 0 && (
+				<div className="flex items-center gap-2 px-6 pb-2 text-xs text-muted-foreground">
+					<WarningIcon className="size-3.5 text-problem" />
+					<span>
+						{plural(needing.length, "document")} need
+						{needing.length === 1 ? "s" : ""} a look.
+					</span>
+					<RacButton
+						onPress={() => setAttentionOnly((v) => !v)}
+						className={cx(
+							"rounded text-primary underline-offset-2 hover:underline",
+							focus,
+						)}
+					>
+						{attentionOnly ? "Show all" : "Show them"}
+					</RacButton>
+				</div>
+			)}
 			{summary && <SummaryBanner summary={summary} scopeName={scopeName} />}
 			<EmbeddingNotice />
 
@@ -626,6 +705,8 @@ export function LibraryView() {
 									key={d.id}
 									doc={d}
 									actions={actionsFor(d)}
+									onEdit={() => setEditing(d)}
+									onKeep={() => keepBlank(d)}
 									onOpen={d.kind === "pdf" ? () => open(d) : undefined}
 								/>
 							))}

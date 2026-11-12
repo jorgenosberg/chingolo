@@ -160,3 +160,31 @@ export function useLibraryEvents(qc: QueryClient, onSummary: () => void) {
 		};
 	}, [qc, onSummary]);
 }
+
+/**
+ * What is wrong with a ready document, in words for the library row. Empty when all is well.
+ * A field the user has edited counts as handled, even if it's empty. A report with a
+ * publisher but no authors is taken as having a corporate author.
+ */
+export function missingFields(doc: Document) {
+	if (doc.status !== "ready") return [];
+	const free = (f: string) => !doc.metaEdited.includes(f);
+	const missing: ("title" | "authors" | "year")[] = [];
+	if (!doc.title && free("title")) missing.push("title");
+	if (doc.authors.length === 0 && !doc.publisher && free("authors"))
+		missing.push("authors");
+	if (!doc.year && free("year")) missing.push("year");
+	return missing;
+}
+
+export function attentionFor(doc: Document): string[] {
+	if (doc.status !== "ready") return [];
+	const issues = missingFields(doc).map((f) => `No ${f}`);
+	// A blank cover or a lone figure page is normal, so only a real share counts.
+	if (doc.weakPages >= 3 && doc.weakPages * 20 >= (doc.pageCount ?? 0))
+		issues.push(
+			`${doc.weakPages} ${doc.weakPages === 1 ? "page" : "pages"} hard to read`,
+		);
+	if (doc.enrichError) issues.push(doc.enrichError);
+	return issues;
+}
