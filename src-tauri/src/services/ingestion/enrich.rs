@@ -140,8 +140,11 @@ async fn ai_step(db: &Db, target: &Target, id: &str) -> Result<Option<Document>>
         tokens.0,
         tokens.1,
         latency_ms,
-        if asked.found.fields().is_empty() { "nothing (not backed by the text)".to_string() } else { asked.found.fields().join(", ") }
+        if asked.found.fields().is_empty() { "nothing".to_string() } else { asked.found.fields().join(", ") }
     );
+    if !asked.dropped.is_empty() {
+        log::info!("details model {}: {} for {} not backed by the text, dropped", target.model, asked.dropped.join(", "), doc.original_name);
+    }
     let found = asked.found;
     if found.title.is_none() && found.authors.is_empty() && found.year.is_none() && found.series.is_none() && found.publisher.is_none() && found.isbn.is_none() && found.issn.is_none() {
         return Ok(None);
