@@ -37,7 +37,7 @@ impl Enricher {
                 match enrich(&db, &client, crossref::BASE, target.as_ref(), &id).await {
                     Ok(Some(document)) => emit(DocumentChanged { document, progress: None }),
                     Ok(None) => {}
-                    Err(e) => log::warn!("details lookup failed: {e}"),
+                    Err(e) => log::warn!("details lookup failed for document {id}: {e}"),
                 }
             }
         });
@@ -73,8 +73,9 @@ async fn ai_target(db: &Db, providers: &Providers) -> Result<Option<Target>> {
 /// Everything that can be added to a document: Crossref first, then the model for what is still
 /// missing. `Ok(None)` when nothing changed. A failed lookup is logged, so the model still runs.
 pub async fn enrich(db: &Db, client: &reqwest::Client, base: &str, ai: Option<&Target>, id: &str) -> Result<Option<Document>> {
+    log::debug!("details: document {id} queued (model pass {})", if ai.is_some() { "on" } else { "off" });
     let from_crossref = crossref_step(db, client, base, id).await.unwrap_or_else(|e| {
-        log::warn!("Crossref lookup failed: {e}");
+        log::warn!("Crossref lookup failed for document {id}: {e}");
         None
     });
     let from_model = match ai {
@@ -96,8 +97,10 @@ async fn ai_step(db: &Db, target: &Target, id: &str) -> Result<Option<Document>>
         .await?;
     let want = Missing::of(&doc);
     if !want.worth_asking() || head.trim().is_empty() {
+        log::debug!("details model: nothing to ask for {}", doc.original_name);
         return Ok(None);
     }
+    log::info!("details model {}: asking about {} (title {}, authors {}, year {} missing)", target.model, doc.original_name, want.title, want.authors, want.year);
     let asked = details_ai::ask(target, &doc, &head, &want, current_year()).await;
     let (tokens, latency_ms, ok) = match &asked {
         Ok(a) => (a.tokens, a.latency_ms, true),
@@ -126,7 +129,16 @@ async fn ai_step(db: &Db, target: &Target, id: &str) -> Result<Option<Document>>
     if let Err(e) = recorded {
         log::warn!("couldn't record details usage: {e}");
     }
-    let found = asked?.found;
+    let asked = asked.inspect_err(|e| log::warn!("details model {} failed for {}: {e}", target.model, doc.original_name))?;
+    log::info!(
+        "details model {}: {} tokens in, {} out, {} ms, kept {}",
+        target.model,
+        tokens.0,
+        tokens.1,
+        latency_ms,
+        if asked.found.fields().is_empty() { "nothing (not backed by the text)".to_string() } else { asked.found.fields().join(", ") }
+    );
+    let found = asked.found;
     if found.title.is_none() && found.authors.is_empty() && found.year.is_none() && found.series.is_none() && found.publisher.is_none() && found.isbn.is_none() && found.issn.is_none() {
         return Ok(None);
     }
@@ -147,6 +159,7 @@ async fn crossref_step(db: &Db, client: &reqwest::Client, base: &str, id: &str) 
             let id = id.clone();
             move |c| {
                 if !settings::get_bool(c, CROSSREF_KEY)? {
+                    log::debug!("Crossref lookup is off");
                     return Ok(None);
                 }
                 let doc = repo::get_document(c, &id)?;
@@ -165,12 +178,16 @@ async fn crossref_step(db: &Db, client: &reqwest::Client, base: &str, id: &str) 
     }
     for doi in dois {
         // A lookup that fails (offline, busy) stops here and is tried again on the next refresh.
-        let Some(record) = crossref::fetch(client, base, &doi).await? else { continue };
+        let Some(record) = crossref::fetch(client, base, &doi).await? else {
+            log::info!("Crossref: {doi} is unknown ({})", doc.original_name);
+            continue;
+        };
         if !crossref::title_in_text(&record.title, &head) {
-            log::info!("Crossref record for {doi} is a different article, ignored");
+            log::info!("Crossref: record for {doi} is a different article than {}, ignored", doc.original_name);
             continue;
         }
         let found = crossref::to_extracted(&record, doc.publisher.is_some());
+        log::info!("Crossref: {doi} matches {}, adding {}", doc.original_name, found.fields().join(", "));
         let updated = db
             .call(move |c| {
                 repo::apply_metadata(c, &id, &found, "crossref", false)?;
@@ -179,6 +196,7 @@ async fn crossref_step(db: &Db, client: &reqwest::Client, base: &str, id: &str) 
             .await?;
         return Ok(Some(updated));
     }
+    log::debug!("Crossref: no usable record for {}", doc.original_name);
     Ok(None)
 }
 

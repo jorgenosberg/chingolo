@@ -292,6 +292,29 @@ pub struct Extracted {
     pub issn: Option<String>,
 }
 
+impl Extracted {
+    /// Names of the fields that have a value, for logs (never the values).
+    pub fn fields(&self) -> Vec<&'static str> {
+        [
+            ("title", self.title.is_some()),
+            ("authors", !self.authors.is_empty()),
+            ("year", self.year.is_some()),
+            ("doi", self.doi.is_some()),
+            ("journal", self.journal.is_some()),
+            ("publisher", self.publisher.is_some()),
+            ("volume", self.volume.is_some()),
+            ("issue", self.issue.is_some()),
+            ("pages", self.pages.is_some()),
+            ("series", self.series.is_some()),
+            ("isbn", self.isbn.is_some()),
+            ("issn", self.issn.is_some()),
+        ]
+        .into_iter()
+        .filter_map(|(n, has)| has.then_some(n))
+        .collect()
+    }
+}
+
 /// Writes detected metadata. Fields in `meta_edited` are skipped. With `replace`, a field the
 /// detection found nothing for is cleared (a fresh read of the file is the whole truth). Without
 /// it, only found values are written, so Crossref or a model can add to what the file gave.

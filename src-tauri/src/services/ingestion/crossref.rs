@@ -157,7 +157,9 @@ pub fn http_client() -> reqwest::Client {
 /// One lookup. `None` when Crossref doesn't know the DOI.
 pub async fn fetch(client: &reqwest::Client, base: &str, doi: &str) -> Result<Option<Record>> {
     let net = |e: reqwest::Error| AppError::Internal(format!("Crossref lookup failed: {e}"));
+    let started = std::time::Instant::now();
     let resp = client.get(format!("{base}{doi}")).timeout(Duration::from_secs(15)).send().await.map_err(net)?;
+    log::debug!("Crossref: {doi} answered HTTP {} in {} ms", resp.status().as_u16(), started.elapsed().as_millis());
     if resp.status().as_u16() == 404 {
         return Ok(None);
     }

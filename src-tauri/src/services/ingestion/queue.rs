@@ -165,13 +165,22 @@ pub fn run_details(
     doc: &Document,
     emit: &dyn Fn(Document, Option<Progress>),
 ) {
+    let started = std::time::Instant::now();
     let found = match doc.kind {
         DocKind::Pdf => reader(pdf).and_then(|r| r.extract_meta(path, ocr)),
         DocKind::Docx => docx::extract(path, &|| false).map(|ex| ex.meta),
     };
+    let fields = found.as_ref().map(|m| m.fields()).unwrap_or_default();
     let result = found.and_then(|m| repo::apply_metadata(conn, &doc.id, &m, "file", true));
     match result {
         Ok(()) => {
+            log::info!(
+                "details refreshed for {}: found {} ({} edited fields kept), {} ms",
+                doc.original_name,
+                if fields.is_empty() { "nothing".to_string() } else { fields.join(", ") },
+                doc.meta_edited.len(),
+                started.elapsed().as_millis()
+            );
             if let Ok(d) = repo::get_document(conn, &doc.id) {
                 emit(d, None);
             }
@@ -249,7 +258,16 @@ pub fn run_job(
         (DocStatus::Ready, page_note(&ex, ocr.missing()))
     };
     match repo::store_content(conn, &doc.id, &ex.pages, &passages, &ex.meta, status, note.as_deref()) {
-        Ok(d) => emit(d, None),
+        Ok(d) => {
+            log::info!(
+                "read {}: {} pages, {} passages, details found: {}",
+                doc.original_name,
+                ex.pages.len(),
+                passages.len(),
+                ex.meta.fields().join(", ")
+            );
+            emit(d, None)
+        }
         Err(AppError::NotFound) => {}
         Err(e) => finish(conn, DocStatus::Error, Some(&format!("Couldn't save the text: {e}"))),
     }
