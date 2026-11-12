@@ -318,7 +318,8 @@ impl Extracted {
 /// Writes detected metadata. Fields in `meta_edited` are skipped. With `replace`, a field the
 /// detection found nothing for is cleared (a fresh read of the file is the whole truth). Without
 /// it, only found values are written, so Crossref or a model can add to what the file gave.
-/// `source` ("file", "crossref" or "ai") is recorded for every field written.
+/// `source` ("file", "crossref" or "ai") is recorded for every field written. A fresh read never
+/// changes what Crossref gave (the publisher's own record) and never clears what a model found.
 pub fn apply_metadata(conn: &Connection, id: &str, m: &Extracted, source: &str, replace: bool) -> Result<()> {
     let doc = get_document(conn, id)?;
     let mut sources = doc.meta_source;
@@ -338,7 +339,9 @@ pub fn apply_metadata(conn: &Connection, id: &str, m: &Extracted, source: &str, 
         ("issn", text(&m.issn)),
     ];
     for (col, value) in fields {
-        if doc.meta_edited.iter().any(|f| f == col) || (value.is_none() && !replace) {
+        let from = sources.get(col).map(String::as_str);
+        let kept = replace && (from == Some("crossref") || (from == Some("ai") && value.is_none()));
+        if doc.meta_edited.iter().any(|f| f == col) || (value.is_none() && !replace) || kept {
             continue;
         }
         let value = match (value, col) {
@@ -722,6 +725,19 @@ mod tests {
         assert_eq!((out.title.as_deref(), out.year, out.journal.as_deref()), (Some("New"), Some(2004), Some("Nature")));
         assert_eq!(out.meta_source.get("year").map(String::as_str), Some("crossref"));
         assert_eq!(out.meta_source.get("title").map(String::as_str), Some("file"));
+    }
+
+    #[test]
+    fn a_fresh_read_keeps_what_crossref_gave_and_what_a_model_found() {
+        let conn = test_conn();
+        let d = insert_document(&conn, "h1", "a.pdf", DocKind::Pdf).unwrap();
+        apply_metadata(&conn, &d.id, &Extracted { title: Some("File".into()), year: Some(1990), ..Default::default() }, "file", true).unwrap();
+        apply_metadata(&conn, &d.id, &Extracted { title: Some("Crossref".into()), journal: Some("Nature".into()), ..Default::default() }, "crossref", false).unwrap();
+        apply_metadata(&conn, &d.id, &Extracted { series: Some("S".into()), ..Default::default() }, "ai", false).unwrap();
+        let read = Extracted { title: Some("Other".into()), year: Some(1991), ..Default::default() };
+        apply_metadata(&conn, &d.id, &read, "file", true).unwrap();
+        let out = get_document(&conn, &d.id).unwrap();
+        assert_eq!((out.title.as_deref(), out.journal.as_deref(), out.series.as_deref(), out.year), (Some("Crossref"), Some("Nature"), Some("S"), Some(1991)));
     }
 
     #[test]
