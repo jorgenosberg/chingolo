@@ -65,6 +65,7 @@ pub async fn update_settings(
     state: State<'_, AppState>,
     patch: SettingsPatch,
 ) -> CmdResult<AppSettings> {
+    let lookups_on = patch.crossref_enabled == Some(true) || patch.metadata_ai_enabled == Some(true);
     state
         .db
         .call(move |c| {
@@ -107,6 +108,10 @@ pub async fn update_settings(
             Ok(())
         })
         .await?;
+    if lookups_on {
+        // Documents imported before the lookup was on get it now.
+        let _ = state.enricher.resume(&state.db, true).await;
+    }
     Ok(read_settings(&state).await?)
 }
 

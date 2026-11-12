@@ -282,7 +282,7 @@ mod tests {
             id: "d".into(), content_hash: "h".into(), original_name: "a.pdf".into(), kind: DocKind::Pdf, title: None, authors: vec![], year: None, doi: None,
             journal: None, publisher: None, volume: None, issue: None, pages: None, series: None, isbn: None, issn: None,
             meta_edited: vec![], meta_source: Default::default(), page_count: None, status: DocStatus::Ready, error: None,
-            passage_count: 0, embedded_count: 0, project_ids: vec![], created_at: 0, updated_at: 0,
+            passage_count: 0, embedded_count: 0, weak_pages: 0, enrich_error: None, project_ids: vec![], created_at: 0, updated_at: 0,
         }
     }
 }

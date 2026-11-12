@@ -195,14 +195,14 @@ pub fn run() {
                 let _ = e.emit(&activity_handle);
             });
             let enricher = crate::services::ingestion::enrich::Enricher::start(db.clone(), emit.clone(), providers.clone(), activity.clone());
-            let (wake, raw_emit) = (embedder.clone(), emit);
+            let (wake, raw_emit, queue) = (embedder.clone(), emit, enricher.clone());
             let ingest_emit: Emit = Arc::new(move |e| {
                 let ready = e.document.status == DocStatus::Ready;
                 let id = e.document.id.clone();
                 raw_emit(e);
                 if ready {
                     wake.wake();
-                    enricher.queue(&id);
+                    queue.queue(&id);
                 }
             });
             let ingest = Ingestor::start(&db_path, dir.join("library"), ingest_emit)?;
@@ -227,6 +227,11 @@ pub fn run() {
                     }
                 });
             }
+            // Lookups that were cut short when the app last stopped.
+            let (resume_db, resume) = (db.clone(), enricher.clone());
+            tauri::async_runtime::spawn(async move {
+                let _ = resume.resume(&resume_db, false).await;
+            });
             app.manage(AppState {
                 db,
                 providers,
@@ -234,6 +239,7 @@ pub fn run() {
                 ingest,
                 embedder,
                 ocr,
+                enricher,
                 import_target: Arc::new(Mutex::new(None)),
             });
             Ok(())

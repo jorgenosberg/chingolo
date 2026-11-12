@@ -106,6 +106,10 @@ pub struct Document {
     /// Passages that have a vector for meaning search. Stale vectors are purged when the
     /// model changes, so this counts the current ones.
     pub embedded_count: u32,
+    /// Pages with little or no readable text.
+    pub weak_pages: u32,
+    /// Why the last Crossref or model lookup failed. Cleared when one finishes.
+    pub enrich_error: Option<String>,
     /// Projects this document is attached to.
     pub project_ids: Vec<Id>,
     #[specta(type = Number)]

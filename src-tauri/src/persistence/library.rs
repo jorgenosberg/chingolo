@@ -13,7 +13,8 @@ const DOC_COLS: &str = "id, content_hash, original_name, kind, title, authors, y
     (SELECT count(*) FROM passages p WHERE p.document_id = documents.id),
     (SELECT json_group_array(project_id) FROM project_documents pd WHERE pd.document_id = documents.id),
     (SELECT count(*) FROM passage_vectors v JOIN passages p ON p.id = v.passage_id WHERE p.document_id = documents.id),
-    journal, publisher, volume, issue, pages, series, isbn, issn, meta_edited, meta_source";
+    journal, publisher, volume, issue, pages, series, isbn, issn, meta_edited, meta_source,
+    (SELECT count(*) FROM pages g WHERE g.document_id = documents.id AND g.quality != 'ok'), enrich_error";
 
 fn document_from_row(r: &Row) -> rusqlite::Result<Document> {
     let kind: String = r.get(3)?;
@@ -48,6 +49,8 @@ fn document_from_row(r: &Row) -> rusqlite::Result<Document> {
         passage_count: r.get(13)?,
         project_ids: serde_json::from_str(&project_ids).unwrap_or_default(),
         embedded_count: r.get(15)?,
+        weak_pages: r.get(26)?,
+        enrich_error: r.get(27)?,
     })
 }
 
@@ -59,6 +62,19 @@ pub fn get_document(conn: &Connection, id: &str) -> Result<Document> {
     )
     .optional()?
     .ok_or(AppError::NotFound)
+}
+
+/// Records that the details lookups finished (`None`) or failed, and why.
+pub fn mark_enriched(conn: &Connection, id: &str, failure: Option<&str>) -> Result<()> {
+    let done = failure.is_none().then(now_ms);
+    conn.execute("UPDATE documents SET enriched_at = ?1, enrich_error = ?2 WHERE id = ?3", params![done, failure, id])?;
+    Ok(())
+}
+
+/// Ready documents whose lookups never finished (the app closed, or one failed), or all of them.
+pub fn unenriched(conn: &Connection, all: bool) -> Result<Vec<Id>> {
+    let mut stmt = conn.prepare("SELECT id FROM documents WHERE status = 'ready' AND (?1 OR enriched_at IS NULL) ORDER BY created_at, id")?;
+    Ok(stmt.query_map([all], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?)
 }
 
 pub fn find_by_hash(conn: &Connection, hash: &str) -> Result<Option<Document>> {
@@ -389,7 +405,7 @@ pub fn store_content(
         )?;
     }
     tx.execute(
-        "UPDATE documents SET page_count = ?1, status = ?2, error = ?3, updated_at = ?4 WHERE id = ?5",
+        "UPDATE documents SET page_count = ?1, status = ?2, error = ?3, updated_at = ?4, enriched_at = NULL, enrich_error = NULL WHERE id = ?5",
         params![(!pages.is_empty()).then_some(pages.len() as u32), status.as_str(), note, now_ms(), id],
     )?;
     apply_metadata(&tx, id, meta, "file", true)?;

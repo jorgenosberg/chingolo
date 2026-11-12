@@ -277,6 +277,10 @@ export type Document = {
 	 *  model changes, so this counts the current ones.
 	 */
 	embeddedCount: number,
+	/**  Pages with little or no readable text. */
+	weakPages: number,
+	/**  Why the last Crossref or model lookup failed. Cleared when one finishes. */
+	enrichError: string | null,
 	/**  Projects this document is attached to. */
 	projectIds: string[],
 	createdAt: number,

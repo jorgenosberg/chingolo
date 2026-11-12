@@ -3,6 +3,8 @@
 //! through the documents in turn. Its own events skip the hook that queues documents, so it
 //! never queues itself.
 
+use std::collections::HashMap;
+
 use tokio::sync::mpsc;
 
 use super::activity::Activity;
@@ -22,12 +24,17 @@ pub const CROSSREF_KEY: &str = "crossref_enabled";
 #[derive(Clone)]
 pub struct Enricher(mpsc::UnboundedSender<Id>, Activity);
 
+/// A lookup that failed is tried once more after this long. After that it waits for the next start.
+const RETRY_AFTER: std::time::Duration = std::time::Duration::from_secs(45);
+
 impl Enricher {
     pub fn start(db: Db, emit: Emit, providers: Providers, activity: Activity) -> Self {
         let busy = activity.clone();
         let (tx, mut rx) = mpsc::unbounded_channel::<Id>();
+        let again = Enricher(tx.clone(), activity.clone());
         tauri::async_runtime::spawn(async move {
             let client = crossref::http_client();
+            let mut tries: HashMap<Id, u8> = HashMap::new();
             while let Some(id) = rx.recv().await {
                 let target = match ai_target(&db, &providers).await {
                     Ok(t) => t,
@@ -37,8 +44,26 @@ impl Enricher {
                     }
                 };
                 match enrich(&db, &client, crossref::BASE, target.as_ref(), &id).await {
-                    Ok(Some(document)) => emit(DocumentChanged { document, progress: None }),
-                    Ok(None) => {}
+                    Ok(out) => {
+                        if let Some(document) = out.document {
+                            emit(DocumentChanged { document, progress: None });
+                        }
+                        if out.failed {
+                            let n = tries.entry(id.clone()).or_default();
+                            *n += 1;
+                            if *n < 2 {
+                                log::info!("details for document {id} will be tried again in {} s", RETRY_AFTER.as_secs());
+                                let again = again.clone();
+                                let id = id.clone();
+                                tauri::async_runtime::spawn(async move {
+                                    tokio::time::sleep(RETRY_AFTER).await;
+                                    again.queue(&id);
+                                });
+                            }
+                        } else {
+                            tries.remove(&id);
+                        }
+                    }
                     Err(e) => log::debug!("details lookup for document {id} ended early: {e}"),
                 }
                 busy.finish(&id);
@@ -50,6 +75,24 @@ impl Enricher {
     pub fn queue(&self, id: &str) {
         self.1.start(id);
         let _ = self.0.send(id.to_string());
+    }
+
+    /// Queues the ready documents whose lookups never finished, or with `all` every ready one
+    /// (a lookup was just turned on). Does nothing while both lookups are off. Returns how many.
+    pub async fn resume(&self, db: &Db, all: bool) -> Result<usize> {
+        let ids = db
+            .call(move |c| {
+                let on = settings::get_bool(c, CROSSREF_KEY)? || settings::get_bool(c, details_ai::ENABLED_KEY)?;
+                if on { repo::unenriched(c, all) } else { Ok(vec![]) }
+            })
+            .await?;
+        for id in &ids {
+            self.queue(id);
+        }
+        if !ids.is_empty() {
+            log::info!("details: {} documents are still waiting for a lookup", ids.len());
+        }
+        Ok(ids.len())
     }
 }
 
@@ -74,19 +117,43 @@ async fn ai_target(db: &Db, providers: &Providers) -> Result<Option<Target>> {
     Ok(Some(Target { provider, api_key, model }))
 }
 
+/// What one pass over a document did.
+pub struct Outcome {
+    /// The document as it is now, when a lookup ran.
+    pub document: Option<Document>,
+    /// A lookup failed, so the document is marked and tried again later.
+    pub failed: bool,
+}
+
 /// Everything that can be added to a document: Crossref first, then the model for what is still
-/// missing. `Ok(None)` when nothing changed. A failed lookup is logged, so the model still runs.
-pub async fn enrich(db: &Db, client: &reqwest::Client, base: &str, ai: Option<&Target>, id: &str) -> Result<Option<Document>> {
+/// missing. A failed step is recorded on the document and doesn't stop the next one. With both
+/// lookups off nothing is recorded, so turning one on later picks the document up.
+pub async fn enrich(db: &Db, client: &reqwest::Client, base: &str, ai: Option<&Target>, id: &str) -> Result<Outcome> {
     log::debug!("details: document {id} queued (model pass {})", if ai.is_some() { "on" } else { "off" });
-    let from_crossref = crossref_step(db, client, base, id).await.unwrap_or_else(|e| {
+    let crossref_on = db.call(|c| settings::get_bool(c, CROSSREF_KEY)).await?;
+    if !crossref_on && ai.is_none() {
+        return Ok(Outcome { document: None, failed: false });
+    }
+    let mut problems: Vec<&str> = vec![];
+    if let Err(e) = crossref_step(db, client, base, id).await {
         log::warn!("Crossref lookup failed for document {id}: {e}");
-        None
-    });
-    let from_model = match ai {
-        Some(t) => ai_step(db, t, id).await?,
-        None => None,
-    };
-    Ok(from_model.or(from_crossref))
+        problems.push("Crossref couldn't be reached.");
+    }
+    if let Some(t) = ai
+        && ai_step(db, t, id).await.is_err()
+    {
+        problems.push("The details model didn't answer.");
+    }
+    let note = (!problems.is_empty()).then(|| problems.join(" "));
+    let id = id.to_string();
+    let document = db
+        .call(move |c| {
+            repo::mark_enriched(c, &id, note.as_deref())?;
+            repo::get_document(c, &id)
+        })
+        .await?;
+    let failed = document.enrich_error.is_some();
+    Ok(Outcome { document: Some(document), failed })
 }
 
 /// Asks the model about a document whose title, authors or year is still missing and stores what
@@ -282,6 +349,32 @@ mod tests {
         assert_eq!((doc.title.as_deref(), doc.year), (Some("My own title"), Some(2004)));
         let (down, _) = serve(vec![(503, "busy".into())]);
         assert!(crossref_step(&db, &crossref::http_client(), &format!("{down}/works/"), &id).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn a_finished_lookup_is_recorded_and_a_failed_one_is_marked_for_another_try() {
+        let (db, id, _dir) = setup(true, "nature02437.pdf", PAGE, None).await;
+        let (down, _) = serve(vec![(503, "busy".into())]);
+        let out = enrich(&db, &crossref::http_client(), &format!("{down}/works/"), None, &id).await.unwrap();
+        assert!(out.failed);
+        assert_eq!(out.document.unwrap().enrich_error.as_deref(), Some("Crossref couldn't be reached."));
+        let waiting = db.call(|c| repo::unenriched(c, false)).await.unwrap();
+        assert_eq!(waiting, [id.clone()]);
+
+        let (base, _) = serve(vec![(200, RECORD.into())]);
+        let out = enrich(&db, &crossref::http_client(), &format!("{base}/works/"), None, &id).await.unwrap();
+        assert!(!out.failed);
+        assert_eq!(out.document.unwrap().enrich_error, None);
+        assert!(db.call(|c| repo::unenriched(c, false)).await.unwrap().is_empty());
+        assert_eq!(db.call(|c| repo::unenriched(c, true)).await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn with_both_lookups_off_nothing_is_recorded() {
+        let (db, id, _dir) = setup(false, "nature02437.pdf", PAGE, None).await;
+        let out = enrich(&db, &crossref::http_client(), "http://unused/", None, &id).await.unwrap();
+        assert!(out.document.is_none() && !out.failed);
+        assert_eq!(db.call(|c| repo::unenriched(c, false)).await.unwrap(), [id]);
     }
 
     struct Canned(&'static str);

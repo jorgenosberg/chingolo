@@ -7,6 +7,7 @@ use crate::domain::Id;
 use crate::persistence::Db;
 use crate::services::ai::Providers;
 use crate::services::embedding::engine::Embedder;
+use crate::services::ingestion::enrich::Enricher;
 use crate::services::ingestion::ocr::OcrModel;
 use crate::services::ingestion::queue::Ingestor;
 
@@ -49,6 +50,7 @@ pub struct AppState {
     pub ingest: Ingestor,
     pub embedder: Embedder,
     pub ocr: OcrModel,
+    pub enricher: Enricher,
     /// Project that dropped files are added to, set by the UI.
     pub import_target: Arc<Mutex<Option<Id>>>,
 }
