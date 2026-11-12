@@ -235,12 +235,12 @@ function SharpenResults() {
 				Sharpen search results with the chat model
 			</Checkbox>
 			<p className="text-sm leading-relaxed text-muted-foreground">
-				When the model searches your library, it first reads the 20 best
-				matches and puts the most relevant first. This finds the right passage
-				more often, especially for Norwegian papers. The 20 passages go to the
-				provider of the model you chat with, using your API key, and each
-				search takes a few seconds longer and costs a little more. A small,
-				fast model is enough and keeps both down.
+				When the model searches your library, it first reads the 20 best matches
+				and puts the most relevant first. This finds the right passage more
+				often, especially for Norwegian papers. The 20 passages go to the
+				provider of the model you chat with, using your API key, and each search
+				takes a few seconds longer and costs a little more. A small, fast model
+				is enough and keeps both down.
 			</p>
 			{settings.rerankEnabled && (
 				<div className="flex items-center gap-2">
@@ -697,9 +697,9 @@ export function SettingsView() {
 									passages of your papers to Gemini to be indexed, and only if
 									you agree. Sharpening search results, if you turn it on, sends
 									the top 20 passages of each search to your chat model's
-									provider. The local search model keeps them on this Mac,
-									after a one-time download from Hugging Face. About once a week
-									the app also downloads a public price list from models.dev for
+									provider. The local search model keeps them on this Mac, after
+									a one-time download from Hugging Face. About once a week the
+									app also downloads a public price list from models.dev for
 									cost estimates, which sends nothing of yours.
 								</p>
 							</Section>
