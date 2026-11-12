@@ -132,6 +132,8 @@ export type AppSettings = {
 	/**  Model for reranking and the provider it belongs to. Without them the chat model is used. */
 	rerankModel: string | null,
 	rerankProvider: string | null,
+	/**  Look up a document's DOI in Crossref for exact details. Only the DOI is sent. */
+	crossrefEnabled: boolean,
 };
 
 /**
@@ -431,6 +433,7 @@ export type SettingsPatch = {
 	/**  An empty string goes back to the chat model. */
 	rerankModel: string | null,
 	rerankProvider: string | null,
+	crossrefEnabled: boolean | null,
 };
 
 export type SkippedFile = {

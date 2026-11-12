@@ -1,6 +1,7 @@
 //! Ignored audit of metadata extraction and page quality on a folder of real papers.
 //! Run: CHINGUI_TEST_PAPERS=<folder> cargo test corpus_audit -- --ignored --nocapture
 //! With CHINGUI_OCR_DIR=<model folder> the metadata of scanned pages is read through text recognition.
+//! With CHINGUI_AUDIT_CROSSREF=1 each DOI (and file name candidate) is also looked up in Crossref.
 //! The folder must hold `expected-meta.json` (see docs/STATUS.md, "Slice 9 baseline").
 
 use std::collections::{BTreeMap, HashSet};
@@ -91,6 +92,35 @@ fn doi_verdict(got: &Option<String>, want: &Value) -> Verdict {
     }
 }
 
+/// What `enrich` does, without a database: the first DOI whose record's title is in the text wins.
+fn with_crossref(mut meta: Extracted, file_name: &str, head: &str) -> Extracted {
+    use super::crossref;
+    let client = crossref::http_client();
+    let mut dois: Vec<String> = meta.doi.iter().cloned().collect();
+    dois.extend(crossref::candidates(file_name));
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    for doi in dois {
+        match rt.block_on(crossref::fetch(&client, crossref::BASE, &doi)) {
+            Ok(Some(r)) if crossref::title_in_text(&r.title, head) => {
+                let found = crossref::to_extracted(&r, true);
+                meta.title = found.title;
+                if !found.authors.is_empty() {
+                    meta.authors = found.authors;
+                }
+                meta.year = found.year.or(meta.year);
+                meta.doi = found.doi;
+                println!("      crossref: {doi} accepted");
+                break;
+            }
+            Ok(Some(r)) => println!("      crossref: {doi} is \"{}\", not in the text", r.title.chars().take(60).collect::<String>()),
+            Ok(None) => println!("      crossref: {doi} unknown"),
+            Err(e) => println!("      crossref: {doi}: {e}"),
+        }
+        std::thread::sleep(std::time::Duration::from_millis(300));
+    }
+    meta
+}
+
 /// Verdicts for title, authors, year and DOI.
 fn compare(m: &Extracted, want: &Value) -> [Verdict; 4] {
     [
@@ -143,6 +173,12 @@ fn corpus_audit() {
         let meta = match slot.as_mut() {
             Some(slot) => reader.extract_meta(&path, slot).unwrap_or_default(),
             None => reader.extract_meta(&path, &mut OcrSlot::default()).unwrap_or_default(),
+        };
+        let meta = if std::env::var("CHINGUI_AUDIT_CROSSREF").is_ok() {
+            let head = out.blocks.iter().filter(|b| b.page <= 4).map(|b| b.text.as_str()).collect::<Vec<_>>().join(" ");
+            with_crossref(meta, name, &head)
+        } else {
+            meta
         };
         let v = compare(&meta, want);
         for (field, verdict) in ["title", "authors", "year", "doi"].iter().zip(v) {

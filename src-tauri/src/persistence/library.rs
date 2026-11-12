@@ -152,6 +152,14 @@ pub fn detach(conn: &Connection, project_id: &str, document_id: &str) -> Result<
     Ok(())
 }
 
+/// The text of the passages that start on the first `pages` pages, in order. Used to check that a
+/// lookup result belongs to this document.
+pub fn head_text(conn: &Connection, id: &str, pages: u32) -> Result<String> {
+    let mut stmt = conn.prepare("SELECT text FROM passages WHERE document_id = ?1 AND page_start <= ?2 ORDER BY ordinal")?;
+    let rows = stmt.query_map(params![id, pages], |r| r.get::<_, String>(0))?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?.join(" "))
+}
+
 pub fn set_status(conn: &Connection, id: &str, status: DocStatus, error: Option<&str>) -> Result<Document> {
     let n = conn.execute(
         "UPDATE documents SET status = ?1, error = ?2, updated_at = ?3 WHERE id = ?4",

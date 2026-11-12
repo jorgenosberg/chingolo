@@ -42,6 +42,7 @@ async fn read_settings(state: &AppState) -> crate::error::Result<AppSettings> {
                 rerank_enabled: repo::get_bool(c, "rerank_enabled")?,
                 rerank_model: repo::get(c, "rerank_model")?.filter(|m| !m.is_empty()),
                 rerank_provider: repo::get(c, "rerank_provider")?.filter(|m| !m.is_empty()),
+                crossref_enabled: repo::get_bool(c, crate::services::ingestion::enrich::CROSSREF_KEY)?,
             })
         })
         .await
@@ -85,6 +86,9 @@ pub async fn update_settings(
             }
             if let Some(v) = patch.rerank_provider {
                 repo::set(c, "rerank_provider", &v)?;
+            }
+            if let Some(v) = patch.crossref_enabled {
+                repo::set_bool(c, crate::services::ingestion::enrich::CROSSREF_KEY, v)?;
             }
             Ok(())
         })

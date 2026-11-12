@@ -3,8 +3,10 @@
 
 #[cfg(test)]
 mod audit;
+pub mod crossref;
 pub mod detect;
 pub mod docx;
+pub mod enrich;
 pub mod import;
 pub mod meta;
 pub mod ocr;

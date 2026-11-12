@@ -69,6 +69,7 @@ export const api = {
 				rerankEnabled: null,
 				rerankModel: null,
 				rerankProvider: null,
+				crossrefEnabled: null,
 				...patch,
 			}),
 		),

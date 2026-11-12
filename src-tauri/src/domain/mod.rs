@@ -228,6 +228,8 @@ pub struct AppSettings {
     /// Model for reranking and the provider it belongs to. Without them the chat model is used.
     pub rerank_model: Option<String>,
     pub rerank_provider: Option<String>,
+    /// Look up a document's DOI in Crossref for exact details. Only the DOI is sent.
+    pub crossref_enabled: bool,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Type)]
@@ -242,6 +244,7 @@ pub struct SettingsPatch {
     /// An empty string goes back to the chat model.
     pub rerank_model: Option<String>,
     pub rerank_provider: Option<String>,
+    pub crossref_enabled: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]

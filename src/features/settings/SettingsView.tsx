@@ -263,6 +263,41 @@ function SharpenResults() {
 	);
 }
 
+/** Looks a paper's DOI up in Crossref for the exact title, authors, year and journal. Sends the DOI only. */
+function DetailsLookup() {
+	const { data: settings } = useSettings();
+	const qc = useQueryClient();
+	if (!settings) return null;
+	const toggle = async (on: boolean) => {
+		await api.updateSettings({ crossrefEnabled: on });
+		await qc.invalidateQueries({ queryKey: keys.settings });
+	};
+	return (
+		<div className="flex flex-col gap-2">
+			<Checkbox
+				isSelected={settings.crossrefEnabled}
+				onChange={toggle}
+				className={cx(
+					"group flex cursor-default items-center gap-2.5 text-[13px]",
+					focus,
+				)}
+			>
+				<span className="flex size-4 items-center justify-center rounded border border-input bg-card text-primary-foreground group-data-[selected]:border-primary group-data-[selected]:bg-primary">
+					<CheckIcon className="size-4 opacity-0 group-data-[selected]:opacity-100" />
+				</span>
+				Look up papers in Crossref
+			</Checkbox>
+			<p className="text-sm leading-relaxed text-muted-foreground">
+				For a paper with a DOI, Chingui asks Crossref (api.crossref.org) for the
+				exact title, authors, year and journal, and uses them only if the title
+				is found in the paper itself. Only the DOI is sent, never your text or
+				your keys. Papers you already added are updated with Refresh all details
+				in the library. Details you edited are kept.
+			</p>
+		</div>
+	);
+}
+
 /** Two option cards for the model behind meaning search, and a status panel for the chosen one. */
 function SearchModel() {
 	const status = useEmbeddingStatus();
@@ -681,6 +716,9 @@ export function SettingsView() {
 							</Section>
 							<Section title="Scanned pages">
 								<ScannedPages />
+							</Section>
+							<Section title="Paper details">
+								<DetailsLookup />
 							</Section>
 						</TabPanel>
 						<TabPanel id="usage" className="outline-none">
