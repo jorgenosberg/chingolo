@@ -225,6 +225,9 @@ pub struct AppSettings {
     pub embedding_notice_dismissed: bool,
     /// Search results are reordered by the chat model (sends the top passages to its provider).
     pub rerank_enabled: bool,
+    /// Model for reranking and the provider it belongs to. Without them the chat model is used.
+    pub rerank_model: Option<String>,
+    pub rerank_provider: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Type)]
@@ -236,6 +239,9 @@ pub struct SettingsPatch {
     pub default_provider: Option<String>,
     pub embedding_notice_dismissed: Option<bool>,
     pub rerank_enabled: Option<bool>,
+    /// An empty string goes back to the chat model.
+    pub rerank_model: Option<String>,
+    pub rerank_provider: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]

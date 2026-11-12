@@ -120,6 +120,35 @@ async fn provider_and_key(state: &AppState, provider_id: &str) -> Result<(Arc<dy
     Ok((provider, key))
 }
 
+/// Where reranking goes, or `None` when it is off: the model chosen in Settings if its provider has
+/// a key, else the conversation's own provider (the model is then `None`, meaning the chat model).
+async fn rerank_target(
+    state: &AppState,
+    chat_provider: &Arc<dyn Provider>,
+    chat_key: &str,
+) -> Result<Option<(Arc<dyn Provider>, String, Option<String>)>> {
+    let (on, model, provider) = state
+        .db
+        .call(|c| {
+            Ok((
+                settings::get_bool(c, "rerank_enabled")?,
+                settings::get(c, "rerank_model")?.filter(|m| !m.is_empty()),
+                settings::get(c, "rerank_provider")?.filter(|p| !p.is_empty()),
+            ))
+        })
+        .await?;
+    if !on {
+        return Ok(None);
+    }
+    if let (Some(model), Some(provider)) = (model, provider) {
+        match provider_and_key(state, &provider).await {
+            Ok((p, key)) => return Ok(Some((p, key, Some(model)))),
+            Err(e) => log::warn!("rerank model's provider {provider} unavailable, using the chat model: {e}"),
+        }
+    }
+    Ok(Some((chat_provider.clone(), chat_key.to_string(), None)))
+}
+
 struct Prepared {
     user_message: Message,
     assistant_message: Message,
@@ -149,8 +178,7 @@ pub async fn send(
     let provider_id = provider.id().to_string();
     let can_use_tools = provider.capabilities().tools;
     let (embedder, db) = (state.embedder.clone(), state.db.clone());
-    let rerank_provider = provider.clone();
-    let rerank_key = api_key.clone();
+    let rerank_setup = rerank_target(state, &provider, &api_key).await?;
     let prepared = state
         .db
         .call(move |c| {
@@ -175,13 +203,12 @@ pub async fn send(
             // Tools only when there is something to read and the model can call them.
             let scope = if can_use_tools { tools::scope_for(&tx, &conv)? } else { None };
             tx.commit()?;
-            let rerank = settings::get_bool(c, "rerank_enabled")?;
             let tool_ctx = scope.map(|filter| ToolCtx {
                 db,
                 embedder,
                 conversation_id: conv.id.clone(),
                 filter,
-                rerank: rerank.then(|| RerankCtx { provider: rerank_provider, api_key: rerank_key, model: model.clone() }),
+                rerank: rerank_setup.map(|(provider, api_key, own)| RerankCtx { provider, api_key, model: own.unwrap_or_else(|| model.clone()) }),
             });
             Ok(Prepared {
                 user_message,

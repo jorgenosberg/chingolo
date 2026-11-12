@@ -67,6 +67,8 @@ export const api = {
 				defaultProvider: null,
 				embeddingNoticeDismissed: null,
 				rerankEnabled: null,
+				rerankModel: null,
+				rerankProvider: null,
 				...patch,
 			}),
 		),

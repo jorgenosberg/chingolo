@@ -122,6 +122,9 @@ export type AppSettings = {
 	embeddingNoticeDismissed: boolean,
 	/**  Search results are reordered by the chat model (sends the top passages to its provider). */
 	rerankEnabled: boolean,
+	/**  Model for reranking and the provider it belongs to. Without them the chat model is used. */
+	rerankModel: string | null,
+	rerankProvider: string | null,
 };
 
 /**
@@ -395,6 +398,9 @@ export type SettingsPatch = {
 	defaultProvider: string | null,
 	embeddingNoticeDismissed: boolean | null,
 	rerankEnabled: boolean | null,
+	/**  An empty string goes back to the chat model. */
+	rerankModel: string | null,
+	rerankProvider: string | null,
 };
 
 export type SkippedFile = {

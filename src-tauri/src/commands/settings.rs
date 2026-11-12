@@ -40,6 +40,8 @@ async fn read_settings(state: &AppState) -> crate::error::Result<AppSettings> {
                 api_keys,
                 embedding_notice_dismissed: repo::get_bool(c, "embedding_notice_dismissed")?,
                 rerank_enabled: repo::get_bool(c, "rerank_enabled")?,
+                rerank_model: repo::get(c, "rerank_model")?.filter(|m| !m.is_empty()),
+                rerank_provider: repo::get(c, "rerank_provider")?.filter(|m| !m.is_empty()),
             })
         })
         .await
@@ -77,6 +79,12 @@ pub async fn update_settings(
             }
             if let Some(v) = patch.rerank_enabled {
                 repo::set_bool(c, "rerank_enabled", v)?;
+            }
+            if let Some(v) = patch.rerank_model {
+                repo::set(c, "rerank_model", &v)?;
+            }
+            if let Some(v) = patch.rerank_provider {
+                repo::set(c, "rerank_provider", &v)?;
             }
             Ok(())
         })

@@ -201,9 +201,22 @@ function ScannedPages() {
 function SharpenResults() {
 	const { data: settings } = useSettings();
 	const qc = useQueryClient();
+	const hasKeys = (settings?.apiKeys.length ?? 0) > 0;
+	const models = useModels(hasKeys);
 	if (!settings) return null;
 	const toggle = async (on: boolean) => {
 		await api.updateSettings({ rerankEnabled: on });
+		await qc.invalidateQueries({ queryKey: keys.settings });
+	};
+	const chosen: ModelRef | null =
+		settings.rerankModel && settings.rerankProvider
+			? { provider: settings.rerankProvider, id: settings.rerankModel }
+			: null;
+	const choose = async (m: ModelRef | null) => {
+		await api.updateSettings({
+			rerankModel: m?.id ?? "",
+			rerankProvider: m?.provider ?? "",
+		});
 		await qc.invalidateQueries({ queryKey: keys.settings });
 	};
 	return (
@@ -226,8 +239,26 @@ function SharpenResults() {
 				matches and puts the most relevant first. This finds the right passage
 				more often, especially for Norwegian papers. The 20 passages go to the
 				provider of the model you chat with, using your API key, and each
-				search takes a few seconds longer and costs a little more.
+				search takes a few seconds longer and costs a little more. A small,
+				fast model is enough and keeps both down.
 			</p>
+			{settings.rerankEnabled && (
+				<div className="flex items-center gap-2">
+					<ModelSelect
+						label="Model for sharpening"
+						models={models.data?.models ?? []}
+						value={chosen}
+						onChange={choose}
+						isDisabled={!hasKeys}
+						placeholder="Same model as the chat"
+					/>
+					{chosen && (
+						<Button variant="ghost" onPress={() => choose(null)}>
+							Use the chat model
+						</Button>
+					)}
+				</div>
+			)}
 		</div>
 	);
 }
