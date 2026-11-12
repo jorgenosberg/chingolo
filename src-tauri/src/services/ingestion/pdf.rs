@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use pdfium_render::prelude::*;
 
-use super::meta;
+use super::detect::{Info, detect};
 use super::ocr::{self, Ocr, OcrSlot};
 use super::segment::{Block, Join};
 use super::Extraction;
@@ -137,16 +137,13 @@ impl PdfReader {
         }
 
         let info = |t| doc.metadata().get(t).map(|m| m.value().trim().to_string()).filter(|s| !s.is_empty());
-        let head_text = blocks.iter().filter(|b| b.page <= 3).map(|b| b.text.as_str()).collect::<Vec<_>>().join(" ");
-        let meta = Extracted {
-            title: info(PdfDocumentMetadataTagType::Title)
-                .and_then(|t| meta::clean_title(&t))
-                .or_else(|| meta::title_from_first_page(&blocks)),
-            authors: info(PdfDocumentMetadataTagType::Author).map(|a| meta::split_authors(&a)).unwrap_or_default(),
-            year: meta::find_year(&head_text, current_year()),
-            doi: meta::find_doi(&head_text, &path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()),
-            ..Default::default()
+        let file_name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let found = Info {
+            title: info(PdfDocumentMetadataTagType::Title),
+            author: info(PdfDocumentMetadataTagType::Author),
+            subject: info(PdfDocumentMetadataTagType::Subject),
         };
+        let meta = detect(&found, &blocks, &file_name, current_year());
         Ok(Extraction { pages, blocks, meta, unreadable_pages: unreadable })
     }
 }

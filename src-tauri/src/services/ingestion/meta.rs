@@ -5,29 +5,33 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-use super::segment::Block;
-
 static DOI: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"\b10\.\d{4,9}/[^\s"<>]+"#).unwrap());
 static YEAR_LABELLED: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)(?:©|copyright|published|accepted|received)[^0-9]{0,30}((?:19|20)\d{2})").unwrap()
+    Regex::new(r"(?i)(?:©|copyright|published|accepted|received|approved)[^0-9]{0,30}((?:19|20)\d{2})").unwrap()
 });
+
+/// Every DOI in the text, in order, with trailing punctuation removed.
+pub fn dois(text: &str) -> Vec<String> {
+    DOI.find_iter(text)
+        .map(|m| m.as_str().trim_end_matches(['.', ',', ';', ':', ')', ']', '}', '"', '\'']).to_string())
+        // "10.1234/" alone is not a DOI
+        .filter(|d| d.len() > d.find('/').unwrap_or(0) + 1)
+        .collect()
+}
+
+/// True if the DOI's suffix is the file name ("science.1131669.pdf" and 10.1126/science.1131669).
+pub fn doi_matches_file(doi: &str, file_name: &str) -> bool {
+    let stem = file_name.rsplit_once('.').map_or(file_name, |(s, _)| s).to_lowercase();
+    let suffix = doi.split_once('/').map_or(String::new(), |(_, s)| s.to_lowercase());
+    stem.len() >= 6 && suffix.len() >= 6 && (stem.contains(&suffix) || suffix.contains(&stem))
+}
 
 /// The DOI of this document. Pages often mention other DOIs (a neighbouring article on a scanned
 /// journal page, "related articles" on a cover sheet), so a DOI that matches the file name wins
 /// ("science.1131669.pdf" and 10.1126/science.1131669). Otherwise the first one in the text.
 pub fn find_doi(text: &str, file_name: &str) -> Option<String> {
-    let stem = file_name.rsplit_once('.').map_or(file_name, |(s, _)| s).to_lowercase();
-    let dois: Vec<String> = DOI
-        .find_iter(text)
-        .map(|m| m.as_str().trim_end_matches(['.', ',', ';', ':', ')', ']', '}', '"', '\'']).to_string())
-        // "10.1234/" alone is not a DOI
-        .filter(|d| d.len() > d.find('/').unwrap_or(0) + 1)
-        .collect();
-    let suffix = |d: &str| d.split_once('/').map_or(String::new(), |(_, s)| s.to_lowercase());
-    dois.iter()
-        .find(|d| stem.len() >= 6 && suffix(d).len() >= 6 && (stem.contains(&suffix(d)) || suffix(d).contains(&stem)))
-        .or(dois.first())
-        .cloned()
+    let all = dois(text);
+    all.iter().find(|d| doi_matches_file(d, file_name)).or(all.first()).cloned()
 }
 
 /// A year in a clearly labelled spot ("© 2004", "Published 1998"). Bare or parenthesised years are
@@ -38,9 +42,26 @@ pub fn find_year(text: &str, max_year: i32) -> Option<i32> {
     YEAR_LABELLED.captures(text).and_then(|c| ok(&c[1]))
 }
 
-/// Rejects titles that are file names or editor leftovers.
+static MARKUP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<[^>]*>").unwrap());
+/// A symbol between two letters ("c~nv~Z~t~~"): the text layer is garbled.
+static GARBLED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\p{L}[~^|@#$%*+=<>\\{}]+\p{L}").unwrap());
+static SERIES_PART: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)^\s*(?:vol(?:ume)?\.?:?\s*\d+|(?:19|20)\d{2})\s*$").unwrap());
+
+/// Rejects titles that are file names, editor leftovers or garbled, and tidies the rest:
+/// markup removed, series text cut off ("Title; Monographs; Vol.:11; 2003"), a title that
+/// was printed twice in a row reduced to one.
 pub fn clean_title(raw: &str) -> Option<String> {
-    let t = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+    let t = MARKUP.replace_all(raw, "");
+    let t = t.replace(['\u{ad}', '\u{200b}'], "").replace(['\u{2011}', '\u{2010}'], "-");
+    let mut t = t.split_whitespace().collect::<Vec<_>>().join(" ");
+    if t.split(';').skip(1).any(|p| SERIES_PART.is_match(p)) {
+        t = t.split(';').next().unwrap_or("").trim().to_string();
+    }
+    let half = t.len() / 2;
+    if t.len() % 2 == 1 && t.is_char_boundary(half) && t[..half] == t[half + 1..] && t.as_bytes()[half] == b' ' {
+        t = t[..half].to_string();
+    }
     let lower = t.to_lowercase();
     let junk = t.chars().count() < 4
         || t.chars().count() > 300
@@ -49,6 +70,10 @@ pub fn clean_title(raw: &str) -> Option<String> {
         || lower.starts_with("doi:")
         || lower.starts_with("pii:")
         || lower.starts_with("http")
+        || lower.starts_with("pnas")
+        || lower.contains(" mal - ")
+        || lower.contains("template")
+        || GARBLED.is_match(&t)
         // one token with digits, such as "pnas200910579" or a catalogue number
         || (!t.contains(' ') && t.chars().any(|c| c.is_ascii_digit()))
         // a token with digits and then more codes: "pnas200910579 5887..5892"
@@ -56,6 +81,13 @@ pub fn clean_title(raw: &str) -> Option<String> {
         || [".pdf", ".doc", ".docx", ".indd", ".tex", ".qxd"].iter().any(|e| lower.ends_with(e))
         || t.chars().all(|c| !c.is_alphabetic());
     (!junk).then_some(t)
+}
+
+/// The year in a series part such as "; 2003" at the end of a file property title.
+pub fn series_year(raw: &str, max_year: i32) -> Option<i32> {
+    let last = raw.split(';').next_back()?;
+    let y = last.trim().parse::<i32>().ok()?;
+    (raw.contains(';') && (1900..=max_year).contains(&y)).then_some(y)
 }
 
 /// "A. Author; B. Other" or "A. Author and B. Other" into a list. Returns nothing for junk.
@@ -68,42 +100,13 @@ pub fn split_authors(raw: &str) -> Vec<String> {
         .flat_map(|s| s.split(" and "))
         .map(|s| s.trim().to_string())
         .filter(|s| s.chars().any(char::is_alphabetic) && s.chars().count() < 80)
-        .take(30)
+        .take(60)
         .collect()
-}
-
-/// The first page's headline: the first run of lines in the largest type,
-/// if that type is clearly bigger than the body text.
-pub fn title_from_first_page(blocks: &[Block]) -> Option<String> {
-    let page: Vec<&Block> = blocks.iter().filter(|b| b.page == 1 && b.font_size > 0.0).collect();
-    if page.len() < 3 {
-        return None;
-    }
-    let mut sizes: Vec<f32> = page.iter().map(|b| b.font_size).collect();
-    sizes.sort_by(f32::total_cmp);
-    let (median, max) = (sizes[sizes.len() / 2], sizes[sizes.len() - 1]);
-    if max < median * 1.25 {
-        return None;
-    }
-    let start = page.iter().position(|b| b.font_size >= max * 0.95)?;
-    let run: Vec<&str> = page[start..]
-        .iter()
-        .take(4)
-        .take_while(|b| b.font_size >= max * 0.95)
-        .map(|b| b.text.trim())
-        .collect();
-    clean_title(&run.join(" ")).filter(|t| t.chars().count() >= 8)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::ingestion::segment::Join;
-
-    fn b(text: &str, size: f32) -> Block {
-        Block { page: 1, text: text.into(), rect: None, font_size: size, join: Join::Space }
-    }
-
     #[test]
     fn finds_dois_and_trims_punctuation() {
         assert_eq!(find_doi("see doi: 10.1126/science.1131669.", "x.pdf"), Some("10.1126/science.1131669".into()));
@@ -137,6 +140,13 @@ mod tests {
         assert_eq!(clean_title("PII: 0044-8486(93)90321-O"), None);
         assert_eq!(clean_title("pnas200910579 5887..5892"), None);
         assert_eq!(clean_title("doi:10.1016/j.dsr2.2006.05.038"), None);
+        assert_eq!(clean_title("pnas200910579 5887..5892"), None);
+        assert_eq!(clean_title("18100-NO Mal - Rapport Glomma sør2023"), None);
+        assert_eq!(clean_title("Chaetoceros concavicornis and C. c~nv~Z~t~~, increase mortality"), None);
+        assert_eq!(clean_title("Effects of <Emphasis Type=\"Italic\">Chaetoceros</Emphasis> on trout"), Some("Effects of Chaetoceros on trout".into()));
+        assert_eq!(clean_title("Manual on harmful marine microalgae; Monographs on oceanographic methodology; Vol.:11; 2003"), Some("Manual on harmful marine microalgae".into()));
+        assert_eq!(clean_title("Fiskehelserapporten 2024 Fiskehelserapporten 2024"), Some("Fiskehelserapporten 2024".into()));
+        assert_eq!(clean_title("Iron; light and growth"), Some("Iron; light and growth".into()));
         assert_eq!(clean_title("Protozoa and Myxozoa"), Some("Protozoa and Myxozoa".into()));
         assert_eq!(clean_title("Effects of iron on diatoms in 2004"), Some("Effects of iron on diatoms in 2004".into()));
     }
@@ -146,24 +156,5 @@ mod tests {
         assert_eq!(split_authors("P. W. Boyd; A. J. Watson and C. S. Law"), ["P. W. Boyd", "A. J. Watson", "C. S. Law"]);
         assert!(split_authors("Unknown").is_empty());
         assert!(split_authors("Administrator").is_empty());
-    }
-
-    #[test]
-    fn headline_is_the_first_run_in_the_largest_type() {
-        let blocks = vec![
-            b("Journal of Things", 9.0),
-            b("Effects of a diatom on", 18.0),
-            b("rainbow trout respiration", 18.0),
-            b("A. Author", 11.0),
-            b("Body text goes here and continues.", 10.0),
-            b("More body text on the page.", 10.0),
-        ];
-        assert_eq!(title_from_first_page(&blocks), Some("Effects of a diatom on rainbow trout respiration".into()));
-    }
-
-    #[test]
-    fn no_headline_when_type_sizes_are_flat() {
-        let blocks: Vec<_> = (0..6).map(|i| b(&format!("Line number {i} of ordinary text"), 10.0)).collect();
-        assert_eq!(title_from_first_page(&blocks), None);
     }
 }

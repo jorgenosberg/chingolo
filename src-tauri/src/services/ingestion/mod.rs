@@ -3,6 +3,7 @@
 
 #[cfg(test)]
 mod audit;
+pub mod detect;
 pub mod docx;
 pub mod import;
 pub mod meta;

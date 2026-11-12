@@ -1,5 +1,6 @@
 //! Ignored audit of metadata extraction and page quality on a folder of real papers.
 //! Run: CHINGUI_TEST_PAPERS=<folder> cargo test corpus_audit -- --ignored --nocapture
+//! With CHINGUI_OCR_DIR=<model folder> the metadata of scanned pages is read through text recognition.
 //! The folder must hold `expected-meta.json` (see docs/STATUS.md, "Slice 9 baseline").
 
 use std::collections::{BTreeMap, HashSet};
@@ -7,6 +8,7 @@ use std::path::Path;
 
 use serde_json::Value;
 
+use super::ocr::OcrSlot;
 use super::pdf::PdfReader;
 use crate::persistence::library::Extracted;
 
@@ -121,6 +123,7 @@ fn corpus_audit() {
     };
     let expected: Value = serde_json::from_slice(&std::fs::read(Path::new(&dir).join("expected-meta.json")).expect("expected-meta.json")).unwrap();
     let files = expected["files"].as_object().unwrap();
+    let mut slot = std::env::var("CHINGUI_OCR_DIR").ok().map(|d| OcrSlot::new(Some(d.into())));
 
     let mut totals: BTreeMap<&str, BTreeMap<Verdict, u32>> = BTreeMap::new();
     let (mut pages_total, mut pages_none, mut pages_low) = (0usize, 0usize, 0usize);
@@ -136,7 +139,12 @@ fn corpus_audit() {
         pages_total += out.pages.len();
         pages_none += none;
         pages_low += low;
-        let v = compare(&out.meta, want);
+        // the same read a "Refresh details" does: file properties and the first pages
+        let meta = match slot.as_mut() {
+            Some(slot) => reader.extract_meta(&path, slot).unwrap_or_default(),
+            None => reader.extract_meta(&path, &mut OcrSlot::default()).unwrap_or_default(),
+        };
+        let v = compare(&meta, want);
         for (field, verdict) in ["title", "authors", "year", "doi"].iter().zip(v) {
             *totals.entry(field).or_default().entry(verdict).or_default() += 1;
         }
@@ -151,10 +159,10 @@ fn corpus_audit() {
             name.chars().take(44).collect::<String>(), out.pages.len(), none, low, tag(v[0]), tag(v[1]), tag(v[2]), tag(v[3])
         );
         for (field, verdict, got) in [
-            ("title", v[0], out.meta.title.clone()),
-            ("authors", v[1], out.meta.authors.first().cloned()),
-            ("year", v[2], out.meta.year.map(|y| y.to_string())),
-            ("doi", v[3], out.meta.doi.clone()),
+            ("title", v[0], meta.title.clone()),
+            ("authors", v[1], meta.authors.first().cloned()),
+            ("year", v[2], meta.year.map(|y| y.to_string())),
+            ("doi", v[3], meta.doi.clone()),
         ] {
             if verdict == Verdict::Wrong {
                 println!("      {field}: got {:?}", got.map(|s| s.chars().take(90).collect::<String>()));
