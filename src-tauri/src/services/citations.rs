@@ -4,7 +4,8 @@
 //! - A quoted span (four words or more) must appear in a cited passage, or the citation is marked
 //!   as a quote mismatch.
 //! - A claim that shares almost no words with the passage it cites is marked weak. This is a
-//!   rough word-overlap test: it flags, it never removes, and it can't judge meaning.
+//!   rough word-overlap test: it flags, it never removes, and it can't judge meaning. It also can't
+//!   compare across languages (a Norwegian answer citing an English paper), so it skips those.
 
 use std::collections::{HashMap, HashSet};
 
@@ -74,7 +75,7 @@ pub fn check(text: &str, sources: &HashMap<u32, Source>) -> Checked {
                 (CitationStatus::QuoteMismatch, Some(false))
             } else {
                 let quoted_here = quotes.iter().any(|q| in_passage(q, passage));
-                let supported = claim_stems.len() < MIN_CLAIM_WORDS || {
+                let supported = claim_stems.len() < MIN_CLAIM_WORDS || language(&claim) != language(&sources[h].text) || {
                     let theirs = stems(passage);
                     claim_stems.intersection(&theirs).count() as f32 / claim_stems.len() as f32 >= WEAK_BELOW
                 };
@@ -216,6 +217,36 @@ fn norm(s: &str) -> String {
 }
 
 /// Content words cut to five letters, so "limitation" and "limits" meet.
+#[derive(PartialEq)]
+enum Lang {
+    Norwegian,
+    English,
+    Unknown,
+}
+
+const NORWEGIAN_WORDS: &[&str] = &[
+    "og", "ikke", "som", "det", "til", "med", "av", "pa", "er", "for", "har", "kan", "den", "de", "om", "fra", "ved", "men", "mot", "blir",
+    "eller", "ogsa", "denne", "disse", "hvor", "ble", "ved", "sa", "seg",
+];
+const ENGLISH_WORDS: &[&str] = &[
+    "the", "and", "of", "to", "is", "in", "that", "with", "as", "are", "was", "by", "on", "this", "which", "from", "be", "or", "it", "were", "have", "has",
+];
+
+/// Norwegian or English by which common function words the text uses more. Too few of either is unknown.
+fn language(s: &str) -> Lang {
+    let folded = fold(s);
+    let (mut no, mut en) = (0, 0);
+    for w in folded.split(|c: char| !c.is_alphanumeric()) {
+        no += NORWEGIAN_WORDS.contains(&w) as u32;
+        en += ENGLISH_WORDS.contains(&w) as u32;
+    }
+    match (no, en) {
+        (n, e) if n >= 3 && n > e => Lang::Norwegian,
+        (n, e) if e >= 3 && e > n => Lang::English,
+        _ => Lang::Unknown,
+    }
+}
+
 fn stems(s: &str) -> HashSet<String> {
     fold(s)
         .split(|c: char| !c.is_alphanumeric())
@@ -317,6 +348,21 @@ mod tests {
         assert!(c.text.contains("[S1]"), "flagged, not removed");
         let c = check("Iron limitation controls plankton growth in open ocean waters [S1].", &sources(&[IRON]));
         assert_eq!(c.citations[0].status, CitationStatus::Ok);
+    }
+
+    #[test]
+    fn a_norwegian_claim_on_an_english_passage_is_not_flagged_weak() {
+        let passage = "Of the roughly 5000 species of marine phytoplankton, about 300 can form blooms that discolour the water, and some 80 species are able to produce potent toxins.";
+        let claim = "Omtrent 300 arter kan danne oppblomstringer som misfarger vannet, og rundt 80 arter kan produsere kraftige toksiner";
+        let c = check(&format!("{claim} [S1]."), &sources(&[passage]));
+        assert_eq!(c.citations[0].status, CitationStatus::Ok);
+    }
+
+    #[test]
+    fn a_norwegian_claim_on_a_norwegian_passage_is_still_checked() {
+        let passage = "Det er ikke kjent hvor mye laks som dør av algeoppblomstring i oppdrettsanlegg langs kysten, men det er en stor risiko for fisk i merd.";
+        let c = check("Blåskjell og kråkebolle er viktige arter som lever på havbunnen og som ikke har noe med dette å gjøre [S1].", &sources(&[passage]));
+        assert_eq!(c.citations[0].status, CitationStatus::Weak);
     }
 
     #[test]
