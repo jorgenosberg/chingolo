@@ -192,7 +192,9 @@ pub struct Citation {
     pub passage_id: Id,
     pub document_id: Id,
     pub title: String,
-    /// Author and year such as "Boyd et al. 2004", empty if the document had neither.
+    /// Author and year such as "Boyd et al. 2004", empty if the document had neither. Replies
+    /// saved before it existed don't have it.
+    #[serde(default)]
     pub label: String,
     /// First page, 0 for Word documents.
     pub page: u32,

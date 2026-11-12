@@ -524,6 +524,18 @@ mod tests {
     }
 
     #[test]
+    fn citations_saved_before_labels_existed_still_load() {
+        let conn = test_conn();
+        let conv = create_conversation(&conn, None, None, "anthropic", None).unwrap();
+        let m = insert_message(&conn, &conv.id, Role::Assistant, "See [S1].", MessageStatus::Complete, None, None).unwrap();
+        let old = r#"[{"handle":1,"status":"ok","quoteVerified":null,"passageId":"p","documentId":"d","title":"T","page":3,"snippet":"s"}]"#;
+        set_citations(&conn, &m.id, old).unwrap();
+        let got = list_messages(&conn, &conv.id).unwrap();
+        assert_eq!(got[0].citations.len(), 1);
+        assert_eq!(got[0].citations[0].label, "");
+    }
+
+    #[test]
     fn fork_keeps_tool_turns_citations_scope_and_handles() {
         let mut conn = test_conn();
         let c = conv(&conn);
