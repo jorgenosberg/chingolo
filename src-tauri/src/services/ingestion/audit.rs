@@ -158,10 +158,15 @@ fn corpus_audit() {
 
     let mut totals: BTreeMap<&str, BTreeMap<Verdict, u32>> = BTreeMap::new();
     let (mut pages_total, mut pages_none, mut pages_low) = (0usize, 0usize, 0usize);
+    let mut garbled_pages = 0usize;
     println!("{:<44} {:>5} {:>4} {:>4} | title authors year doi", "file", "pages", "none", "low");
     for (name, want) in files {
         let path = Path::new(&dir).join(name);
-        let Ok(out) = reader.extract(&path, &|| false, &mut |_, _| {}) else {
+        let read = match slot.as_mut() {
+            Some(slot) => reader.extract_with(&path, slot, &|| false, &mut |_, _| {}),
+            None => reader.extract(&path, &|| false, &mut |_, _| {}),
+        };
+        let Ok(out) = read else {
             println!("{name}: could not be read");
             continue;
         };
@@ -195,6 +200,20 @@ fn corpus_audit() {
             "{:<44} {:>5} {:>4} {:>4} | {} {}   {} {}",
             name.chars().take(44).collect::<String>(), out.pages.len(), none, low, tag(v[0]), tag(v[1]), tag(v[2]), tag(v[3])
         );
+        // pages whose text layer looks broken (several different garbled words), from the stored text
+        let mut per_page: BTreeMap<u32, Vec<&str>> = BTreeMap::new();
+        for b in &out.blocks {
+            per_page.entry(b.page).or_default().push(&b.text);
+        }
+        let flagged: Vec<u32> = per_page.iter().filter(|(_, t)| super::pdf::is_garbled(t.iter().copied())).map(|(p, _)| *p).collect();
+        garbled_pages += flagged.len();
+        if !flagged.is_empty() {
+            println!("      garbled pages: {}", flagged.len());
+        }
+        for p in flagged.iter().take(3) {
+            let (bad, all) = super::pdf::garble_words(per_page[p].iter().copied());
+            println!("        p{p} ({} of {all} words): {}", bad.len(), bad.iter().take(8).copied().collect::<Vec<_>>().join(" "));
+        }
         for (field, verdict, got) in [
             ("title", v[0], meta.title.clone()),
             ("authors", v[1], meta.authors.first().cloned()),
@@ -212,4 +231,5 @@ fn corpus_audit() {
         println!("{field:<9} {:>3} {:>5} {:>5} {:>7}", n(Verdict::Hit), n(Verdict::Blank), n(Verdict::Wrong), n(Verdict::Skipped));
     }
     println!("pages: {pages_total} total, {pages_none} without text, {pages_low} flagged low");
+    println!("garbled text layers: {garbled_pages} pages with {} or more different garbled words", super::pdf::GARBLED_DISTINCT);
 }

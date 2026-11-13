@@ -2,8 +2,10 @@
 //! are split by position and why text outside the crop box is dropped.
 
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 
 use pdfium_render::prelude::*;
+use regex::Regex;
 
 use super::detect::{Info, detect};
 use super::ocr::{self, Ocr, OcrSlot};
@@ -17,8 +19,81 @@ const MIN_CHARS_PER_PAGE: usize = 20;
 /// Pages read for details. NINA reports put their citation line on page 4, and the edition year
 /// rule reads the copyright page, which is page 5 in the Manual. The other rules stop at 4.
 const META_PAGES: usize = 6;
-/// A page is "low" quality when more than 1 in 20 characters is a replacement or private-use mark.
+/// A page is "low" quality when more than 1 in 20 characters is a replacement or private-use mark,
+/// or when several different words in it are garbled (see `is_garbled`).
 const LOW_QUALITY_ODD_RATIO: usize = 20;
+
+/// Shapes that real words don't have but a broken font encoding makes: a digit in front of a letter
+/// run (`0DQXDORQ` for "Manual"), a digit inside one, or a symbol between two letters (`c~nv~Z~t~~`).
+static GARBLE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\d\p{L}{4,}|\p{L}{2,}\d\p{L}{2,}|\p{L}[~^|{}\\]\p{L}").unwrap());
+
+const ELEMENTS: &str = "H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe Co Ni Cu Zn Ga Ge As Se Br Kr Rb Sr Y Zr Nb Mo Tc Ru Rh Pd Ag Cd In Sn Sb Te I Xe Cs Ba La Ce Pr Nd Pm Sm Eu Gd Tb Dy Ho Er Tm Yb Lu Hf Ta W Re Os Ir Pt Au Hg Tl Pb Bi Po At Rn Fr Ra Ac Th Pa U Np Pu Am Cm Bk Cf Es Fm Md No Lr";
+
+/// A chemical formula such as `NaH2PO4`: element symbols with counts, at least one count. Digits
+/// inside a word are normal there, unlike in `DUPIXO0DULQH`, whose letters are no elements.
+fn is_formula(w: &str) -> bool {
+    let w = w.trim_start_matches(|c: char| c.is_ascii_digit());
+    let (mut chars, mut counted) = (w.chars().peekable(), false);
+    while let Some(c) = chars.next() {
+        if c.is_ascii_digit() {
+            counted = true;
+            continue;
+        }
+        if !c.is_ascii_uppercase() {
+            return false;
+        }
+        let mut sym = c.to_string();
+        if let Some(l) = chars.next_if(char::is_ascii_lowercase) {
+            sym.push(l);
+        }
+        if !ELEMENTS.split(' ').any(|e| e == sym) {
+            return false;
+        }
+    }
+    counted
+}
+
+/// The garbled words in some lines of text, and the word count. Words are runs of 3 or more
+/// letters (with what sticks to them) after trimming punctuation. A leading number on a
+/// capitalised word is a footnote or affiliation mark ("11Département", "3-4April"), not garble.
+pub fn garble_words<'a>(lines: impl IntoIterator<Item = &'a str>) -> (Vec<&'a str>, usize) {
+    let (mut bad, mut all) = (Vec::new(), 0);
+    for w in lines.into_iter().flat_map(str::split_whitespace) {
+        let w = w.trim_matches(|c: char| !c.is_alphanumeric());
+        if w.chars().filter(|c| c.is_alphabetic()).count() < 3 {
+            continue;
+        }
+        all += 1;
+        let core = w.trim_start_matches(|c: char| c.is_ascii_digit() || c == '-' || c == '\u{2013}');
+        let mut cs = core.chars();
+        let capitalised = cs.next().is_some_and(char::is_uppercase) && cs.clone().count() >= 2 && cs.all(char::is_lowercase);
+        if !(capitalised && core.len() < w.len()) && GARBLE.is_match(w) && !is_formula(w) {
+            bad.push(w);
+        }
+    }
+    (bad, all)
+}
+
+/// Recognised lines beat a garbled text layer when they have fewer garbled words and lose no more
+/// than a tenth of the layer's good words (recognition reads a table or a figure label differently,
+/// but a page that comes back much shorter has lost something).
+fn reads_better(layer: &[RawLine], ocr: &[RawLine]) -> bool {
+    let (bad_layer, all_layer) = garble_words(layer.iter().map(|l| l.text.as_str()));
+    let (bad_ocr, all_ocr) = garble_words(ocr.iter().map(|l| l.text.as_str()));
+    bad_ocr.len() < bad_layer.len() && all_ocr * 10 >= all_layer.saturating_sub(bad_layer.len()) * 9
+}
+
+/// How many different garbled words a page needs to count as having a broken text layer. One name
+/// with a digit in it ("PTX2sa"), even repeated, is not garble.
+pub const GARBLED_DISTINCT: usize = 3;
+
+/// True when the page's text layer is broken: several different garbled words.
+pub fn is_garbled<'a>(lines: impl IntoIterator<Item = &'a str>) -> bool {
+    let (mut bad, _) = garble_words(lines);
+    bad.sort_unstable();
+    bad.dedup();
+    bad.len() >= GARBLED_DISTINCT
+}
 
 pub struct PdfReader {
     pdfium: Pdfium,
@@ -111,11 +186,16 @@ impl PdfReader {
                 }
             };
             let mut ocr_read = false;
-            if quality == "none"
+            // A page with no text, or a text layer that is garbled, is read by recognition when the
+            // models are there. For a garbled layer the new text is kept only if it is better.
+            if (quality == "none" || quality == "low")
                 && let Some(engine) = ocr.get()
             {
                 match ocr_page(&page, engine) {
-                    Ok(l) if l.iter().map(|x| x.text.chars().filter(|c| c.is_alphanumeric()).count()).sum::<usize>() >= MIN_CHARS_PER_PAGE => {
+                    Ok(l)
+                        if l.iter().map(|x| x.text.chars().filter(|c| c.is_alphanumeric()).count()).sum::<usize>() >= MIN_CHARS_PER_PAGE
+                            && (quality == "none" || reads_better(&lines, &l)) =>
+                    {
                         lines = l;
                         quality = "ok";
                         ocr_read = true;
@@ -327,7 +407,7 @@ fn read_page(page: &PdfPage) -> std::result::Result<(Vec<RawLine>, &'static str)
 
     let quality = if letters < MIN_CHARS_PER_PAGE {
         "none"
-    } else if odd * LOW_QUALITY_ODD_RATIO > letters {
+    } else if odd * LOW_QUALITY_ODD_RATIO > letters || is_garbled(lines.iter().map(|l| l.text.as_str())) {
         "low"
     } else {
         "ok"
@@ -338,6 +418,31 @@ fn read_page(page: &PdfPage) -> std::result::Result<(Vec<RawLine>, &'static str)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn raw(text: &str) -> Vec<RawLine> {
+        vec![RawLine { text: text.into(), rect: [0.0; 4], font: 10.0, tight: false }]
+    }
+
+    #[test]
+    fn recognised_text_replaces_a_garbled_layer_only_when_it_is_better_and_not_much_shorter() {
+        let layer = raw("Collec8on Loca8on classifica8on of samples from the first survey and the second survey of the bay");
+        assert!(reads_better(&layer, &raw("Collection Location classification of samples from the first survey and the second survey of the bay")));
+        assert!(!reads_better(&layer, &raw("Collection Location classification of samples")), "a third of the words are gone");
+        assert!(!reads_better(&layer, &raw("Collec8on Loca8on classifica8on of samples from the first survey and the second survey of the bay")), "no better");
+    }
+
+    #[test]
+    fn broken_font_encodings_are_garble_and_chemistry_and_footnote_marks_are_not() {
+        let bad = |t: &str| garble_words([t]).0.len();
+        assert_eq!(bad("0DQXDORQ +DUPIXO0DULQH 0LFURDOJDH"), 3, "the Manual's cover: Manual on Harmful Marine Microalgae shifted by three");
+        assert_eq!(bad("Collec8on Loca8on and classifica8on"), 3, "a broken ti ligature");
+        assert_eq!(bad("and c~nv~Z~t~~ increase"), 1);
+        assert_eq!(bad("11Département 3-4April 1Introduction of the ocean"), 0, "numbers glued to a capitalised word");
+        assert_eq!(bad("NaH2PO4 Na2SiO3 NH4VO3 CH2OHCHOH 1CH2OHCHOH"), 0, "formulas");
+        assert_eq!(bad("measured 2.5 mg at 1500 m depth in 1993 (CO2) and 10.1038/nature02437"), 0);
+        assert!(is_garbled(["0DQXDORQ +DUPIXO0DULQH 0LFURDOJDH"]));
+        assert!(!is_garbled(["ekstrem2høy ekstrem2høy ekstrem2høy"]), "one odd word, even repeated, is not a broken layer");
+    }
 
     /// One page, two lines of 18 pt Helvetica. No xref table: pdfium rebuilds it.
     fn tiny_pdf() -> Vec<u8> {
