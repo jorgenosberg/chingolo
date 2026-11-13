@@ -1,4 +1,5 @@
 import { CaretDownIcon } from "@phosphor-icons/react";
+import { useMemo, useState } from "react";
 import {
 	Button,
 	Header,
@@ -14,9 +15,11 @@ import {
 	groupModels,
 	type ModelRef,
 	modelKey,
+	pickerModels,
 	providerName,
-	withSavedModel,
 } from "../lib/providers";
+import { useSettings } from "../lib/queries";
+import { ModelOption, modelHints, ShowAllButton } from "./ModelOption";
 import { cx, focus } from "./ui";
 
 export function ModelSelect({
@@ -27,6 +30,7 @@ export function ModelSelect({
 	isDisabled,
 	placeholder = "Choose a model",
 	className,
+	all,
 }: {
 	models: ModelInfo[];
 	value: ModelRef | null;
@@ -35,9 +39,19 @@ export function ModelSelect({
 	isDisabled?: boolean;
 	placeholder?: string;
 	className?: string;
+	/** List every model, with no favorites or curation (first-run setup). */
+	all?: boolean;
 }) {
-	const items = withSavedModel(models, value);
+	const [showAll, setShowAll] = useState(false);
+	const { data: settings } = useSettings();
+	const { items, hidden } = pickerModels(
+		models,
+		settings?.favoriteModels ?? [],
+		value,
+		showAll || !!all,
+	);
 	const groups = groupModels(items);
+	const hints = useMemo(() => modelHints(items), [items]);
 
 	return (
 		<Select
@@ -61,7 +75,7 @@ export function ModelSelect({
 				<SelectValue className="truncate data-[placeholder]:text-muted-foreground" />
 				<CaretDownIcon className="size-4 shrink-0 text-muted-foreground" />
 			</Button>
-			<Popover className="max-h-72 min-w-(--trigger-width) overflow-auto rounded-xl border border-border bg-card p-1 shadow-lg">
+			<Popover className="max-h-80 min-w-(--trigger-width) overflow-auto rounded-xl border border-border bg-card p-1 shadow-lg">
 				<ListBox className="outline-none">
 					{groups.map((g) => (
 						<ListBoxSection
@@ -80,26 +94,22 @@ export function ModelSelect({
 									textValue={m.displayName}
 									className="flex cursor-default items-center justify-between gap-3 rounded-md px-2.5 py-1.5 text-[13px] outline-none data-[focused]:bg-muted data-[selected]:font-medium"
 								>
-									<span className="truncate">{m.displayName}</span>
-									{m.inputTokenLimit ? (
-										<span className="shrink-0 text-xs text-muted-foreground">
-											{formatTokens(m.inputTokenLimit)}
-										</span>
-									) : null}
+									<ModelOption model={m} hints={hints.get(modelKey(m)) ?? []} />
 								</ListBoxItem>
 							))}
 						</ListBoxSection>
 					))}
 				</ListBox>
+				{!all && (
+					<ShowAllButton
+						hidden={hidden}
+						showAll={showAll}
+						onToggle={() => setShowAll((v) => !v)}
+					/>
+				)}
 			</Popover>
 		</Select>
 	);
-}
-
-export function formatTokens(n: number) {
-	return n >= 1_000_000
-		? `${+(n / 1_000_000).toFixed(1)}M`
-		: `${Math.round(n / 1000)}k`;
 }
 
 /**

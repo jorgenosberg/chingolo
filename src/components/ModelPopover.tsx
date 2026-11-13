@@ -1,5 +1,5 @@
 import { CheckIcon, SparkleIcon } from "@phosphor-icons/react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
 	Dialog,
 	DialogTrigger,
@@ -16,11 +16,12 @@ import {
 	groupModels,
 	type ModelRef,
 	modelKey,
+	pickerModels,
 	providerName,
 	sameModel,
-	withSavedModel,
 } from "../lib/providers";
-import { formatTokens } from "./ModelSelect";
+import { useSettings } from "../lib/queries";
+import { ModelOption, modelHints, ShowAllButton } from "./ModelOption";
 import { IconButton } from "./ui";
 
 /** Small button that opens a popover to see and change the conversation's model. */
@@ -39,8 +40,16 @@ export function ModelPopover({
 	isDisabled?: boolean;
 }) {
 	const [open, setOpen] = useState(false);
-	const items = withSavedModel(models, value);
+	const [showAll, setShowAll] = useState(false);
+	const { data: settings } = useSettings();
+	const { items, hidden } = pickerModels(
+		models,
+		settings?.favoriteModels ?? [],
+		value,
+		showAll,
+	);
 	const groups = groupModels(items);
+	const hints = useMemo(() => modelHints(items), [items]);
 	const current =
 		items.find((m) => sameModel(m, value))?.displayName ?? "none chosen";
 
@@ -85,7 +94,7 @@ export function ModelPopover({
 							setOpen(false);
 							onChange({ provider: m.provider, id: m.id });
 						}}
-						className="max-h-72 overflow-auto outline-none"
+						className="max-h-80 overflow-auto outline-none"
 					>
 						{groups.map((g) => (
 							<ListBoxSection
@@ -106,15 +115,13 @@ export function ModelPopover({
 									>
 										{({ isSelected }) => (
 											<>
-												<span className="truncate">{m.displayName}</span>
-												<span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
-													{m.inputTokenLimit
-														? formatTokens(m.inputTokenLimit)
-														: null}
-													{isSelected && (
-														<CheckIcon className="size-[17px] text-primary" />
-													)}
-												</span>
+												<ModelOption
+													model={m}
+													hints={hints.get(modelKey(m)) ?? []}
+												/>
+												{isSelected && (
+													<CheckIcon className="size-[17px] shrink-0 text-primary" />
+												)}
 											</>
 										)}
 									</ListBoxItem>
@@ -122,6 +129,11 @@ export function ModelPopover({
 							</ListBoxSection>
 						))}
 					</ListBox>
+					<ShowAllButton
+						hidden={hidden}
+						showAll={showAll}
+						onToggle={() => setShowAll((v) => !v)}
+					/>
 					{errors.map((e) => (
 						<p
 							key={e.provider}

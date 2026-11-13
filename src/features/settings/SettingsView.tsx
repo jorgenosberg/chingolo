@@ -9,6 +9,7 @@ import {
 	PauseIcon,
 	PlayIcon,
 	SlidersHorizontalIcon,
+	SparkleIcon,
 	TrashIcon,
 } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -29,15 +30,11 @@ import { Button, cx, focus, Spinner, TextInput } from "../../components/ui";
 import { api } from "../../lib/api";
 import type { ModelState } from "../../lib/bindings";
 import { useEmbeddingStatus } from "../../lib/library";
-import {
-	type ModelRef,
-	PROVIDERS,
-	type Provider,
-	providerName,
-} from "../../lib/providers";
+import { type ModelRef, PROVIDERS, type Provider } from "../../lib/providers";
 import { keys, useModels, useSettings } from "../../lib/queries";
 import { setTheme, type ThemePref, useTheme } from "../../lib/theme";
 import { mb } from "../library/EmbeddingNotice";
+import { ModelsSection } from "./ModelsSection";
 import { UsageSection } from "./UsageSection";
 
 const THEMES: { id: ThemePref; label: string }[] = [
@@ -47,7 +44,7 @@ const THEMES: { id: ThemePref; label: string }[] = [
 ];
 
 const TAB_KEY = "chingui.settingsTab";
-const TABS = ["general", "search", "usage", "privacy"];
+const TABS = ["general", "models", "search", "usage", "privacy"];
 
 function savedTab(): string {
 	try {
@@ -669,25 +666,7 @@ export function SettingsView() {
 			// remembering the tab is a convenience only
 		}
 	};
-	const qc = useQueryClient();
-	const { data: settings } = useSettings();
-	const hasKeys = (settings?.apiKeys.length ?? 0) > 0;
-	const models = useModels(hasKeys);
 	const theme = useTheme();
-	const defaultModel: ModelRef | null = settings?.defaultModel
-		? {
-				provider: settings.defaultProvider ?? "gemini",
-				id: settings.defaultModel,
-			}
-		: null;
-
-	const setDefaultModel = async (m: ModelRef) => {
-		await api.updateSettings({
-			defaultModel: m.id,
-			defaultProvider: m.provider,
-		});
-		await qc.invalidateQueries({ queryKey: keys.settings });
-	};
 
 	return (
 		<div className="flex h-full flex-col">
@@ -714,6 +693,10 @@ export function SettingsView() {
 							<SlidersHorizontalIcon className="size-4" />
 							General
 						</Tab>
+						<Tab id="models" className={tabClass}>
+							<SparkleIcon className="size-4" />
+							Models
+						</Tab>
 						<Tab id="search" className={tabClass}>
 							<MagnifyingGlassIcon className="size-4" />
 							Search
@@ -734,33 +717,6 @@ export function SettingsView() {
 							{PROVIDERS.map((p) => (
 								<ApiKeySection key={p.id} provider={p} />
 							))}
-
-							<Section title="Default model">
-								<ModelSelect
-									label="Default model"
-									models={models.data?.models ?? []}
-									value={defaultModel}
-									onChange={setDefaultModel}
-									isDisabled={!hasKeys}
-									placeholder={
-										hasKeys ? "Choose a model" : "Add an API key first"
-									}
-								/>
-								{models.isError && (
-									<p role="alert" className="text-sm text-problem">
-										Couldn't load models: {models.error.message}
-									</p>
-								)}
-								{models.data?.errors.map((e) => (
-									<p
-										key={e.provider}
-										role="alert"
-										className="text-sm text-problem"
-									>
-										Couldn't load {providerName(e.provider)} models: {e.message}
-									</p>
-								))}
-							</Section>
 
 							<Section title="Appearance">
 								<RadioGroup
@@ -785,6 +741,9 @@ export function SettingsView() {
 									))}
 								</RadioGroup>
 							</Section>
+						</TabPanel>
+						<TabPanel id="models" className="outline-none">
+							<ModelsSection />
 						</TabPanel>
 						<TabPanel id="search" className="outline-none">
 							<Section title="Search model">

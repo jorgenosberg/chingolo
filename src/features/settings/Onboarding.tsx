@@ -173,6 +173,7 @@ export function Onboarding() {
 							models={models}
 							value={model}
 							onChange={setModel}
+							all
 						/>
 						{error && (
 							<p role="alert" className="text-sm text-problem">
