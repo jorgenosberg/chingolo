@@ -29,6 +29,31 @@ pub async fn pick_provider(state: &AppState) -> crate::error::Result<String> {
 
 use crate::services::ingestion::details_ai;
 
+const FAVORITES_KEY: &str = "favorite_models";
+const MAX_FAVORITES: usize = 100;
+
+/// Favorites are stored as a JSON array of `provider/id`. Anything else reads as no favorites, so a
+/// damaged value can't break the pickers.
+fn parse_favorites(raw: Option<&str>) -> Vec<String> {
+    let list: Vec<String> = raw.and_then(|r| serde_json::from_str(r).ok()).unwrap_or_default();
+    clean_favorites(list)
+}
+
+/// Keeps entries shaped `provider/id`, drops repeats, keeps the user's order.
+fn clean_favorites(list: Vec<String>) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    list.into_iter()
+        .map(|m| m.trim().to_string())
+        .filter(|m| m.split_once('/').is_some_and(|(p, id)| !p.is_empty() && !id.is_empty()))
+        .filter(|m| seen.insert(m.clone()))
+        .take(MAX_FAVORITES)
+        .collect()
+}
+
+fn favorites_json(list: Vec<String>) -> String {
+    serde_json::to_string(&clean_favorites(list)).expect("a list of strings serialises")
+}
+
 async fn read_settings(state: &AppState) -> crate::error::Result<AppSettings> {
     let api_keys = providers_with_keys(state).await?;
     state
@@ -49,6 +74,7 @@ async fn read_settings(state: &AppState) -> crate::error::Result<AppSettings> {
                 metadata_ai_enabled: repo::get_bool(c, details_ai::ENABLED_KEY)?,
                 metadata_model: repo::get(c, details_ai::MODEL_KEY)?.filter(|m| !m.is_empty()),
                 metadata_provider: repo::get(c, details_ai::PROVIDER_KEY)?.filter(|m| !m.is_empty()),
+                favorite_models: parse_favorites(repo::get(c, FAVORITES_KEY)?.as_deref()),
             })
         })
         .await
@@ -108,6 +134,9 @@ pub async fn update_settings(
             }
             if let Some(v) = patch.metadata_provider {
                 repo::set(c, details_ai::PROVIDER_KEY, &v)?;
+            }
+            if let Some(v) = patch.favorite_models {
+                repo::set(c, FAVORITES_KEY, &favorites_json(v))?;
             }
             Ok(())
         })
@@ -184,4 +213,39 @@ pub async fn list_all_models(state: State<'_, AppState>) -> CmdResult<ModelList>
         }
     }
     Ok(ModelList { models, errors })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn v(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn favorites_round_trip_in_the_users_order() {
+        let list = v(&["openai/gpt-x", "gemini/flash", "gemini/pro"]);
+        assert_eq!(parse_favorites(Some(&favorites_json(list.clone()))), list);
+    }
+
+    #[test]
+    fn favorites_drop_repeats_and_malformed_entries() {
+        let saved = favorites_json(v(&["gemini/a", " gemini/a ", "nonsense", "/x", "openai/", "", "openai/b"]));
+        assert_eq!(parse_favorites(Some(&saved)), v(&["gemini/a", "openai/b"]));
+    }
+
+    #[test]
+    fn a_damaged_or_missing_value_means_no_favorites() {
+        assert!(parse_favorites(None).is_empty());
+        assert!(parse_favorites(Some("not json")).is_empty());
+        assert!(parse_favorites(Some(r#"{"a":1}"#)).is_empty());
+        assert!(parse_favorites(Some("[]")).is_empty());
+    }
+
+    #[test]
+    fn the_list_is_capped() {
+        let many: Vec<String> = (0..300).map(|i| format!("gemini/m{i}")).collect();
+        assert_eq!(parse_favorites(Some(&favorites_json(many))).len(), MAX_FAVORITES);
+    }
 }

@@ -74,6 +74,7 @@ export const api = {
 				metadataAiEnabled: null,
 				metadataModel: null,
 				metadataProvider: null,
+				favoriteModels: null,
 				...patch,
 			}),
 		),

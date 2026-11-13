@@ -243,6 +243,9 @@ pub struct AppSettings {
     /// Model for that and the provider it belongs to. Without them the default chat model is used.
     pub metadata_model: Option<String>,
     pub metadata_provider: Option<String>,
+    /// Models the user starred, as `provider/id`, in the order they chose. Empty means the pickers
+    /// show the curated default list.
+    pub favorite_models: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Type)]
@@ -263,6 +266,8 @@ pub struct SettingsPatch {
     /// An empty string goes back to the default chat model.
     pub metadata_model: Option<String>,
     pub metadata_provider: Option<String>,
+    /// The whole list, replacing the saved one. An empty list clears it.
+    pub favorite_models: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]

@@ -148,6 +148,11 @@ export type AppSettings = {
 	/**  Model for that and the provider it belongs to. Without them the default chat model is used. */
 	metadataModel: string | null,
 	metadataProvider: string | null,
+	/**
+	 *  Models the user starred, as `provider/id`, in the order they chose. Empty means the pickers
+	 *  show the curated default list.
+	 */
+	favoriteModels: string[],
 };
 
 /**
@@ -489,6 +494,8 @@ export type SettingsPatch = {
 	/**  An empty string goes back to the default chat model. */
 	metadataModel: string | null,
 	metadataProvider: string | null,
+	/**  The whole list, replacing the saved one. An empty list clears it. */
+	favoriteModels: string[] | null,
 };
 
 export type SkippedFile = {
