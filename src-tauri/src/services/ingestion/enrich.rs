@@ -174,23 +174,28 @@ pub async fn enrich(db: &Db, client: &reqwest::Client, bases: &Bases, ai: Option
     Ok(Outcome { document: Some(document), failed })
 }
 
-/// Asks the model about a document whose title, authors or year is still missing and stores what
-/// the text backs up. Every call is recorded as usage of kind `metadata`.
+/// Asks the model about a document whose title, authors or year is still missing, or a report with
+/// no ISBN or publisher (then excerpts from later pages go along), and stores what the text backs up. Every call is recorded as usage of kind `metadata`.
 async fn ai_step(db: &Db, target: &Target, id: &str) -> Result<Option<Document>> {
     let id = id.to_string();
-    let (doc, head) = db
+    let (doc, head, later) = db
         .call({
             let id = id.clone();
-            move |c| Ok((repo::get_document(c, &id)?, repo::head_text(c, &id, 4)?))
+            move |c| {
+                let doc = repo::get_document(c, &id)?;
+                let later = repo::imprint_passages(c, &id, doc.page_count)?;
+                Ok((doc, repo::head_text(c, &id, 4)?, later))
+            }
         })
         .await?;
     let want = Missing::of(&doc);
-    if !want.worth_asking() || head.trim().is_empty() {
+    if !want.worth_asking(&doc) || head.trim().is_empty() {
         log::debug!("details model: nothing to ask for {}", doc.original_name);
         return Ok(None);
     }
     log::info!("details model {}: asking about {} (title {}, authors {}, year {} missing)", target.model, doc.original_name, want.title, want.authors, want.year);
-    let asked = details_ai::ask(target, &doc, &head, &want, current_year()).await;
+    let imprint = if want.imprint_wanted(&doc) { details_ai::imprint_snippets(&later) } else { String::new() };
+    let asked = details_ai::ask(target, &doc, &head, &imprint, &want, current_year()).await;
     let (tokens, latency_ms, ok) = match &asked {
         Ok(a) => (a.tokens, a.latency_ms, true),
         Err(_) => ((0, 0, 0), 0, false),
@@ -660,11 +665,52 @@ mod tests {
         db.call({
             let id = id.clone();
             move |c| {
-                repo::apply_metadata(c, &id, &Extracted { title: Some("T".into()), authors: vec!["A B".into()], year: Some(2000), ..Default::default() }, "file", true)
+                repo::apply_metadata(
+                    c,
+                    &id,
+                    &Extracted { title: Some("T".into()), authors: vec!["A B".into()], year: Some(2000), isbn: Some("978-82-577-6867-6".into()), publisher: Some("NIVA".into()), ..Default::default() },
+                    "file",
+                    true,
+                )
             }
         })
         .await
         .unwrap();
+        assert!(ai_step(&db, &target("{}"), &id).await.unwrap().is_none());
+        assert!(usage_kinds(&db).await.is_empty());
+    }
+
+    /// A report with title, authors and year but no ISBN or publisher: the copyright page is on page 6.
+    async fn report_with_a_later_imprint(journal: Option<&str>) -> (Db, String, tempfile::TempDir) {
+        let (db, id, dir) = setup(false, "m.pdf", REPORT, None).await;
+        db.call({
+            let id = id.clone();
+            let journal = journal.map(String::from);
+            move |c| {
+                repo::apply_metadata(c, &id, &Extracted { title: Some("T".into()), authors: vec!["A B".into()], year: Some(2000), journal, ..Default::default() }, "file", true)?;
+                c.execute(
+                    "INSERT INTO passages (id, document_id, ordinal, page_start, page_end, text, text_folded) VALUES ('p6', ?1, 9, 6, 6, ?2, ?2)",
+                    rusqlite::params![id, "Second revised edition. First published in 2003. ISBN 92-3-103948-2 © UNESCO Publishing 2004"],
+                )?;
+                Ok(())
+            }
+        })
+        .await
+        .unwrap();
+        (db, id, dir)
+    }
+
+    #[tokio::test]
+    async fn a_report_without_an_imprint_gets_it_from_later_pages() {
+        let (db, id, _dir) = report_with_a_later_imprint(None).await;
+        let doc = ai_step(&db, &target(r#"{"isbn": "92-3-103948-2", "publisher": "UNESCO Publishing"}"#), &id).await.unwrap().unwrap();
+        assert_eq!((doc.isbn.as_deref(), doc.publisher.as_deref()), (Some("92-3-103948-2"), Some("UNESCO Publishing")));
+        assert_eq!(doc.meta_source.get("isbn").map(String::as_str), Some("ai"));
+    }
+
+    #[tokio::test]
+    async fn an_article_is_not_sent_for_its_imprint() {
+        let (db, id, _dir) = report_with_a_later_imprint(Some("Nature")).await;
         assert!(ai_step(&db, &target("{}"), &id).await.unwrap().is_none());
         assert!(usage_kinds(&db).await.is_empty());
     }

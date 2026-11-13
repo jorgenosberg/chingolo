@@ -14,8 +14,9 @@ use crate::persistence::library::{Extracted, NewPage};
 
 /// Pages with fewer letters than this count as having no text.
 const MIN_CHARS_PER_PAGE: usize = 20;
-/// Pages read for details. NINA reports put their citation line on page 4.
-const META_PAGES: usize = 4;
+/// Pages read for details. NINA reports put their citation line on page 4, and the edition year
+/// rule reads the copyright page, which is page 5 in the Manual. The other rules stop at 4.
+const META_PAGES: usize = 6;
 /// A page is "low" quality when more than 1 in 20 characters is a replacement or private-use mark.
 const LOW_QUALITY_ODD_RATIO: usize = 20;
 

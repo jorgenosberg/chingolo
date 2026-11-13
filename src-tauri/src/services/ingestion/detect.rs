@@ -488,6 +488,19 @@ fn first_doi(text: &str) -> Option<String> {
     meta::dois(text).into_iter().next()
 }
 
+/// A reprint's year: when the first six pages name an edition ("Second revised edition") and a
+/// copyright line gives a year ("© UNESCO 2004"), that year, because "First published in 2003"
+/// is the first edition's. Later pages are read for this only.
+fn edition_year(blocks: &[Block], max_year: i32) -> Option<i32> {
+    let text = blocks.iter().filter(|b| (1..=6).contains(&b.page)).map(|b| normalize(&b.text)).collect::<Vec<_>>().join(" ");
+    re(r"(?i)\b(?:(?:second|third|fourth|fifth|sixth|seventh|\d{1,2}(?:st|nd|rd|th))\s+(?:(?:revised|updated|expanded|new)\s+)*edition|(?:revised|updated|new)\s+edition)\b").find(&text)?;
+    re(r"(?i)(?:©|\(c\)|copyright)\s*(?:[\p{L}&.-]+\s+){0,4}?((?:19|20)\d{2})")
+        .captures_iter(&text)
+        .filter_map(|c| c[1].parse::<i32>().ok())
+        .filter(|y| *y <= max_year)
+        .max()
+}
+
 /// Title, authors, year, DOI and more from file properties and the first pages.
 pub fn detect(info: &Info, blocks: &[Block], file_name: &str, max_year: i32) -> Extracted {
     let ls = lines_of(blocks);
@@ -543,6 +556,11 @@ pub fn detect(info: &Info, blocks: &[Block], file_name: &str, max_year: i32) -> 
         .or_else(|| re(r"(?i)\b(?:approved|accepted) (?:\d{1,2} )?[a-z]+ (?:\d{1,2}, )?((?:19|20)\d{2})").captures(&head).and_then(|c| c[1].parse().ok()))
         .or_else(|| info.title.as_deref().and_then(|t| meta::series_year(t, max_year)))
         .filter(|y| (1900..=max_year).contains(y));
+    if let Some(y) = edition_year(blocks, max_year)
+        && m.year.is_none_or(|cur| y > cur)
+    {
+        m.year = Some(y);
+    }
 
     // DOI: file properties, the cover sheet, then the text. A page that starts in the middle of a
     // sentence is a page from the middle of an article, and the DOI on it is the neighbour's.
@@ -588,6 +606,22 @@ mod tests {
     fn with_info(rows: &[Row], file: &str, title: &str, author: &str) -> Extracted {
         let info = Info { title: Some(title.into()), author: Some(author.into()), subject: None };
         detect(&info, &blocks(rows), file, 2026)
+    }
+
+    #[test]
+    fn a_later_copyright_year_beats_first_published_when_the_text_names_an_edition() {
+        let rows: &[Row] = &[
+            (1, 30.0, "Manual on Harmful Marine Microalgae"),
+            (5, 8.0, "Second revised edition"), (5, 8.0, "First published in 2003"), (5, 8.0, "by the United Nations Educational, Scientific and Cultural Organization"),
+            (5, 8.0, "ISBN 92-3-103948-2"), (5, 8.0, "© UNESCO 2004"),
+        ];
+        assert_eq!(run(rows, "m.pdf").year, Some(2004));
+        // no edition statement: a copyright line on a later page changes nothing
+        let plain: &[Row] = &[(1, 30.0, "Manual on Harmful Marine Microalgae"), (1, 8.0, "First published in 2003"), (5, 8.0, "© UNESCO 2004")];
+        assert_eq!(run(plain, "m.pdf").year, Some(2003));
+        // an edition statement with an earlier copyright year doesn't move the year back
+        let earlier: &[Row] = &[(1, 30.0, "Manual on Harmful Marine Microalgae"), (1, 8.0, "Published 2005"), (5, 8.0, "Second edition © UNESCO 2004")];
+        assert_eq!(run(earlier, "m.pdf").year, Some(2005));
     }
 
     #[test]

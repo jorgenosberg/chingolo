@@ -176,6 +176,15 @@ pub fn head_text(conn: &Connection, id: &str, pages: u32) -> Result<String> {
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?.join(" "))
 }
 
+/// Passages that start on pages 5 to 10 or on the last two pages: where a report's imprint (ISBN,
+/// publisher, edition) sits when the title pages don't show it.
+pub fn imprint_passages(conn: &Connection, id: &str, page_count: Option<u32>) -> Result<Vec<String>> {
+    let tail = page_count.unwrap_or(0).saturating_sub(1).max(11);
+    let mut stmt = conn.prepare("SELECT text FROM passages WHERE document_id = ?1 AND ((page_start BETWEEN 5 AND 10) OR page_start >= ?2) ORDER BY ordinal")?;
+    let rows = stmt.query_map(params![id, tail], |r| r.get::<_, String>(0))?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
 pub fn set_status(conn: &Connection, id: &str, status: DocStatus, error: Option<&str>) -> Result<Document> {
     let n = conn.execute(
         "UPDATE documents SET status = ?1, error = ?2, updated_at = ?3 WHERE id = ?4",
