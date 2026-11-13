@@ -67,7 +67,7 @@ export function ModelSelect({
 		>
 			<Button
 				className={cx(
-					"flex h-8 w-full items-center justify-between gap-2 rounded-lg border border-input bg-card px-2.5 text-[13px]",
+					"flex min-h-8 w-full items-center justify-between gap-2 rounded-lg border border-input bg-card px-2.5 py-1 text-left text-[13px]",
 					"data-[hovered]:bg-muted data-[disabled]:opacity-40",
 					focus,
 				)}

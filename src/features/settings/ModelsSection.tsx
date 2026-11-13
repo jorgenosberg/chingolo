@@ -1,8 +1,9 @@
-import { StarIcon } from "@phosphor-icons/react";
+import { CheckIcon, StarIcon } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { Checkbox } from "react-aria-components";
 import {
+	formatModelDate,
 	formatPrice,
 	formatTokens,
 	modelDetails,
@@ -123,13 +124,20 @@ export function ModelsSection() {
 					isSelected={showOlder}
 					onChange={setShowOlder}
 					className={cx(
-						"flex cursor-default items-center gap-2 text-[13px]",
+						"group flex cursor-pointer items-center gap-2.5 self-start text-[13px] hover:text-foreground",
 						focus,
 					)}
 				>
+					<span className="flex size-4 items-center justify-center rounded border border-input bg-card text-primary-foreground group-data-[selected]:border-primary group-data-[selected]:bg-primary">
+						<CheckIcon className="size-4 opacity-0 group-data-[selected]:opacity-100" />
+					</span>
 					Include older, preview and retired models
 				</Checkbox>
 
+				<p className="text-xs text-muted-foreground">
+					Prices are US dollars per million tokens, input / output, from a
+					public price list. Context is the most the model can read at once.
+				</p>
 				{models.isError && (
 					<p role="alert" className="text-sm text-problem">
 						Couldn't load models: {models.error.message}
@@ -171,7 +179,9 @@ export function ModelsSection() {
 											<span className="truncate">{m.displayName}</span>
 											<span className="truncate text-xs text-muted-foreground">
 												{[
-													f?.releaseDate,
+													f?.releaseDate
+														? formatModelDate(f.releaseDate)
+														: null,
 													f?.reasoning ? "Reasoning" : null,
 													f?.deprecated ? "Retiring" : null,
 												]
@@ -196,10 +206,6 @@ export function ModelsSection() {
 				{rows.length === 0 && models.data && (
 					<p className="text-sm text-muted-foreground">No models match.</p>
 				)}
-				<p className="text-xs text-muted-foreground">
-					Prices are US dollars per million tokens, input / output, from a
-					public price list. Context is the most the model can read at once.
-				</p>
 			</div>
 		</div>
 	);

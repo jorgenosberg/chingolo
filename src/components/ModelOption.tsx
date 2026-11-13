@@ -7,6 +7,23 @@ export function formatTokens(n: number) {
 		: `${Math.round(n / 1000)}k`;
 }
 
+/**
+ * `2026-11-13` or `2026-11` from the price table as a readable date in the system's locale
+ * ("November 13, 2026", "13. november 2026"). Anything else is returned as it came.
+ */
+export function formatModelDate(iso: string): string {
+	const m = /^(\d{4})-(\d{2})(?:-(\d{2}))?$/.exec(iso);
+	if (!m) return iso;
+	const [y, mo, d] = [Number(m[1]), Number(m[2]), m[3] ? Number(m[3]) : null];
+	const date = new Date(y, mo - 1, d ?? 1);
+	if (Number.isNaN(date.getTime())) return iso;
+	return date.toLocaleDateString(undefined, {
+		year: "numeric",
+		month: "long",
+		...(d ? { day: "numeric" } : {}),
+	});
+}
+
 /** USD per 1M tokens: `$5`, `$0.30`, `$2.50`. */
 export function formatPrice(n: number) {
 	return `$${Number.isInteger(n) ? n : n.toFixed(2)}`;
@@ -55,8 +72,9 @@ export function modelDetails(m: ModelInfo): string {
 	if (!f) return `${m.id}\nNo price data for this model.`;
 	return [
 		m.id,
-		f.releaseDate && `Released ${f.releaseDate}`,
-		f.knowledgeCutoff && `Knows about events up to ${f.knowledgeCutoff}`,
+		f.releaseDate && `Released ${formatModelDate(f.releaseDate)}`,
+		f.knowledgeCutoff &&
+			`Knows about events up to ${formatModelDate(f.knowledgeCutoff)}`,
 		f.cachedPrice != null &&
 			`Cached input ${formatPrice(f.cachedPrice)} per 1M tokens`,
 		capabilities(m).length > 0 && `Can use: ${capabilities(m).join(", ")}`,
