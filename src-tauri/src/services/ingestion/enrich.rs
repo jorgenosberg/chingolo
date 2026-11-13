@@ -350,7 +350,17 @@ async fn title_step(db: &Db, client: &reqwest::Client, bases: &Bases, id: &str) 
         log::info!("title search: no fitting record for {}", doc.original_name);
         return Ok(None);
     };
-    let found = crossref::to_extracted(&top, doc.publisher.is_some());
+    let mut found = crossref::to_extracted(&top, doc.publisher.is_some());
+    if top.source == "datacite" {
+        // Repository titles carry edition text ("... 2nd revised edition.") and creator lists are cut
+        // short ("et al"), so they only fill a title or authors the document doesn't have.
+        if doc.title.is_some() {
+            found.title = None;
+        }
+        if !doc.authors.is_empty() {
+            found.authors.clear();
+        }
+    }
     log::info!("title search: {} matched, adding {}", doc.original_name, found.fields().join(", "));
     let updated = db
         .call(move |c| {
@@ -556,6 +566,8 @@ mod tests {
         let doc = enrich(&db, &crossref::http_client(), &Bases::at(&base), None, &id).await.unwrap().document.unwrap();
         assert_eq!((doc.doi.as_deref(), doc.year, doc.publisher.as_deref()), (Some("10.25607/obp-1370"), Some(2004), Some("Unesco")));
         assert_eq!(doc.meta_source.get("doi").map(String::as_str), Some("datacite"));
+        assert_eq!((doc.title.as_deref(), doc.authors.as_slice()), (Some("Manual on Harmful Marine Microalgae"), ["Gustaaf M. Hallegraeff".to_string()].as_slice()), "the file's title and authors stay");
+        assert_eq!(doc.meta_source.get("title").map(String::as_str), Some("file"));
         assert!(seen.lock().unwrap()[1].0.starts_with("GET /datacite?"), "{:?}", seen.lock().unwrap()[1].0);
     }
 
