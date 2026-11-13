@@ -10,6 +10,7 @@ pub mod details_ai;
 pub mod docx;
 pub mod enrich;
 pub mod import;
+pub mod lookup;
 pub mod meta;
 pub mod ocr;
 pub mod pdf;

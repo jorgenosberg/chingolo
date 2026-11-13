@@ -45,6 +45,7 @@ async fn read_settings(state: &AppState) -> crate::error::Result<AppSettings> {
                 rerank_model: repo::get(c, "rerank_model")?.filter(|m| !m.is_empty()),
                 rerank_provider: repo::get(c, "rerank_provider")?.filter(|m| !m.is_empty()),
                 crossref_enabled: repo::get_bool(c, crate::services::ingestion::enrich::CROSSREF_KEY)?,
+                title_search_enabled: repo::get_bool(c, crate::services::ingestion::enrich::TITLE_KEY)?,
                 metadata_ai_enabled: repo::get_bool(c, details_ai::ENABLED_KEY)?,
                 metadata_model: repo::get(c, details_ai::MODEL_KEY)?.filter(|m| !m.is_empty()),
                 metadata_provider: repo::get(c, details_ai::PROVIDER_KEY)?.filter(|m| !m.is_empty()),
@@ -65,7 +66,7 @@ pub async fn update_settings(
     state: State<'_, AppState>,
     patch: SettingsPatch,
 ) -> CmdResult<AppSettings> {
-    let lookups_on = patch.crossref_enabled == Some(true) || patch.metadata_ai_enabled == Some(true);
+    let lookups_on = patch.crossref_enabled == Some(true) || patch.title_search_enabled == Some(true) || patch.metadata_ai_enabled == Some(true);
     state
         .db
         .call(move |c| {
@@ -95,6 +96,9 @@ pub async fn update_settings(
             }
             if let Some(v) = patch.crossref_enabled {
                 repo::set_bool(c, crate::services::ingestion::enrich::CROSSREF_KEY, v)?;
+            }
+            if let Some(v) = patch.title_search_enabled {
+                repo::set_bool(c, crate::services::ingestion::enrich::TITLE_KEY, v)?;
             }
             if let Some(v) = patch.metadata_ai_enabled {
                 repo::set_bool(c, details_ai::ENABLED_KEY, v)?;

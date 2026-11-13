@@ -232,8 +232,12 @@ pub struct AppSettings {
     /// Model for reranking and the provider it belongs to. Without them the chat model is used.
     pub rerank_model: Option<String>,
     pub rerank_provider: Option<String>,
-    /// Look up a document's DOI in Crossref for exact details. Only the DOI is sent.
+    /// Look documents up online by DOI, arXiv id, PubMed id or ISBN for exact details. Only the
+    /// identifier is sent. (The name is from when Crossref was the only service.)
     pub crossref_enabled: bool,
+    /// Search Crossref by title for documents with no identifier. Sends the title and first
+    /// author's surname.
+    pub title_search_enabled: bool,
     /// A model reads the first pages of papers whose title, authors or year are missing.
     pub metadata_ai_enabled: bool,
     /// Model for that and the provider it belongs to. Without them the default chat model is used.
@@ -254,6 +258,7 @@ pub struct SettingsPatch {
     pub rerank_model: Option<String>,
     pub rerank_provider: Option<String>,
     pub crossref_enabled: Option<bool>,
+    pub title_search_enabled: Option<bool>,
     pub metadata_ai_enabled: Option<bool>,
     /// An empty string goes back to the default chat model.
     pub metadata_model: Option<String>,

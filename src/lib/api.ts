@@ -70,6 +70,7 @@ export const api = {
 				rerankModel: null,
 				rerankProvider: null,
 				crossrefEnabled: null,
+				titleSearchEnabled: null,
 				metadataAiEnabled: null,
 				metadataModel: null,
 				metadataProvider: null,

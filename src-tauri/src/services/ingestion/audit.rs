@@ -92,15 +92,16 @@ fn doi_verdict(got: &Option<String>, want: &Value) -> Verdict {
     }
 }
 
-/// What `enrich` does, without a database: the first DOI whose record's title is in the text wins.
-fn with_crossref(mut meta: Extracted, file_name: &str, head: &str) -> Extracted {
+/// What `enrich` does, without a database: the first step whose record's title is in the text wins.
+fn with_lookups(mut meta: Extracted, file_name: &str, head: &str) -> Extracted {
+    use super::lookup::{self, Bases};
     use super::crossref;
     let client = crossref::http_client();
-    let mut dois: Vec<String> = meta.doi.iter().cloned().collect();
-    dois.extend(crossref::candidates(file_name));
+    let bases = Bases::live();
     let rt = tokio::runtime::Runtime::new().unwrap();
-    for doi in dois {
-        match rt.block_on(crossref::fetch(&client, crossref::BASE, &doi)) {
+    for step in lookup::steps(meta.doi.as_deref(), meta.isbn.as_deref(), file_name, head) {
+        let label = step.label();
+        match rt.block_on(lookup::run(&client, &bases, &step)) {
             Ok(Some(r)) if crossref::title_in_text(&r.title, head) => {
                 let found = crossref::to_extracted(&r, true);
                 meta.title = found.title;
@@ -108,13 +109,13 @@ fn with_crossref(mut meta: Extracted, file_name: &str, head: &str) -> Extracted 
                     meta.authors = found.authors;
                 }
                 meta.year = found.year.or(meta.year);
-                meta.doi = found.doi;
-                println!("      crossref: {doi} accepted");
+                meta.doi = found.doi.or(meta.doi);
+                println!("      lookup: {label} accepted, from {}", r.source);
                 break;
             }
-            Ok(Some(r)) => println!("      crossref: {doi} is \"{}\", not in the text", r.title.chars().take(60).collect::<String>()),
-            Ok(None) => println!("      crossref: {doi} unknown"),
-            Err(e) => println!("      crossref: {doi}: {e}"),
+            Ok(Some(r)) => println!("      lookup: {label} is \"{}\", not in the text", r.title.chars().take(60).collect::<String>()),
+            Ok(None) => println!("      lookup: {label} unknown"),
+            Err(e) => println!("      lookup: {label}: {e}"),
         }
         std::thread::sleep(std::time::Duration::from_millis(300));
     }
@@ -176,7 +177,7 @@ fn corpus_audit() {
         };
         let meta = if std::env::var("CHINGUI_AUDIT_CROSSREF").is_ok() {
             let head = out.blocks.iter().filter(|b| b.page <= 4).map(|b| b.text.as_str()).collect::<Vec<_>>().join(" ");
-            with_crossref(meta, name, &head)
+            with_lookups(meta, name, &head)
         } else {
             meta
         };

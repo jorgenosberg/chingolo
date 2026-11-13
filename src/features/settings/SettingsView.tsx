@@ -263,20 +263,25 @@ function SharpenResults() {
 	);
 }
 
-/** Looks a paper's DOI up in Crossref for the exact title, authors, year and journal. Sends the DOI only. */
+/** Looks papers up online by an identifier they carry, and optionally by title. */
 function DetailsLookup() {
 	const { data: settings } = useSettings();
 	const qc = useQueryClient();
 	if (!settings) return null;
-	const toggle = async (on: boolean) => {
-		await api.updateSettings({ crossrefEnabled: on });
-		await qc.invalidateQueries({ queryKey: keys.settings });
-	};
-	return (
+	const toggle =
+		(key: "crossrefEnabled" | "titleSearchEnabled") => async (on: boolean) => {
+			await api.updateSettings({ [key]: on });
+			await qc.invalidateQueries({ queryKey: keys.settings });
+		};
+	const box = (
+		key: "crossrefEnabled" | "titleSearchEnabled",
+		label: string,
+		help: string,
+	) => (
 		<div className="flex flex-col gap-2">
 			<Checkbox
-				isSelected={settings.crossrefEnabled}
-				onChange={toggle}
+				isSelected={settings[key]}
+				onChange={toggle(key)}
 				className={cx(
 					"group flex cursor-default items-center gap-2.5 text-[13px]",
 					focus,
@@ -285,15 +290,23 @@ function DetailsLookup() {
 				<span className="flex size-4 items-center justify-center rounded border border-input bg-card text-primary-foreground group-data-[selected]:border-primary group-data-[selected]:bg-primary">
 					<CheckIcon className="size-4 opacity-0 group-data-[selected]:opacity-100" />
 				</span>
-				Look up papers in Crossref
+				{label}
 			</Checkbox>
-			<p className="text-sm leading-relaxed text-muted-foreground">
-				For a paper with a DOI, Chingui asks Crossref (api.crossref.org) for the
-				exact title, authors, year and journal, and uses them only if the title
-				is found in the paper itself. Only the DOI is sent, never your text or
-				your keys. Papers you already added are updated with Refresh all details
-				in the library. Details you edited are kept.
-			</p>
+			<p className="text-sm leading-relaxed text-muted-foreground">{help}</p>
+		</div>
+	);
+	return (
+		<div className="flex flex-col gap-4">
+			{box(
+				"crossrefEnabled",
+				"Look up papers online",
+				"For a paper with a DOI, arXiv number, PubMed ID or ISBN, Chingui asks Crossref and doi.org (DOIs and arXiv), NCBI (PubMed), the National Library of Norway or Open Library (ISBN) for the exact title, authors, year and journal. A result is used only if its title is found in the paper itself. Only the identifier is sent, never your text or your keys. Papers you already added are updated with Refresh all details in the library. Details you edited are kept.",
+			)}
+			{box(
+				"titleSearchEnabled",
+				"Search Crossref by title",
+				"For a paper that has no identifier, Chingui searches Crossref (api.crossref.org) with the title it read from the paper and the first author's surname. These two pieces of text leave your computer. A result is used only if title, year and author closely match and the title is found in the paper.",
+			)}
 		</div>
 	);
 }

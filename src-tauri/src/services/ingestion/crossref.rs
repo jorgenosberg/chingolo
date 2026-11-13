@@ -18,7 +18,9 @@ const MAX_BYTES: usize = 1_000_000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Record {
-    pub doi: String,
+    /// Which service gave this record: the value stored in `meta_source` ("crossref", "doi", "nb", "openlibrary").
+    pub source: &'static str,
+    pub doi: Option<String>,
     pub title: String,
     pub authors: Vec<String>,
     pub year: Option<i32>,
@@ -33,7 +35,7 @@ pub struct Record {
 
 static MARKUP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<[^>]*>").unwrap());
 
-fn text(v: &Value) -> Option<String> {
+pub(super) fn text(v: &Value) -> Option<String> {
     let s = match v {
         Value::String(s) => s.as_str(),
         Value::Array(a) => a.first()?.as_str()?,
@@ -45,7 +47,7 @@ fn text(v: &Value) -> Option<String> {
 }
 
 /// Older records spell surnames in capitals ("WATSON"). Ordinary case, including after hyphens.
-fn fix_caps(s: &str) -> String {
+pub(super) fn fix_caps(s: &str) -> String {
     if s.chars().filter(|c| c.is_alphabetic()).count() < 2 || s.chars().any(char::is_lowercase) {
         return s.to_string();
     }
@@ -77,7 +79,8 @@ fn person(a: &Value) -> Option<String> {
 pub fn parse(reply: &Value) -> Option<Record> {
     let m = &reply["message"];
     Some(Record {
-        doi: m["DOI"].as_str()?.to_string(),
+        source: "crossref",
+        doi: Some(m["DOI"].as_str()?.to_string()),
         title: text(&m["title"])?,
         authors: m["author"].as_array().map(|a| a.iter().filter_map(person).collect()).unwrap_or_default(),
         year: ["issued", "published", "published-print", "published-online"]
@@ -119,7 +122,7 @@ pub fn to_extracted(r: &Record, has_publisher: bool) -> Extracted {
         title: Some(r.title.clone()),
         authors: r.authors.clone(),
         year: r.year,
-        doi: Some(r.doi.clone()),
+        doi: r.doi.clone(),
         journal: r.journal.clone(),
         publisher: if has_publisher { None } else { r.publisher.clone() },
         volume: r.volume.clone(),
@@ -156,22 +159,123 @@ pub fn http_client() -> reqwest::Client {
 
 /// One lookup. `None` when Crossref doesn't know the DOI.
 pub async fn fetch(client: &reqwest::Client, base: &str, doi: &str) -> Result<Option<Record>> {
-    let net = |e: reqwest::Error| AppError::Internal(format!("Crossref lookup failed: {e}"));
     let started = std::time::Instant::now();
-    let resp = client.get(format!("{base}{doi}")).timeout(Duration::from_secs(15)).send().await.map_err(net)?;
-    log::debug!("Crossref: {doi} answered HTTP {} in {} ms", resp.status().as_u16(), started.elapsed().as_millis());
+    let v = send_json(client.get(format!("{base}{doi}")), "Crossref").await?;
+    log::debug!("Crossref: {doi} answered in {} ms", started.elapsed().as_millis());
+    Ok(v.and_then(|v| parse(&v)))
+}
+
+/// Sends a lookup request and reads a small JSON reply. `None` for 404. `who` names the service in
+/// error messages.
+pub(super) async fn send_json(req: reqwest::RequestBuilder, who: &str) -> Result<Option<Value>> {
+    send_json_with(req, who, false).await
+}
+
+/// With `big_is_none`, a reply over the size limit counts as "nothing found" instead of an error.
+async fn send_json_with(req: reqwest::RequestBuilder, who: &str, big_is_none: bool) -> Result<Option<Value>> {
+    let net = |e: reqwest::Error| AppError::Internal(format!("{who} lookup failed: {e}"));
+    let resp = req.timeout(Duration::from_secs(15)).send().await.map_err(net)?;
     if resp.status().as_u16() == 404 {
         return Ok(None);
     }
     if !resp.status().is_success() {
-        return Err(AppError::Internal(format!("Crossref lookup failed: HTTP {}", resp.status().as_u16())));
+        return Err(AppError::Internal(format!("{who} lookup failed: HTTP {}", resp.status().as_u16())));
     }
     let bytes = resp.bytes().await.map_err(net)?;
     if bytes.len() > MAX_BYTES {
-        return Err(AppError::Internal("Crossref sent far more than expected.".into()));
+        if big_is_none {
+            log::debug!("{who} reply of {} bytes ignored", bytes.len());
+            return Ok(None);
+        }
+        return Err(AppError::Internal(format!("{who} sent far more than expected.")));
     }
-    let v: Value = serde_json::from_slice(&bytes).map_err(|e| AppError::Internal(format!("Crossref sent something unreadable: {e}")))?;
-    Ok(parse(&v))
+    serde_json::from_slice(&bytes).map(Some).map_err(|e| AppError::Internal(format!("{who} sent something unreadable: {e}")))
+}
+
+/// Reads a CSL-JSON record, which is what doi.org returns for DOIs Crossref doesn't hold (DataCite:
+/// arXiv, Zenodo, many repositories).
+pub fn parse_csl(v: &Value, doi: &str) -> Option<Record> {
+    let year = ["issued", "published", "published-print", "published-online"]
+        .iter()
+        .find_map(|k| v[k]["date-parts"][0][0].as_i64().or_else(|| v[k]["date-parts"][0][0].as_str().and_then(|s| s.parse().ok())))
+        .and_then(|y| i32::try_from(y).ok())
+        .filter(|y| (1000..=2200).contains(y));
+    Some(Record {
+        source: "doi",
+        doi: Some(doi.to_string()),
+        title: text(&v["title"])?,
+        authors: v["author"].as_array().map(|a| a.iter().filter_map(person).collect()).unwrap_or_default(),
+        year,
+        journal: text(&v["container-title"]),
+        volume: text(&v["volume"]),
+        issue: text(&v["issue"]),
+        pages: text(&v["page"]).map(|p| p.replace('–', "-")),
+        publisher: text(&v["publisher"]),
+        issn: text(&v["ISSN"]),
+        isbn: text(&v["ISBN"]),
+    })
+}
+
+/// Crossref's search by title and first author. Returns up to three records, best first.
+pub async fn search(client: &reqwest::Client, base: &str, title: &str, surname: Option<&str>) -> Result<Vec<Record>> {
+    let mut req = client.get(base.trim_end_matches('/')).query(&[
+        ("query.bibliographic", title),
+        ("rows", "3"),
+        ("select", "DOI,title,author,issued,published,published-print,published-online,container-title,volume,issue,page,publisher,ISSN,ISBN"),
+    ]);
+    if let Some(s) = surname {
+        req = req.query(&[("query.author", s)]);
+    }
+    // A search can rank a paper with thousands of authors first (a CERN paper's reply is over 1 MB).
+    // That is never our document, so an oversized reply is "no match", not a failure.
+    let v = send_json_with(req, "Crossref", true).await?;
+    Ok(v.and_then(|v| v["message"]["items"].as_array().cloned())
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|item| parse(&serde_json::json!({ "message": item })))
+        .collect())
+}
+
+/// The surname in "Family, Given" (how file properties often list names) or "Given Family".
+pub fn surname_of(name: &str) -> &str {
+    match name.split_once(',') {
+        Some((family, _)) if !family.trim().is_empty() => family.trim(),
+        _ => name.trim().rsplit(' ').next().unwrap_or(name),
+    }
+}
+
+fn covered(want: &[String], have: &HashSet<String>) -> bool {
+    if want.is_empty() {
+        return false;
+    }
+    let found = want.iter().filter(|t| have.contains(*t)).count();
+    if want.len() < 5 { found == want.len() } else { found * 10 >= want.len() * 9 }
+}
+
+/// Strict check for a search hit: the two titles cover each other, the years are within one,
+/// and the first author's surname is among the record's authors (each only when both are known).
+pub fn search_hit_fits(record: &Record, title: &str, authors: &[String], year: Option<i32>) -> bool {
+    let (a, b) = (tokens(title), tokens(&record.title));
+    let (sa, sb): (HashSet<_>, HashSet<_>) = (a.iter().cloned().collect(), b.iter().cloned().collect());
+    if !covered(&a, &sb) || !covered(&b, &sa) {
+        return false;
+    }
+    if let (Some(x), Some(y)) = (year, record.year)
+        && (x - y).abs() > 1
+    {
+        return false;
+    }
+    if let (Some(first), false) = (authors.first(), record.authors.is_empty()) {
+        let surname = tokens(surname_of(first));
+        let known = |r: &String| {
+            let t = tokens(r);
+            surname.iter().all(|s| t.contains(s))
+        };
+        if !surname.is_empty() && !record.authors.iter().any(known) {
+            return false;
+        }
+    }
+    true
 }
 
 #[cfg(test)]
@@ -239,5 +343,15 @@ mod tests {
         let head = seen.lock().unwrap()[0].0.to_lowercase();
         assert!(head.starts_with("get /works/10.1038/171737a0 "), "{head}");
         assert!(head.contains("user-agent: chingui/") && !head.contains('@'), "{head}");
+    }
+
+    #[tokio::test]
+    async fn a_search_reply_with_thousands_of_authors_is_no_match_not_an_error() {
+        let big = format!(r#"{{"message":{{"items":[{{"DOI":"10.1/x","title":["T"],"author":[{}]}}]}}}}"#, vec![r#"{"family":"Name","given":"Some"}"#; 40_000].join(","));
+        assert!(big.len() > MAX_BYTES);
+        let (base, _) = serve(vec![(200, big.clone()), (200, big)]);
+        let client = http_client();
+        assert!(search(&client, &format!("{base}/works/"), "A title of some words", None).await.unwrap().is_empty());
+        assert!(fetch(&client, &format!("{base}/works/"), "10.1/x").await.is_err(), "a DOI lookup keeps the strict limit");
     }
 }

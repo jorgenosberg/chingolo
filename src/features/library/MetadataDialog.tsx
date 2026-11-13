@@ -7,7 +7,11 @@ import type { Document, MetadataPatch } from "../../lib/bindings";
 const EXTRA_FIELDS = [
 	{ key: "journal", label: "Journal", placeholder: "Harmful Algae" },
 	{ key: "publisher", label: "Publisher", placeholder: "NIVA" },
-	{ key: "series", label: "Report series", placeholder: "NIVA-rapport 7132-2017" },
+	{
+		key: "series",
+		label: "Report series",
+		placeholder: "NIVA-rapport 7132-2017",
+	},
 	{ key: "volume", label: "Volume", placeholder: "118" },
 	{ key: "issue", label: "Issue", placeholder: "3" },
 	{ key: "pages", label: "Pages", placeholder: "105-114" },
@@ -25,13 +29,16 @@ type Form = {
 const SOURCE_NAMES: Record<string, string> = {
 	file: "the file",
 	crossref: "Crossref",
+	doi: "doi.org",
+	nb: "the National Library of Norway",
+	openlibrary: "Open Library",
 	ai: "a model",
 };
 
 /** Where the detected values came from, for the intro line. */
 function sourceNote(doc: Document): string {
 	const used = new Set(Object.values(doc.metaSource));
-	const names = ["file", "crossref", "ai"]
+	const names = Object.keys(SOURCE_NAMES)
 		.filter((s) => used.has(s))
 		.map((s) => SOURCE_NAMES[s]);
 	return names.length ? names.join(", ") : "the file";
@@ -112,8 +119,8 @@ export function MetadataDialog({
 			>
 				<p className="text-xs text-muted-foreground">
 					Detected from {sourceNote(doc)} ({doc.originalName}). Fix anything
-					that's wrong. Fields you change are kept when details are refreshed
-					or the file is read again.
+					that's wrong. Fields you change are kept when details are refreshed or
+					the file is read again.
 				</p>
 				<TextInput
 					label="Title"

@@ -133,8 +133,16 @@ export type AppSettings = {
 	/**  Model for reranking and the provider it belongs to. Without them the chat model is used. */
 	rerankModel: string | null,
 	rerankProvider: string | null,
-	/**  Look up a document's DOI in Crossref for exact details. Only the DOI is sent. */
+	/**
+	 *  Look documents up online by DOI, arXiv id, PubMed id or ISBN for exact details. Only the
+	 *  identifier is sent. (The name is from when Crossref was the only service.)
+	 */
 	crossrefEnabled: boolean,
+	/**
+	 *  Search Crossref by title for documents with no identifier. Sends the title and first
+	 *  author's surname.
+	 */
+	titleSearchEnabled: boolean,
 	/**  A model reads the first pages of papers whose title, authors or year are missing. */
 	metadataAiEnabled: boolean,
 	/**  Model for that and the provider it belongs to. Without them the default chat model is used. */
@@ -265,7 +273,10 @@ export type Document = {
 	issn: string | null,
 	/**  Fields the user changed. A refresh leaves these alone. */
 	metaEdited: string[],
-	/**  Where each detected field came from: "file", "crossref" or "ai". */
+	/**
+	 *  Where each detected field came from: "file", "crossref", "doi" (doi.org), "nb" (National
+	 *  Library of Norway), "openlibrary" or "ai".
+	 */
 	metaSource: { [key in string]: string },
 	pageCount: number | null,
 	status: DocStatus,
@@ -454,6 +465,7 @@ export type SettingsPatch = {
 	rerankModel: string | null,
 	rerankProvider: string | null,
 	crossrefEnabled: boolean | null,
+	titleSearchEnabled: boolean | null,
 	metadataAiEnabled: boolean | null,
 	/**  An empty string goes back to the default chat model. */
 	metadataModel: string | null,

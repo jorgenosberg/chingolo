@@ -1,5 +1,6 @@
-//! Adds details to a document after it is read, when the user allowed it: a Crossref lookup by
-//! DOI, then a model's reading of the first pages for what is still missing. One task works
+//! Adds details to a document after it is read, when the user allowed it: a lookup by identifier
+//! (DOI, arXiv, PubMed, ISBN), then a model's reading of the first pages for what is still
+//! missing, then, with its own opt-in, a Crossref search by title. One task works
 //! through the documents in turn. Its own events skip the hook that queues documents, so it
 //! never queues itself.
 
@@ -9,6 +10,7 @@ use tokio::sync::mpsc;
 
 use super::activity::Activity;
 use super::details_ai::{self, Missing, Target};
+use super::lookup::{self, Bases};
 use super::{crossref, pdf::current_year};
 use super::queue::{DocumentChanged, Emit};
 use crate::domain::Id;
@@ -19,7 +21,10 @@ use crate::persistence::{Db, library as repo, settings};
 use crate::security;
 use crate::services::ai::Providers;
 
+/// Looks papers up online by identifier. The key keeps its old name: it began as the Crossref switch.
 pub const CROSSREF_KEY: &str = "crossref_enabled";
+/// Searches Crossref by title for papers with no identifier. Sends the title and first author's surname.
+pub const TITLE_KEY: &str = "title_search_enabled";
 
 #[derive(Clone)]
 pub struct Enricher(mpsc::UnboundedSender<Id>, Activity);
@@ -34,6 +39,7 @@ impl Enricher {
         let again = Enricher(tx.clone(), activity.clone());
         tauri::async_runtime::spawn(async move {
             let client = crossref::http_client();
+            let bases = Bases::live();
             let mut tries: HashMap<Id, u8> = HashMap::new();
             while let Some(id) = rx.recv().await {
                 let target = match ai_target(&db, &providers).await {
@@ -43,7 +49,7 @@ impl Enricher {
                         None
                     }
                 };
-                match enrich(&db, &client, crossref::BASE, target.as_ref(), &id).await {
+                match enrich(&db, &client, &bases, target.as_ref(), &id).await {
                     Ok(out) => {
                         if let Some(document) = out.document {
                             emit(DocumentChanged { document, progress: None });
@@ -82,7 +88,7 @@ impl Enricher {
     pub async fn resume(&self, db: &Db, all: bool) -> Result<usize> {
         let ids = db
             .call(move |c| {
-                let on = settings::get_bool(c, CROSSREF_KEY)? || settings::get_bool(c, details_ai::ENABLED_KEY)?;
+                let on = settings::get_bool(c, CROSSREF_KEY)? || settings::get_bool(c, TITLE_KEY)? || settings::get_bool(c, details_ai::ENABLED_KEY)?;
                 if on { repo::unenriched(c, all) } else { Ok(vec![]) }
             })
             .await?;
@@ -125,24 +131,36 @@ pub struct Outcome {
     pub failed: bool,
 }
 
-/// Everything that can be added to a document: Crossref first, then the model for what is still
-/// missing. A failed step is recorded on the document and doesn't stop the next one. With both
-/// lookups off nothing is recorded, so turning one on later picks the document up.
-pub async fn enrich(db: &Db, client: &reqwest::Client, base: &str, ai: Option<&Target>, id: &str) -> Result<Outcome> {
+/// Everything that can be added to a document: identifier lookups first, then the model for what
+/// is still missing, then a title search if nothing matched by identifier. A failed step is
+/// recorded on the document and doesn't stop the next one. With every lookup off nothing is
+/// recorded, so turning one on later picks the document up.
+pub async fn enrich(db: &Db, client: &reqwest::Client, bases: &Bases, ai: Option<&Target>, id: &str) -> Result<Outcome> {
     log::debug!("details: document {id} queued (model pass {})", if ai.is_some() { "on" } else { "off" });
-    let crossref_on = db.call(|c| settings::get_bool(c, CROSSREF_KEY)).await?;
-    if !crossref_on && ai.is_none() {
+    let (ident_on, title_on) = db.call(|c| Ok((settings::get_bool(c, CROSSREF_KEY)?, settings::get_bool(c, TITLE_KEY)?))).await?;
+    if !ident_on && !title_on && ai.is_none() {
         return Ok(Outcome { document: None, failed: false });
     }
     let mut problems: Vec<&str> = vec![];
-    if let Err(e) = crossref_step(db, client, base, id).await {
-        log::warn!("Crossref lookup failed for document {id}: {e}");
-        problems.push("Crossref couldn't be reached.");
-    }
+    let matched = match lookup_step(db, client, bases, id).await {
+        Ok(found) => found.is_some(),
+        Err(e) => {
+            log::warn!("Paper lookup failed for document {id}: {e}");
+            problems.push("An online lookup couldn't be reached.");
+            false
+        }
+    };
     if let Some(t) = ai
         && ai_step(db, t, id).await.is_err()
     {
         problems.push("The details model didn't answer.");
+    }
+    if !matched
+        && title_on
+        && let Err(e) = title_step(db, client, bases, id).await
+    {
+        log::warn!("Title search failed for document {id}: {e}");
+        problems.push("Crossref couldn't be reached.");
     }
     let note = (!problems.is_empty()).then(|| problems.join(" "));
     let id = id.to_string();
@@ -225,15 +243,17 @@ async fn ai_step(db: &Db, target: &Target, id: &str) -> Result<Option<Document>>
     Ok(Some(updated))
 }
 
-/// Looks the document up and stores what was found. `Ok(None)` when nothing changed.
-async fn crossref_step(db: &Db, client: &reqwest::Client, base: &str, id: &str) -> Result<Option<Document>> {
+/// Tries every identifier the document carries and stores the first record whose title is in the
+/// document's text. `Ok(None)` when nothing matched. A service that can't be reached doesn't stop
+/// the others, but if nothing matched the failure is returned so the document is tried again.
+async fn lookup_step(db: &Db, client: &reqwest::Client, bases: &Bases, id: &str) -> Result<Option<Document>> {
     let id = id.to_string();
     let job = db
         .call({
             let id = id.clone();
             move |c| {
                 if !settings::get_bool(c, CROSSREF_KEY)? {
-                    log::debug!("Crossref lookup is off");
+                    log::debug!("Online lookup by identifier is off");
                     return Ok(None);
                 }
                 let doc = repo::get_document(c, &id)?;
@@ -244,34 +264,89 @@ async fn crossref_step(db: &Db, client: &reqwest::Client, base: &str, id: &str) 
         .await?;
     let Some((doc, head)) = job else { return Ok(None) };
 
-    let mut dois: Vec<String> = doc.doi.iter().cloned().collect();
-    for c in crossref::candidates(&doc.original_name) {
-        if !dois.iter().any(|d| d.eq_ignore_ascii_case(&c)) {
-            dois.push(c);
-        }
-    }
-    for doi in dois {
-        // A lookup that fails (offline, busy) stops here and is tried again on the next refresh.
-        let Some(record) = crossref::fetch(client, base, &doi).await? else {
-            log::info!("Crossref: {doi} is unknown ({})", doc.original_name);
-            continue;
+    let mut failure = None;
+    for step in lookup::steps(doc.doi.as_deref(), doc.isbn.as_deref(), &doc.original_name, &head) {
+        let record = match lookup::run(client, bases, &step).await {
+            Ok(Some(r)) => r,
+            Ok(None) => {
+                log::info!("lookup: {} is unknown ({})", step.label(), doc.original_name);
+                continue;
+            }
+            Err(e) => {
+                log::warn!("lookup: {} failed ({}): {e}", step.label(), doc.original_name);
+                failure.get_or_insert(e);
+                continue;
+            }
         };
         if !crossref::title_in_text(&record.title, &head) {
-            log::info!("Crossref: record for {doi} is a different article than {}, ignored", doc.original_name);
+            log::info!("lookup: record for {} is a different work than {}, ignored", step.label(), doc.original_name);
             continue;
         }
-        let found = crossref::to_extracted(&record, doc.publisher.is_some());
-        log::info!("Crossref: {doi} matches {}, adding {}", doc.original_name, found.fields().join(", "));
+        let mut found = crossref::to_extracted(&record, doc.publisher.is_some());
+        // another edition's date must not replace the year the document itself gives
+        if record.source == "openlibrary" && doc.year.is_some() {
+            found.year = None;
+        }
+        log::info!("lookup: {} matches {}, adding {} from {}", step.label(), doc.original_name, found.fields().join(", "), record.source);
+        let source = record.source;
         let updated = db
             .call(move |c| {
-                repo::apply_metadata(c, &id, &found, "crossref", false)?;
+                repo::apply_metadata(c, &id, &found, source, false)?;
                 repo::get_document(c, &id)
             })
             .await?;
         return Ok(Some(updated));
     }
-    log::debug!("Crossref: no usable record for {}", doc.original_name);
-    Ok(None)
+    match failure {
+        Some(e) => Err(e),
+        None => {
+            log::debug!("lookup: no usable record for {}", doc.original_name);
+            Ok(None)
+        }
+    }
+}
+
+/// For a document with a title but no identifier that matched: a Crossref search by title and
+/// first author. The top hit is used only if it fits the document closely (`search_hit_fits`) and
+/// its title is in the text.
+async fn title_step(db: &Db, client: &reqwest::Client, bases: &Bases, id: &str) -> Result<Option<Document>> {
+    let id = id.to_string();
+    let job = db
+        .call({
+            let id = id.clone();
+            move |c| {
+                if !settings::get_bool(c, TITLE_KEY)? {
+                    return Ok(None);
+                }
+                Ok(Some((repo::get_document(c, &id)?, repo::head_text(c, &id, 4)?)))
+            }
+        })
+        .await?;
+    let Some((doc, head)) = job else { return Ok(None) };
+    // a title of one or two words finds too many wrong works to be worth sending
+    let Some(title) = doc.title.clone().filter(|t| t.split_whitespace().count() >= 3) else {
+        log::debug!("title search: {} has no usable title", doc.original_name);
+        return Ok(None);
+    };
+    let surname = lookup::first_surname(&doc.authors);
+    let hits = crossref::search(client, &bases.crossref, &title, surname.as_deref()).await?;
+    let Some(top) = hits.into_iter().next() else {
+        log::info!("title search: nothing found for {}", doc.original_name);
+        return Ok(None);
+    };
+    if !crossref::search_hit_fits(&top, &title, &doc.authors, doc.year) || !crossref::title_in_text(&top.title, &head) {
+        log::info!("title search: the best hit for {} doesn't fit, ignored", doc.original_name);
+        return Ok(None);
+    }
+    let found = crossref::to_extracted(&top, doc.publisher.is_some());
+    log::info!("title search: {} matched, adding {}", doc.original_name, found.fields().join(", "));
+    let updated = db
+        .call(move |c| {
+            repo::apply_metadata(c, &id, &found, top.source, false)?;
+            repo::get_document(c, &id)
+        })
+        .await?;
+    Ok(Some(updated))
 }
 
 #[cfg(test)]
@@ -285,16 +360,21 @@ mod tests {
         "author":[{"given":"P. W.","family":"BOYD"},{"given":"C. S.","family":"Law"}],"issued":{"date-parts":[[2004]]},"container-title":["Nature"],"volume":"428","page":"549-553"}}"#;
 
     async fn setup(enabled: bool, file: &str, text: &str, doi: Option<&str>) -> (Db, String, tempfile::TempDir) {
+        let meta = Extracted { doi: doi.map(String::from), title: Some("Read off the page".into()), ..Default::default() };
+        setup_with(enabled, false, file, text, meta).await
+    }
+
+    async fn setup_with(enabled: bool, title_search: bool, file: &str, text: &str, meta: Extracted) -> (Db, String, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let db = Db::open(&dir.path().join("t.sqlite")).unwrap();
-        let (file, text, doi) = (file.to_string(), text.to_string(), doi.map(String::from));
+        let (file, text) = (file.to_string(), text.to_string());
         let id = db
             .call(move |c| {
                 settings::set_bool(c, CROSSREF_KEY, enabled)?;
+                settings::set_bool(c, TITLE_KEY, title_search)?;
                 let d = repo::insert_document(c, "h1", &file, DocKind::Pdf)?;
                 let pages = [NewPage { page_no: 1, width: 1.0, height: 1.0, quality: "ok", ocr: false }];
                 let passages = [NewPassage { page_start: 1, page_end: 1, text, boxes: None }];
-                let meta = Extracted { doi, title: Some("Read off the page".into()), ..Default::default() };
                 let mut conn = rusqlite::Connection::open(c.path().unwrap())?;
                 repo::store_content(&mut conn, &d.id, &pages, &passages, &meta, DocStatus::Ready, None)?;
                 Ok(d.id)
@@ -310,7 +390,7 @@ mod tests {
     async fn a_matching_record_fills_the_details_through_the_file_name() {
         let (db, id, _dir) = setup(true, "nature02437.pdf", PAGE, None).await;
         let (base, seen) = serve(vec![(200, RECORD.into())]);
-        let doc = crossref_step(&db, &crossref::http_client(), &format!("{base}/works/"), &id).await.unwrap().unwrap();
+        let doc = lookup_step(&db, &crossref::http_client(), &Bases::at(&base), &id).await.unwrap().unwrap();
         assert_eq!(doc.doi.as_deref(), Some("10.1038/nature02437"));
         assert_eq!(doc.authors, ["P. W. Boyd", "C. S. Law"]);
         assert_eq!((doc.year, doc.journal.as_deref(), doc.volume.as_deref()), (Some(2004), Some("Nature"), Some("428")));
@@ -322,7 +402,7 @@ mod tests {
     async fn a_record_for_another_article_is_ignored() {
         let (db, id, _dir) = setup(true, "x.pdf", "Seismic structure of the Cascadia subduction zone", Some("10.1038/nature02437")).await;
         let (base, _) = serve(vec![(200, RECORD.into())]);
-        assert!(crossref_step(&db, &crossref::http_client(), &format!("{base}/works/"), &id).await.unwrap().is_none());
+        assert!(lookup_step(&db, &crossref::http_client(), &Bases::at(&base), &id).await.unwrap().is_none());
         let doc = db.call(move |c| repo::get_document(c, &id)).await.unwrap();
         assert_eq!(doc.title.as_deref(), Some("Read off the page"));
     }
@@ -331,7 +411,7 @@ mod tests {
     async fn nothing_is_sent_unless_the_user_allowed_it() {
         let (db, id, _dir) = setup(false, "nature02437.pdf", PAGE, Some("10.1038/nature02437")).await;
         let (base, seen) = serve(vec![(200, RECORD.into())]);
-        assert!(crossref_step(&db, &crossref::http_client(), &format!("{base}/works/"), &id).await.unwrap().is_none());
+        assert!(lookup_step(&db, &crossref::http_client(), &Bases::at(&base), &id).await.unwrap().is_none());
         assert!(seen.lock().unwrap().is_empty());
     }
 
@@ -345,24 +425,24 @@ mod tests {
         .await
         .unwrap();
         let (base, _) = serve(vec![(200, RECORD.into())]);
-        let doc = crossref_step(&db, &crossref::http_client(), &format!("{base}/works/"), &id).await.unwrap().unwrap();
+        let doc = lookup_step(&db, &crossref::http_client(), &Bases::at(&base), &id).await.unwrap().unwrap();
         assert_eq!((doc.title.as_deref(), doc.year), (Some("My own title"), Some(2004)));
         let (down, _) = serve(vec![(503, "busy".into())]);
-        assert!(crossref_step(&db, &crossref::http_client(), &format!("{down}/works/"), &id).await.is_err());
+        assert!(lookup_step(&db, &crossref::http_client(), &Bases::at(&down), &id).await.is_err());
     }
 
     #[tokio::test]
     async fn a_finished_lookup_is_recorded_and_a_failed_one_is_marked_for_another_try() {
         let (db, id, _dir) = setup(true, "nature02437.pdf", PAGE, None).await;
         let (down, _) = serve(vec![(503, "busy".into())]);
-        let out = enrich(&db, &crossref::http_client(), &format!("{down}/works/"), None, &id).await.unwrap();
+        let out = enrich(&db, &crossref::http_client(), &Bases::at(&down), None, &id).await.unwrap();
         assert!(out.failed);
-        assert_eq!(out.document.unwrap().enrich_error.as_deref(), Some("Crossref couldn't be reached."));
+        assert_eq!(out.document.unwrap().enrich_error.as_deref(), Some("An online lookup couldn't be reached."));
         let waiting = db.call(|c| repo::unenriched(c, false)).await.unwrap();
         assert_eq!(waiting, [id.clone()]);
 
         let (base, _) = serve(vec![(200, RECORD.into())]);
-        let out = enrich(&db, &crossref::http_client(), &format!("{base}/works/"), None, &id).await.unwrap();
+        let out = enrich(&db, &crossref::http_client(), &Bases::at(&base), None, &id).await.unwrap();
         assert!(!out.failed);
         assert_eq!(out.document.unwrap().enrich_error, None);
         assert!(db.call(|c| repo::unenriched(c, false)).await.unwrap().is_empty());
@@ -372,9 +452,111 @@ mod tests {
     #[tokio::test]
     async fn with_both_lookups_off_nothing_is_recorded() {
         let (db, id, _dir) = setup(false, "nature02437.pdf", PAGE, None).await;
-        let out = enrich(&db, &crossref::http_client(), "http://unused/", None, &id).await.unwrap();
+        let out = enrich(&db, &crossref::http_client(), &Bases::at("http://unused"), None, &id).await.unwrap();
         assert!(out.document.is_none() && !out.failed);
         assert_eq!(db.call(|c| repo::unenriched(c, false)).await.unwrap(), [id]);
+    }
+
+    const NB_RECORD: &str = r#"{"_embedded":{"items":[{"metadata":{"title":"Effekter av klimaendringer i ferskvann : analyser av nasjonale overvåkingsdata",
+        "creators":["Schartau, Ann Kristin"],"originInfo":{"publisher":"Niva","issued":"2026"},"identifiers":{"isbn13":["9788242654946"],"issn":["15043312"]}}}]}}"#;
+    const ISBN_REPORT: &str = "Effekter av klimaendringer i ferskvann: analyser av nasjonale overvåkingsdata NINA Rapport 2669. ISBN: 978-82-426-5494-6";
+
+    #[tokio::test]
+    async fn a_report_is_found_by_its_isbn_and_the_source_is_kept_on_a_re_read() {
+        let meta = Extracted { title: Some("Effekter av klimaendringer".into()), ..Default::default() };
+        let (db, id, _dir) = setup_with(true, false, "ninarapport2669.pdf", ISBN_REPORT, meta).await;
+        let (base, seen) = serve(vec![(200, NB_RECORD.into())]);
+        let doc = lookup_step(&db, &crossref::http_client(), &Bases::at(&base), &id).await.unwrap().unwrap();
+        assert_eq!(doc.title.as_deref(), Some("Effekter av klimaendringer i ferskvann: analyser av nasjonale overvåkingsdata"));
+        assert_eq!((doc.authors.clone(), doc.year, doc.publisher.as_deref()), (vec!["Ann Kristin Schartau".to_string()], Some(2026), Some("Niva")));
+        assert_eq!((doc.isbn.as_deref(), doc.issn.as_deref()), (Some("9788242654946"), Some("1504-3312")));
+        assert_eq!(doc.meta_source.get("title").map(String::as_str), Some("nb"));
+        assert_eq!(seen.lock().unwrap().len(), 1);
+        // reading the file again must not undo what the library catalogue gave
+        let again = id.clone();
+        let doc = db
+            .call(move |c| {
+                repo::apply_metadata(c, &again, &Extracted { title: Some("Page title".into()), ..Default::default() }, "file", true)?;
+                repo::get_document(c, &again)
+            })
+            .await
+            .unwrap();
+        assert_eq!(doc.title.as_deref(), Some("Effekter av klimaendringer i ferskvann: analyser av nasjonale overvåkingsdata"));
+    }
+
+    #[tokio::test]
+    async fn an_arxiv_paper_gets_its_details_and_a_doi() {
+        let csl = r#"{"title":"Attention Is All You Need","author":[{"given":"Ashish","family":"Vaswani"}],"issued":{"date-parts":[[2017]]},"publisher":"arXiv"}"#;
+        let meta = Extracted { title: Some("Attention Is All You Need".into()), ..Default::default() };
+        let (db, id, _dir) = setup_with(true, false, "1706.03762v5.pdf", "Attention Is All You Need Ashish Vaswani arXiv:1706.03762v5 [cs.CL]", meta).await;
+        let (base, seen) = serve(vec![(200, csl.into())]);
+        let doc = lookup_step(&db, &crossref::http_client(), &Bases::at(&base), &id).await.unwrap().unwrap();
+        assert_eq!((doc.doi.as_deref(), doc.year), (Some("10.48550/arXiv.1706.03762"), Some(2017)));
+        assert_eq!(doc.meta_source.get("doi").map(String::as_str), Some("doi"));
+        assert!(seen.lock().unwrap()[0].0.starts_with("GET /doi/10.48550/arXiv.1706.03762 "), "straight to doi.org, no Crossref call");
+    }
+
+    #[tokio::test]
+    async fn another_editions_year_does_not_replace_the_documents_own() {
+        let ol = r#"{"ISBN:9789231039485":{"title":"Manual on harmful marine microalgae","publish_date":"2003","publishers":[{"name":"UNESCO"}]}}"#;
+        let meta = Extracted { title: Some("Manual".into()), year: Some(2004), isbn: Some("92-3-103948-2".into()), ..Default::default() };
+        let (db, id, _dir) = setup_with(true, false, "manual.pdf", "Manual on harmful marine microalgae. ISBN 92-3-103948-2 © UNESCO 2004", meta).await;
+        let (base, _) = serve(vec![(200, ol.into())]);
+        let doc = lookup_step(&db, &crossref::http_client(), &Bases::at(&base), &id).await.unwrap().unwrap();
+        assert_eq!(doc.year, Some(2004));
+        assert_eq!(doc.meta_source.get("title").map(String::as_str), Some("openlibrary"));
+    }
+
+    #[tokio::test]
+    async fn one_service_being_down_does_not_stop_the_next() {
+        let meta = Extracted { title: Some("x".into()), ..Default::default() };
+        let (db, id, _dir) = setup_with(true, false, "ninarapport2669.pdf", ISBN_REPORT, meta).await;
+        // the National Library answers 503, Open Library knows nothing: the failure is reported so it is tried again
+        let (base, seen) = serve(vec![(503, "busy".into()), (200, "{}".into())]);
+        assert!(lookup_step(&db, &crossref::http_client(), &Bases::at(&base), &id).await.is_err());
+        assert_eq!(seen.lock().unwrap().len(), 2);
+    }
+
+    const HIT: &str = r#"{"message":{"items":[{"DOI":"10.1016/0044-8486(93)90321-o","title":["Sub-lethal concentrations of the harmful diatoms, Chaetoceros concavicornis and C. convolutus, increase mortality rates of penned Pacific salmon"],
+        "author":[{"given":"L. J.","family":"Albright"}],"issued":{"date-parts":[[1993]]},"container-title":["Aquaculture"],"volume":"117"}]}}"#;
+    const TITLE: &str = "Sub-lethal concentrations of the harmful diatoms, Chaetoceros concavicornis and C. convolutus, increase mortality rates of penned Pacific salmon";
+
+    #[tokio::test]
+    async fn a_title_search_fills_a_paper_with_no_identifier_when_the_hit_fits() {
+        let meta = Extracted { title: Some(TITLE.into()), authors: vec!["L. J. Albright".into()], year: Some(1993), ..Default::default() };
+        let (db, id, _dir) = setup_with(false, true, "0044.pdf", &format!("{TITLE} L. J. Albright"), meta).await;
+        let (base, seen) = serve(vec![(200, HIT.into())]);
+        let out = enrich(&db, &crossref::http_client(), &Bases::at(&base), None, &id).await.unwrap();
+        let doc = out.document.unwrap();
+        assert!(!out.failed);
+        assert_eq!((doc.doi.as_deref(), doc.journal.as_deref()), (Some("10.1016/0044-8486(93)90321-o"), Some("Aquaculture")));
+        let head = seen.lock().unwrap()[0].0.clone();
+        assert!(head.starts_with("GET /works?") && head.contains("query.bibliographic=") && head.contains("query.author=Albright"), "{head}");
+    }
+
+    #[tokio::test]
+    async fn a_title_search_hit_for_another_work_is_ignored() {
+        let wrong = r#"{"message":{"items":[{"DOI":"10.1/x","title":["Part 2: Protozoa, Myxozoa, Mesozoa"],"issued":{"date-parts":[[2024]]}}]}}"#;
+        let meta = Extracted { title: Some("Protozoa and Myxozoa Part".into()), ..Default::default() };
+        let (db, id, _dir) = setup_with(false, true, "x.pdf", "Protozoa and Myxozoa Part 2: Protozoa, Myxozoa, Mesozoa", meta).await;
+        let (base, _) = serve(vec![(200, wrong.into())]);
+        let doc = enrich(&db, &crossref::http_client(), &Bases::at(&base), None, &id).await.unwrap().document.unwrap();
+        assert_eq!(doc.doi, None);
+    }
+
+    #[tokio::test]
+    async fn the_title_search_is_skipped_when_an_identifier_matched_or_it_is_off() {
+        let meta = Extracted { title: Some(TITLE.into()), doi: Some("10.1038/nature02437".into()), ..Default::default() };
+        let (db, id, _dir) = setup_with(true, true, "nature02437.pdf", PAGE, meta.clone()).await;
+        let (base, seen) = serve(vec![(200, RECORD.into()), (200, HIT.into())]);
+        enrich(&db, &crossref::http_client(), &Bases::at(&base), None, &id).await.unwrap();
+        assert_eq!(seen.lock().unwrap().len(), 1, "the DOI matched, so no search");
+
+        let (db, id, _dir) = setup_with(false, false, "0044.pdf", TITLE, Extracted { doi: None, ..meta }).await;
+        let (base, seen) = serve(vec![(200, HIT.into())]);
+        let out = enrich(&db, &crossref::http_client(), &Bases::at(&base), None, &id).await.unwrap();
+        assert!(out.document.is_none());
+        assert!(seen.lock().unwrap().is_empty(), "nothing is sent while the switches are off");
     }
 
     struct Canned(&'static str);
