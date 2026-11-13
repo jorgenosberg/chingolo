@@ -17,6 +17,8 @@ use crate::error::Result;
 pub struct Bases {
     /// Ends with `/works/`.
     pub crossref: String,
+    /// DataCite's `/dois` endpoint (title search).
+    pub datacite: String,
     /// Ends with `/`. The DOI is appended.
     pub doi: String,
     pub ncbi: String,
@@ -28,6 +30,7 @@ impl Bases {
     pub fn live() -> Self {
         Bases {
             crossref: crossref::BASE.into(),
+            datacite: crossref::DATACITE_BASE.into(),
             doi: "https://doi.org/".into(),
             ncbi: "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi".into(),
             nb: "https://api.nb.no/catalog/v1/items".into(),
@@ -39,6 +42,7 @@ impl Bases {
     pub fn at(base: &str) -> Self {
         Bases {
             crossref: format!("{base}/works/"),
+            datacite: format!("{base}/datacite"),
             doi: format!("{base}/doi/"),
             ncbi: format!("{base}/ncbi"),
             nb: format!("{base}/nb"),
@@ -407,6 +411,11 @@ mod tests {
         assert!(!crossref::search_hit_fits(&hit("SoundToxins: A Research and Monitoring Partnership for Harmful Phytoplankton", 2023, &[]), "SoundToxins manual", &[], None));
         assert_eq!(first_surname(&wanted).as_deref(), Some("Albright"));
         assert_eq!(first_surname(&["Hallegraeff, Gustaaf M.".to_string()]).as_deref(), Some("Hallegraeff"));
+        // an edition statement on one side is fine, other extra words are not
+        let manual = ["Hallegraeff, Gustaaf M.".to_string()];
+        assert!(crossref::search_hit_fits(&hit("Manual on Harmful Marine Microalgae. 2nd revised edition.", 2004, &["Hallegraeff, G.M."]), "Manual on Harmful Marine Microalgae", &manual, Some(2003)));
+        assert!(!crossref::search_hit_fits(&hit("Manual on Harmful Marine Microalgae. Part 2: Toxins", 2004, &[]), "Manual on Harmful Marine Microalgae", &[], None));
+        assert_eq!(crossref::without_edition("Manual on Harmful Marine Microalgae. 2nd revised edition."), "Manual on Harmful Marine Microalgae.");
         let by_family_first = hit("Manual on harmful marine microalgae", 2003, &["G. M. Hallegraeff"]);
         assert!(crossref::search_hit_fits(&by_family_first, "Manual on harmful marine microalgae", &["Hallegraeff, Gustaaf M.".to_string()], Some(2003)));
     }
@@ -420,6 +429,10 @@ mod tests {
             ("Protozoa and Myxozoa", None, None, false),
             ("SoundToxins manual", None, None, false),
         ];
+        // the Manual is not in Crossref: DataCite has it as a report with an edition suffix
+        let manual = crossref::search_datacite(&crossref::http_client(), crossref::DATACITE_BASE, "Manual on Harmful Marine Microalgae").await.unwrap();
+        let m = manual.iter().find(|r| r.doi.as_deref() == Some("10.25607/obp-1370")).expect("Ocean Best Practices record");
+        assert!(crossref::search_hit_fits(m, "Manual on Harmful Marine Microalgae", &["Gustaaf M. Hallegraeff".to_string()], Some(2003)));
         let client = crossref::http_client();
         for (title, surname, year, accept) in cases {
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;

@@ -307,8 +307,8 @@ async fn lookup_step(db: &Db, client: &reqwest::Client, bases: &Bases, id: &str)
 }
 
 /// For a document with a title but no identifier that matched: a Crossref search by title and
-/// first author. The top hit is used only if it fits the document closely (`search_hit_fits`) and
-/// its title is in the text.
+/// first author, then a DataCite search by title. The top hit is used only if it fits the document
+/// closely (`search_hit_fits`) and its title is in the text.
 async fn title_step(db: &Db, client: &reqwest::Client, bases: &Bases, id: &str) -> Result<Option<Document>> {
     let id = id.to_string();
     let job = db
@@ -329,15 +329,22 @@ async fn title_step(db: &Db, client: &reqwest::Client, bases: &Bases, id: &str) 
         return Ok(None);
     };
     let surname = lookup::first_surname(&doc.authors);
+    let fits = |r: &crossref::Record| crossref::search_hit_fits(r, &title, &doc.authors, doc.year) && crossref::title_in_text(&crossref::without_edition(&r.title), &head);
     let hits = crossref::search(client, &bases.crossref, &title, surname.as_deref()).await?;
-    let Some(top) = hits.into_iter().next() else {
-        log::info!("title search: nothing found for {}", doc.original_name);
+    let mut top = hits.into_iter().next().filter(|r| fits(r));
+    if top.is_none() {
+        // Reports and other repository records are in DataCite, not Crossref. A failure here is only
+        // logged: Crossref answered, and a flaky second service must not flag the document.
+        match crossref::search_datacite(client, &bases.datacite, &title).await {
+            // a record with no creators can't be checked against the document's authors
+            Ok(hits) => top = hits.into_iter().next().filter(|r| !r.authors.is_empty() && fits(r)),
+            Err(e) => log::warn!("title search: DataCite failed for {}: {e}", doc.original_name),
+        }
+    }
+    let Some(top) = top else {
+        log::info!("title search: no fitting record for {}", doc.original_name);
         return Ok(None);
     };
-    if !crossref::search_hit_fits(&top, &title, &doc.authors, doc.year) || !crossref::title_in_text(&top.title, &head) {
-        log::info!("title search: the best hit for {} doesn't fit, ignored", doc.original_name);
-        return Ok(None);
-    }
     let found = crossref::to_extracted(&top, doc.publisher.is_some());
     log::info!("title search: {} matched, adding {}", doc.original_name, found.fields().join(", "));
     let updated = db
@@ -532,6 +539,28 @@ mod tests {
         assert_eq!((doc.doi.as_deref(), doc.journal.as_deref()), (Some("10.1016/0044-8486(93)90321-o"), Some("Aquaculture")));
         let head = seen.lock().unwrap()[0].0.clone();
         assert!(head.starts_with("GET /works?") && head.contains("query.bibliographic=") && head.contains("query.author=Albright"), "{head}");
+    }
+
+    #[tokio::test]
+    async fn a_title_search_falls_back_to_datacite_for_a_report_with_an_edition_suffix() {
+        let datacite = r#"{"data":[{"attributes":{"doi":"10.25607/obp-1370","titles":[{"title":"Manual on Harmful Marine Microalgae. 2nd revised edition. "}],
+            "creators":[{"name":"Hallegraeff, G.M.","nameType":"Personal"},{"name":"et al"}],"publicationYear":2004,"publisher":"Unesco"}}]}"#;
+        let meta = Extracted { title: Some("Manual on Harmful Marine Microalgae".into()), authors: vec!["Gustaaf M. Hallegraeff".into()], year: Some(2003), ..Default::default() };
+        let (db, id, _dir) = setup_with(false, true, "manual.pdf", "Manual on Harmful Marine Microalgae Second revised edition Hallegraeff", meta).await;
+        let (base, seen) = serve(vec![(200, r#"{"message":{"items":[]}}"#.into()), (200, datacite.into())]);
+        let doc = enrich(&db, &crossref::http_client(), &Bases::at(&base), None, &id).await.unwrap().document.unwrap();
+        assert_eq!((doc.doi.as_deref(), doc.year, doc.publisher.as_deref()), (Some("10.25607/obp-1370"), Some(2004), Some("Unesco")));
+        assert_eq!(doc.meta_source.get("doi").map(String::as_str), Some("datacite"));
+        assert!(seen.lock().unwrap()[1].0.starts_with("GET /datacite?"), "{:?}", seen.lock().unwrap()[1].0);
+    }
+
+    #[tokio::test]
+    async fn a_datacite_failure_does_not_flag_the_document() {
+        let meta = Extracted { title: Some("Manual on Harmful Marine Microalgae".into()), ..Default::default() };
+        let (db, id, _dir) = setup_with(false, true, "manual.pdf", "Manual on Harmful Marine Microalgae", meta).await;
+        let (base, _) = serve(vec![(200, r#"{"message":{"items":[]}}"#.into()), (500, "{}".into())]);
+        let out = enrich(&db, &crossref::http_client(), &Bases::at(&base), None, &id).await.unwrap();
+        assert!(!out.failed);
     }
 
     #[tokio::test]

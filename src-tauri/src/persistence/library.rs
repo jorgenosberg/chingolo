@@ -334,7 +334,7 @@ impl Extracted {
 /// Writes detected metadata. Fields in `meta_edited` are skipped. With `replace`, a field the
 /// detection found nothing for is cleared (a fresh read of the file is the whole truth). Without
 /// it, only found values are written, so Crossref or a model can add to what the file gave.
-/// `source` ("file", "crossref", "doi", "nb", "openlibrary" or "ai") is recorded for every field
+/// `source` ("file", "crossref", "doi", "datacite", "nb", "openlibrary" or "ai") is recorded for every field
 /// written. A fresh read never changes what an online record gave (the publisher's or library's
 /// own data) and never clears what a model found.
 pub fn apply_metadata(conn: &Connection, id: &str, m: &Extracted, source: &str, replace: bool) -> Result<()> {
@@ -357,7 +357,7 @@ pub fn apply_metadata(conn: &Connection, id: &str, m: &Extracted, source: &str, 
     ];
     for (col, value) in fields {
         let from = sources.get(col).map(String::as_str);
-        let kept = replace && (matches!(from, Some("crossref" | "doi" | "nb" | "openlibrary")) || (from == Some("ai") && value.is_none()));
+        let kept = replace && (matches!(from, Some("crossref" | "doi" | "datacite" | "nb" | "openlibrary")) || (from == Some("ai") && value.is_none()));
         if doc.meta_edited.iter().any(|f| f == col) || (value.is_none() && !replace) || kept {
             continue;
         }

@@ -30,6 +30,7 @@ const SOURCE_NAMES: Record<string, string> = {
 	file: "the file",
 	crossref: "Crossref",
 	doi: "doi.org",
+	datacite: "DataCite",
 	nb: "the National Library of Norway",
 	openlibrary: "Open Library",
 	ai: "a model",

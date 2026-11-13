@@ -304,8 +304,8 @@ function DetailsLookup() {
 			)}
 			{box(
 				"titleSearchEnabled",
-				"Search Crossref by title",
-				"For a paper that has no identifier, Chingui searches Crossref (api.crossref.org) with the title it read from the paper and the first author's surname. These two pieces of text leave your computer. A result is used only if title, year and author closely match and the title is found in the paper.",
+				"Search Crossref and DataCite by title",
+				"For a paper that has no identifier, Chingui searches Crossref (api.crossref.org) with the title it read from the paper and the first author's surname, and if that finds nothing, DataCite (api.datacite.org, which holds reports and repository records) with the title. This text leaves your computer. A result is used only if title, year and author closely match and the title is found in the paper.",
 			)}
 		</div>
 	);

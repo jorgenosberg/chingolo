@@ -14,11 +14,12 @@ use crate::error::{AppError, Result};
 use crate::persistence::library::Extracted;
 
 pub const BASE: &str = "https://api.crossref.org/works/";
+pub const DATACITE_BASE: &str = "https://api.datacite.org/dois";
 const MAX_BYTES: usize = 1_000_000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Record {
-    /// Which service gave this record: the value stored in `meta_source` ("crossref", "doi", "nb", "openlibrary").
+    /// Which service gave this record: the value stored in `meta_source` ("crossref", "doi", "datacite", "nb", "openlibrary").
     pub source: &'static str,
     pub doi: Option<String>,
     pub title: String,
@@ -252,12 +253,38 @@ fn covered(want: &[String], have: &HashSet<String>) -> bool {
     if want.len() < 5 { found == want.len() } else { found * 10 >= want.len() * 9 }
 }
 
-/// Strict check for a search hit: the two titles cover each other, the years are within one,
-/// and the first author's surname is among the record's authors (each only when both are known).
-pub fn search_hit_fits(record: &Record, title: &str, authors: &[String], year: Option<i32>) -> bool {
-    let (a, b) = (tokens(title), tokens(&record.title));
+const EDITION_WORDS: [&str; 12] = ["edition", "ed", "revised", "rev", "updated", "expanded", "first", "second", "third", "fourth", "fifth", "new"];
+
+/// "2nd", "3rd", "11th" and the words that name an edition.
+fn is_edition_word(t: &str) -> bool {
+    EDITION_WORDS.contains(&t)
+        || t.strip_suffix("st").or_else(|| t.strip_suffix("nd")).or_else(|| t.strip_suffix("rd")).or_else(|| t.strip_suffix("th")).is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+}
+
+/// The title without a trailing edition statement ("... Microalgae. 2nd revised edition.").
+pub fn without_edition(title: &str) -> String {
+    let mut words: Vec<&str> = title.split_whitespace().collect();
+    while words.last().is_some_and(|w| tokens(w).iter().all(|t| is_edition_word(t))) {
+        words.pop();
+    }
+    words.join(" ")
+}
+
+/// Both titles cover each other, or one is the other plus an edition statement (repositories file
+/// "Manual on X. 2nd revised edition." while the paper's own title page says "Manual on X").
+fn titles_match(a: &[String], b: &[String]) -> bool {
     let (sa, sb): (HashSet<_>, HashSet<_>) = (a.iter().cloned().collect(), b.iter().cloned().collect());
-    if !covered(&a, &sb) || !covered(&b, &sa) {
+    if covered(a, &sb) && covered(b, &sa) {
+        return true;
+    }
+    let extends = |short: &[String], long: &[String]| !short.is_empty() && long.len() > short.len() && long[..short.len()] == *short && long[short.len()..].iter().all(|t| is_edition_word(t));
+    extends(a, b) || extends(b, a)
+}
+
+/// Strict check for a search hit: the two titles match, the years are within one, and the first
+/// author's surname is among the record's authors (each only when both are known).
+pub fn search_hit_fits(record: &Record, title: &str, authors: &[String], year: Option<i32>) -> bool {
+    if !titles_match(&tokens(title), &tokens(&record.title)) {
         return false;
     }
     if let (Some(x), Some(y)) = (year, record.year)
@@ -276,6 +303,50 @@ pub fn search_hit_fits(record: &Record, title: &str, authors: &[String], year: O
         }
     }
     true
+}
+
+/// One creator of a DataCite record as "Given Family". `None` for "et al".
+fn creator(c: &Value) -> Option<String> {
+    let name = c["name"].as_str().map(str::trim).filter(|n| !n.is_empty())?;
+    if name.trim_end_matches('.').eq_ignore_ascii_case("et al") {
+        return None;
+    }
+    if c["nameType"].as_str() == Some("Organizational") {
+        return Some(name.to_string());
+    }
+    match name.split_once(',') {
+        Some((family, given)) if !family.trim().is_empty() && !given.trim().is_empty() => Some(format!("{} {}", given.trim(), fix_caps(family.trim()))),
+        _ => Some(fix_caps(name)),
+    }
+}
+
+/// Reads one item of a DataCite `/dois` reply.
+pub fn parse_datacite(item: &Value) -> Option<Record> {
+    let a = &item["attributes"];
+    let year = a["publicationYear"].as_i64().or_else(|| a["publicationYear"].as_str().and_then(|s| s.parse().ok())).and_then(|y| i32::try_from(y).ok()).filter(|y| (1000..=2200).contains(y));
+    Some(Record {
+        source: "datacite",
+        doi: Some(a["doi"].as_str()?.to_string()),
+        title: text(&a["titles"][0]["title"])?,
+        authors: a["creators"].as_array().map(|c| c.iter().filter_map(creator).collect()).unwrap_or_default(),
+        year,
+        journal: None,
+        volume: None,
+        issue: None,
+        pages: None,
+        publisher: text(&a["publisher"]).or_else(|| text(&a["publisher"]["name"])),
+        issn: None,
+        isbn: None,
+    })
+}
+
+/// DataCite's search by title, for reports and other repository records Crossref doesn't hold.
+/// Returns up to three records, best first.
+pub async fn search_datacite(client: &reqwest::Client, base: &str, title: &str) -> Result<Vec<Record>> {
+    let phrase = format!("titles.title:\"{}\"", title.replace('"', " "));
+    let req = client.get(base).query(&[("query", phrase.as_str()), ("page[size]", "3")]);
+    let v = send_json_with(req, "DataCite", true).await?;
+    Ok(v.and_then(|v| v["data"].as_array().cloned()).unwrap_or_default().iter().filter_map(parse_datacite).collect())
 }
 
 #[cfg(test)]

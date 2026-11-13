@@ -96,8 +96,8 @@ pub struct Document {
     pub issn: Option<String>,
     /// Fields the user changed. A refresh leaves these alone.
     pub meta_edited: Vec<String>,
-    /// Where each detected field came from: "file", "crossref", "doi" (doi.org), "nb" (National
-/// Library of Norway), "openlibrary" or "ai".
+    /// Where each detected field came from: "file", "crossref", "doi" (doi.org), "datacite", "nb"
+    /// (National Library of Norway), "openlibrary" or "ai".
     pub meta_source: std::collections::HashMap<String, String>,
     pub page_count: Option<u32>,
     pub status: DocStatus,

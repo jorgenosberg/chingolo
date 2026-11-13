@@ -274,8 +274,8 @@ export type Document = {
 	/**  Fields the user changed. A refresh leaves these alone. */
 	metaEdited: string[],
 	/**
-	 *  Where each detected field came from: "file", "crossref", "doi" (doi.org), "nb" (National
-	 *  Library of Norway), "openlibrary" or "ai".
+	 *  Where each detected field came from: "file", "crossref", "doi" (doi.org), "datacite", "nb"
+	 *  (National Library of Norway), "openlibrary" or "ai".
 	 */
 	metaSource: { [key in string]: string },
 	pageCount: number | null,
