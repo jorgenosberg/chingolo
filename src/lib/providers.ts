@@ -47,6 +47,7 @@ export function withSavedModel(
 			displayName: value.id,
 			inputTokenLimit: null,
 			outputTokenLimit: null,
+			facts: null,
 		},
 		...models,
 	];

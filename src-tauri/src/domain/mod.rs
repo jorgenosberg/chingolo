@@ -274,6 +274,27 @@ pub struct ModelInfo {
     pub display_name: String,
     pub input_token_limit: Option<u32>,
     pub output_token_limit: Option<u32>,
+    /// From the price table. `None` when the table doesn't know the model.
+    pub facts: Option<ModelFacts>,
+}
+
+/// What the price table (a trimmed models.dev copy) says about a model. Prices are USD per 1M tokens.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelFacts {
+    /// The provider's marketing name, for example "Gemini 3.8 Flash".
+    pub name: Option<String>,
+    pub input_price: f64,
+    pub output_price: f64,
+    pub cached_price: Option<f64>,
+    pub release_date: Option<String>,
+    pub knowledge_cutoff: Option<String>,
+    pub reasoning: bool,
+    pub tool_calls: bool,
+    pub image_input: bool,
+    pub pdf_input: bool,
+    /// The provider has announced this model's retirement.
+    pub deprecated: bool,
 }
 
 /// A provider whose model list couldn't be loaded.

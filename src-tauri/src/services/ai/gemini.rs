@@ -13,6 +13,7 @@ use super::{
 };
 use crate::domain::ModelInfo;
 use crate::error::{AppError, Result};
+use crate::services::pricing;
 
 const BASE: &str = "https://generativelanguage.googleapis.com/v1beta";
 /// Give up if the connection goes quiet this long mid-stream.
@@ -402,6 +403,7 @@ impl ApiModel {
         Some(ModelInfo {
             provider: "gemini".to_string(),
             display_name: self.display_name.unwrap_or_else(|| id.clone()),
+            facts: pricing::facts("gemini", &id),
             id,
             input_token_limit: self.input_token_limit,
             output_token_limit: self.output_token_limit,

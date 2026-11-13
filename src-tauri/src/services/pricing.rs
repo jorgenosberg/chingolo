@@ -14,7 +14,7 @@ use std::time::Duration;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::domain::now_ms;
+use crate::domain::{ModelFacts, now_ms};
 use crate::error::{AppError, Result};
 use crate::persistence::{Db, settings};
 
@@ -47,6 +47,22 @@ struct Price {
     /// Context window in tokens, when the feed has one.
     #[serde(default)]
     context: Option<u64>,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    release_date: Option<String>,
+    #[serde(default)]
+    knowledge: Option<String>,
+    #[serde(default)]
+    reasoning: bool,
+    #[serde(default)]
+    tool_call: bool,
+    #[serde(default)]
+    image_input: bool,
+    #[serde(default)]
+    pdf_input: bool,
+    #[serde(default)]
+    deprecated: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -85,6 +101,24 @@ impl Table {
         self.find(provider, model)?.context.and_then(|c| u32::try_from(c).ok())
     }
 
+    /// What the table knows about a model, matched like `cost` (a dated variant finds its base).
+    pub fn facts(&self, provider: &str, model: &str) -> Option<ModelFacts> {
+        let p = self.find(provider, model)?;
+        Some(ModelFacts {
+            name: p.name.clone(),
+            input_price: p.input,
+            output_price: p.output,
+            cached_price: p.cache_read,
+            release_date: p.release_date.clone(),
+            knowledge_cutoff: p.knowledge.clone(),
+            reasoning: p.reasoning,
+            tool_calls: p.tool_call,
+            image_input: p.image_input,
+            pdf_input: p.pdf_input,
+            deprecated: p.deprecated,
+        })
+    }
+
     /// `input` includes the cached part. `output` includes thinking tokens.
     pub fn cost(&self, provider: &str, model: &str, input: u32, output: u32, cached: u32) -> Option<f64> {
         let price = self.find(provider, model)?;
@@ -117,6 +151,11 @@ pub fn context_limit(provider: &str, model: &str) -> Option<u32> {
     current().context_limit(provider, model)
 }
 
+/// The model's facts from the price table, if known.
+pub fn facts(provider: &str, model: &str) -> Option<ModelFacts> {
+    current().facts(provider, model)
+}
+
 /// Estimated cost in USD, or `None` when the model has no price in the table.
 pub fn cost(provider: &str, model: &str, input: u32, output: u32, cached: u32) -> Option<f64> {
     current().cost(provider, model, input, output, cached)
@@ -129,6 +168,12 @@ fn trim_provider(provider: &Value) -> Value {
     for (id, model) in models {
         let Some(cost) = model.get("cost") else { continue };
         let Some(input) = num(cost, "input") else { continue };
+        let takes = |kind: &str| {
+            model
+                .pointer("/modalities/input")
+                .and_then(Value::as_array)
+                .is_some_and(|kinds| kinds.iter().any(|k| k.as_str() == Some(kind)))
+        };
         let tiers: Vec<Value> = cost
             .get("tiers")
             .and_then(Value::as_array)
@@ -155,6 +200,14 @@ fn trim_provider(provider: &Value) -> Value {
                 "cache_read": num(cost, "cache_read"),
                 "tiers": tiers,
                 "context": model.pointer("/limit/context").and_then(Value::as_u64),
+                "name": model.get("name").and_then(Value::as_str),
+                "release_date": model.get("release_date").and_then(Value::as_str),
+                "knowledge": model.get("knowledge").and_then(Value::as_str),
+                "reasoning": model.get("reasoning").and_then(Value::as_bool).unwrap_or(false),
+                "tool_call": model.get("tool_call").and_then(Value::as_bool).unwrap_or(false),
+                "image_input": takes("image"),
+                "pdf_input": takes("pdf"),
+                "deprecated": model.get("status").and_then(Value::as_str) == Some("deprecated"),
             }),
         );
     }
@@ -361,6 +414,42 @@ mod tests {
         near(t.cost("openai", "text-embedding-3-small", 1_000_000, 0, 0), 0.02);
         assert_eq!(t.cost("gemini", "gemini-free-thing", 1, 1, 0), None);
         assert!(!text.contains("input_audio"));
+    }
+
+    #[test]
+    fn trimming_keeps_what_a_model_picker_shows() {
+        let mut f = feed(12);
+        f["google"]["models"]["gemini-pro-x"].as_object_mut().unwrap().extend(
+            json!({
+                "name": "Gemini Pro X", "release_date": "2026-05-01", "knowledge": "2025-12",
+                "reasoning": true, "tool_call": true, "status": "deprecated",
+                "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] },
+            })
+            .as_object()
+            .unwrap()
+            .clone(),
+        );
+        let (_, t) = trim(&f, "2026-02-03").unwrap();
+        let facts = t.facts("gemini", "gemini-pro-x").unwrap();
+        assert_eq!(facts.name.as_deref(), Some("Gemini Pro X"));
+        assert_eq!(facts.release_date.as_deref(), Some("2026-05-01"));
+        assert_eq!(facts.knowledge_cutoff.as_deref(), Some("2025-12"));
+        assert!(facts.reasoning && facts.tool_calls && facts.image_input && facts.pdf_input && facts.deprecated);
+        assert_eq!((facts.input_price, facts.output_price), (2.0, 12.0));
+        // A model with none of those fields gets plain defaults.
+        let plain = t.facts("gemini", "gemini-m0").unwrap();
+        assert_eq!(plain.name, None);
+        assert!(!plain.reasoning && !plain.image_input && !plain.deprecated);
+        assert_eq!(plain.cached_price, Some(0.1));
+    }
+
+    #[test]
+    fn facts_follow_the_same_matching_as_cost() {
+        let t = table();
+        assert!(t.facts("gemini", "base").is_some());
+        assert!(t.facts("gemini", "models/base-001").is_some(), "a dated variant finds its base");
+        assert!(t.facts("gemini", "base-tts-preview").is_none(), "special variants don't");
+        assert!(t.facts("gemini", "something-new").is_none());
     }
 
     #[test]

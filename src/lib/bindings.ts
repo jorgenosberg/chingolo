@@ -377,6 +377,23 @@ export type MetadataPatch = {
 	issn: string | null,
 };
 
+/**  What the price table (a trimmed models.dev copy) says about a model. Prices are USD per 1M tokens. */
+export type ModelFacts = {
+	/**  The provider's marketing name, for example "Gemini 3.8 Flash". */
+	name: string | null,
+	inputPrice: number | null,
+	outputPrice: number | null,
+	cachedPrice: number | null,
+	releaseDate: string | null,
+	knowledgeCutoff: string | null,
+	reasoning: boolean,
+	toolCalls: boolean,
+	imageInput: boolean,
+	pdfInput: boolean,
+	/**  The provider has announced this model's retirement. */
+	deprecated: boolean,
+};
+
 export type ModelInfo = {
 	/**  The provider id this model belongs to, for example `gemini` or `openai`. */
 	provider: string,
@@ -384,6 +401,8 @@ export type ModelInfo = {
 	displayName: string,
 	inputTokenLimit: number | null,
 	outputTokenLimit: number | null,
+	/**  From the price table. `None` when the table doesn't know the model. */
+	facts: ModelFacts | null,
 };
 
 /**  Models from every provider that has a key. One failing provider doesn't hide the others. */

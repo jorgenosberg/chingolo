@@ -97,13 +97,18 @@ impl Provider for OpenAi {
                 .filter_map(|m| m.get("id").and_then(Value::as_str));
             let mut models: Vec<ModelInfo> = ids
                 .filter(|id| is_chat_model(id))
-                .map(|id| ModelInfo {
-                    provider: "openai".to_string(),
-                    id: id.to_string(),
-                    display_name: id.to_string(),
-                    // The model list has no limits, the price table does.
-                    input_token_limit: pricing::context_limit("openai", id),
-                    output_token_limit: None,
+                .map(|id| {
+                    let facts = pricing::facts("openai", id);
+                    ModelInfo {
+                        provider: "openai".to_string(),
+                        id: id.to_string(),
+                        // The list has no names, the price table does.
+                        display_name: facts.as_ref().and_then(|f| f.name.clone()).unwrap_or_else(|| id.to_string()),
+                        // The model list has no limits, the price table does.
+                        input_token_limit: pricing::context_limit("openai", id),
+                        output_token_limit: None,
+                        facts,
+                    }
                 })
                 .collect();
             models.sort_by(|a, b| a.id.cmp(&b.id));

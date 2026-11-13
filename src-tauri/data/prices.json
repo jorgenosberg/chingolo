@@ -1,12 +1,19 @@
 {
-	"fetchedAt": "2026-11-05",
+	"fetchedAt": "2026-11-13",
 	"providers": {
 		"gemini": {
 			"deep-research-max-preview-04-2026": {
 				"cache_read": 0.2,
-				"context": 131072,
+				"context": 1048576,
+				"deprecated": false,
+				"image_input": true,
 				"input": 2.0,
+				"knowledge": "2025-01",
+				"name": "Deep Research Max Preview (Apr-21-2026)",
 				"output": 12.0,
+				"pdf_input": true,
+				"reasoning": true,
+				"release_date": "2026-04-21",
 				"tiers": [
 					{
 						"cache_read": 0.4,
@@ -14,13 +21,21 @@
 						"output": 18.0,
 						"over": 200000
 					}
-				]
+				],
+				"tool_call": true
 			},
 			"deep-research-preview-04-2026": {
 				"cache_read": 0.2,
-				"context": 131072,
+				"context": 1048576,
+				"deprecated": false,
+				"image_input": true,
 				"input": 2.0,
+				"knowledge": "2025-01",
+				"name": "Deep Research Preview (Apr-21-2026)",
 				"output": 12.0,
+				"pdf_input": true,
+				"reasoning": true,
+				"release_date": "2026-04-21",
 				"tiers": [
 					{
 						"cache_read": 0.4,
@@ -28,55 +43,96 @@
 						"output": 18.0,
 						"over": 200000
 					}
-				]
+				],
+				"tool_call": true
 			},
 			"gemini-2.5-computer-use-preview-10-2025": {
 				"cache_read": null,
 				"context": 128000,
+				"deprecated": false,
+				"image_input": true,
 				"input": 1.25,
+				"knowledge": "2025-01",
+				"name": "Gemini 2.5 Computer Use Preview 10-2025",
 				"output": 10.0,
-				"tiers": [
-					{
-						"cache_read": null,
-						"input": 2.5,
-						"output": 15.0,
-						"over": 200000
-					}
-				]
+				"pdf_input": false,
+				"reasoning": true,
+				"release_date": "2025-10-07",
+				"tiers": [],
+				"tool_call": true
 			},
 			"gemini-2.5-flash": {
 				"cache_read": 0.03,
 				"context": 1048576,
+				"deprecated": false,
+				"image_input": true,
 				"input": 0.3,
+				"knowledge": "2025-01",
+				"name": "Gemini 2.5 Flash",
 				"output": 2.5,
-				"tiers": []
+				"pdf_input": true,
+				"reasoning": true,
+				"release_date": "2025-06-17",
+				"tiers": [],
+				"tool_call": true
 			},
 			"gemini-2.5-flash-image": {
 				"cache_read": 0.075,
 				"context": 32768,
+				"deprecated": true,
+				"image_input": true,
 				"input": 0.3,
+				"knowledge": "2024-06",
+				"name": "Nano Banana",
 				"output": 30.0,
-				"tiers": []
+				"pdf_input": false,
+				"reasoning": false,
+				"release_date": "2025-08-26",
+				"tiers": [],
+				"tool_call": false
 			},
 			"gemini-2.5-flash-lite": {
 				"cache_read": 0.01,
 				"context": 1048576,
+				"deprecated": false,
+				"image_input": true,
 				"input": 0.1,
+				"knowledge": "2025-01",
+				"name": "Gemini 2.5 Flash-Lite",
 				"output": 0.4,
-				"tiers": []
+				"pdf_input": true,
+				"reasoning": true,
+				"release_date": "2025-06-17",
+				"tiers": [],
+				"tool_call": true
 			},
 			"gemini-2.5-flash-preview-tts": {
 				"cache_read": null,
 				"context": 8192,
+				"deprecated": false,
+				"image_input": false,
 				"input": 0.5,
+				"knowledge": "2025-01",
+				"name": "Gemini 2.5 Flash Preview TTS",
 				"output": 10.0,
-				"tiers": []
+				"pdf_input": false,
+				"reasoning": false,
+				"release_date": "2025-05-01",
+				"tiers": [],
+				"tool_call": false
 			},
 			"gemini-2.5-pro": {
 				"cache_read": 0.125,
 				"context": 1048576,
+				"deprecated": false,
+				"image_input": true,
 				"input": 1.25,
+				"knowledge": "2025-01",
+				"name": "Gemini 2.5 Pro",
 				"output": 10.0,
+				"pdf_input": true,
+				"reasoning": true,
+				"release_date": "2025-06-17",
 				"tiers": [
 					{
 						"cache_read": 0.25,
@@ -84,76 +140,156 @@
 						"output": 15.0,
 						"over": 200000
 					}
-				]
+				],
+				"tool_call": true
 			},
 			"gemini-2.5-pro-preview-tts": {
 				"cache_read": null,
 				"context": 8192,
+				"deprecated": false,
+				"image_input": false,
 				"input": 1.0,
+				"knowledge": "2025-01",
+				"name": "Gemini 2.5 Pro Preview TTS",
 				"output": 20.0,
-				"tiers": []
+				"pdf_input": false,
+				"reasoning": false,
+				"release_date": "2025-05-01",
+				"tiers": [],
+				"tool_call": false
 			},
 			"gemini-3-flash-preview": {
 				"cache_read": 0.05,
 				"context": 1048576,
+				"deprecated": false,
+				"image_input": true,
 				"input": 0.5,
+				"knowledge": "2025-01",
+				"name": "Gemini 3 Flash Preview",
 				"output": 3.0,
-				"tiers": []
+				"pdf_input": true,
+				"reasoning": true,
+				"release_date": "2025-12-17",
+				"tiers": [],
+				"tool_call": true
 			},
 			"gemini-3-pro-image": {
 				"cache_read": null,
 				"context": 65536,
+				"deprecated": false,
+				"image_input": true,
 				"input": 2.0,
+				"knowledge": "2025-01",
+				"name": "Nano Banana Pro",
 				"output": 120.0,
-				"tiers": []
+				"pdf_input": false,
+				"reasoning": true,
+				"release_date": "2026-05-28",
+				"tiers": [],
+				"tool_call": false
 			},
 			"gemini-3.1-flash-image": {
 				"cache_read": null,
 				"context": 131072,
+				"deprecated": false,
+				"image_input": true,
 				"input": 0.5,
+				"knowledge": "2025-01",
+				"name": "Nano Banana 2",
 				"output": 60.0,
-				"tiers": []
+				"pdf_input": true,
+				"reasoning": true,
+				"release_date": "2026-05-28",
+				"tiers": [],
+				"tool_call": false
 			},
 			"gemini-3.1-flash-lite": {
 				"cache_read": 0.025,
 				"context": 1048576,
+				"deprecated": false,
+				"image_input": true,
 				"input": 0.25,
+				"knowledge": "2025-01",
+				"name": "Gemini 3.1 Flash Lite",
 				"output": 1.5,
-				"tiers": []
+				"pdf_input": true,
+				"reasoning": true,
+				"release_date": "2026-05-07",
+				"tiers": [],
+				"tool_call": true
 			},
 			"gemini-3.1-flash-lite-image": {
 				"cache_read": null,
 				"context": 65536,
+				"deprecated": false,
+				"image_input": true,
 				"input": 0.25,
+				"knowledge": "2025-01",
+				"name": "Nano Banana 2 Lite",
 				"output": 30.0,
-				"tiers": []
+				"pdf_input": false,
+				"reasoning": true,
+				"release_date": "2026-06-30",
+				"tiers": [],
+				"tool_call": true
 			},
 			"gemini-3.1-flash-lite-preview": {
 				"cache_read": 0.025,
 				"context": 1048576,
+				"deprecated": true,
+				"image_input": true,
 				"input": 0.25,
+				"knowledge": "2025-01",
+				"name": "Gemini 3.1 Flash Lite Preview",
 				"output": 1.5,
-				"tiers": []
+				"pdf_input": true,
+				"reasoning": true,
+				"release_date": "2026-03-03",
+				"tiers": [],
+				"tool_call": true
 			},
 			"gemini-3.1-flash-live-preview": {
 				"cache_read": null,
 				"context": 131072,
+				"deprecated": false,
+				"image_input": true,
 				"input": 0.75,
+				"knowledge": "2025-01",
+				"name": "Gemini 3.1 Flash Live Preview",
 				"output": 4.5,
-				"tiers": []
+				"pdf_input": false,
+				"reasoning": true,
+				"release_date": "2026-03-26",
+				"tiers": [],
+				"tool_call": true
 			},
 			"gemini-3.1-flash-tts-preview": {
 				"cache_read": null,
 				"context": 8192,
+				"deprecated": false,
+				"image_input": false,
 				"input": 1.0,
+				"knowledge": "2025-01",
+				"name": "Gemini 3.1 Flash TTS Preview",
 				"output": 20.0,
-				"tiers": []
+				"pdf_input": false,
+				"reasoning": true,
+				"release_date": "2026-04-15",
+				"tiers": [],
+				"tool_call": false
 			},
 			"gemini-3.1-pro-preview": {
 				"cache_read": 0.2,
 				"context": 1048576,
+				"deprecated": false,
+				"image_input": true,
 				"input": 2.0,
+				"knowledge": "2025-01",
+				"name": "Gemini 3.1 Pro Preview",
 				"output": 12.0,
+				"pdf_input": true,
+				"reasoning": true,
+				"release_date": "2026-02-19",
 				"tiers": [
 					{
 						"cache_read": 0.4,
@@ -161,13 +297,21 @@
 						"output": 18.0,
 						"over": 200000
 					}
-				]
+				],
+				"tool_call": true
 			},
 			"gemini-3.1-pro-preview-customtools": {
 				"cache_read": 0.2,
 				"context": 1048576,
+				"deprecated": false,
+				"image_input": true,
 				"input": 2.0,
+				"knowledge": "2025-01",
+				"name": "Gemini 3.1 Pro Preview Custom Tools",
 				"output": 12.0,
+				"pdf_input": true,
+				"reasoning": true,
+				"release_date": "2026-02-19",
 				"tiers": [
 					{
 						"cache_read": 0.4,
@@ -175,97 +319,216 @@
 						"output": 18.0,
 						"over": 200000
 					}
-				]
+				],
+				"tool_call": true
 			},
 			"gemini-3.5-flash": {
 				"cache_read": 0.15,
 				"context": 1048576,
+				"deprecated": false,
+				"image_input": true,
 				"input": 1.5,
+				"knowledge": "2025-01",
+				"name": "Gemini 3.5 Flash",
 				"output": 9.0,
-				"tiers": []
+				"pdf_input": true,
+				"reasoning": true,
+				"release_date": "2026-05-19",
+				"tiers": [],
+				"tool_call": true
 			},
 			"gemini-3.5-flash-lite": {
 				"cache_read": 0.03,
 				"context": 1048576,
+				"deprecated": false,
+				"image_input": true,
 				"input": 0.3,
+				"knowledge": "2026-03",
+				"name": "Gemini 3.5 Flash Lite",
 				"output": 2.5,
-				"tiers": []
+				"pdf_input": true,
+				"reasoning": true,
+				"release_date": "2026-07-21",
+				"tiers": [],
+				"tool_call": true
 			},
 			"gemini-3.5-live-translate-preview": {
 				"cache_read": null,
 				"context": 16384,
+				"deprecated": false,
+				"image_input": false,
 				"input": 3.5,
+				"knowledge": "2025-01",
+				"name": "Gemini 3.5 Live Translate Preview",
 				"output": 21.0,
-				"tiers": []
+				"pdf_input": false,
+				"reasoning": false,
+				"release_date": "2026-06-09",
+				"tiers": [],
+				"tool_call": false
 			},
 			"gemini-3.6-flash": {
 				"cache_read": 0.075,
 				"context": 1048576,
+				"deprecated": false,
+				"image_input": true,
 				"input": 0.75,
+				"knowledge": "2026-03",
+				"name": "Gemini 3.6 Flash",
 				"output": 3.75,
-				"tiers": []
+				"pdf_input": true,
+				"reasoning": true,
+				"release_date": "2026-07-21",
+				"tiers": [],
+				"tool_call": true
 			},
 			"gemini-3.7-flash": {
 				"cache_read": 0.075,
 				"context": 1048576,
+				"deprecated": false,
+				"image_input": true,
 				"input": 0.75,
+				"knowledge": "2026-03",
+				"name": "Gemini 3.7 Flash",
 				"output": 3.75,
-				"tiers": []
+				"pdf_input": true,
+				"reasoning": true,
+				"release_date": "2026-08-13",
+				"tiers": [],
+				"tool_call": true
 			},
 			"gemini-3.8-flash": {
 				"cache_read": 0.075,
 				"context": 1048576,
+				"deprecated": false,
+				"image_input": true,
 				"input": 0.75,
+				"knowledge": null,
+				"name": "Gemini 3.8 Flash",
 				"output": 3.75,
-				"tiers": []
+				"pdf_input": true,
+				"reasoning": true,
+				"release_date": "2026-09-02",
+				"tiers": [],
+				"tool_call": true
 			},
 			"gemini-4-argon": {
 				"cache_read": 0.1,
 				"context": 1048576,
+				"deprecated": false,
+				"image_input": true,
 				"input": 2.0,
+				"knowledge": "2026-03",
+				"name": "Gemini 4 Argon",
 				"output": 10.0,
-				"tiers": []
+				"pdf_input": true,
+				"reasoning": true,
+				"release_date": "2026-10-13",
+				"tiers": [],
+				"tool_call": true
+			},
+			"gemini-4-carbon": {
+				"cache_read": 0.1,
+				"context": 1048576,
+				"deprecated": false,
+				"image_input": true,
+				"input": 2.0,
+				"knowledge": "2026-03",
+				"name": "Gemini 4 Carbon",
+				"output": 10.0,
+				"pdf_input": true,
+				"reasoning": true,
+				"release_date": "2026-11-10",
+				"tiers": [],
+				"tool_call": true
+			},
+			"gemini-4-hydrogen": {
+				"cache_read": 0.075,
+				"context": 1048576,
+				"deprecated": false,
+				"image_input": true,
+				"input": 1.5,
+				"knowledge": "2026-03",
+				"name": "Gemini 4 Hydrogen",
+				"output": 7.5,
+				"pdf_input": true,
+				"reasoning": true,
+				"release_date": "2026-11-12",
+				"tiers": [],
+				"tool_call": true
 			},
 			"gemini-embedding-001": {
 				"cache_read": null,
 				"context": 2048,
+				"deprecated": false,
+				"image_input": false,
 				"input": 0.15,
+				"knowledge": "2025-05",
+				"name": "Gemini Embedding 001",
 				"output": 0.0,
-				"tiers": []
+				"pdf_input": false,
+				"reasoning": false,
+				"release_date": "2025-05-20",
+				"tiers": [],
+				"tool_call": false
 			},
 			"gemini-embedding-2": {
 				"cache_read": null,
 				"context": 8192,
+				"deprecated": false,
+				"image_input": true,
 				"input": 0.2,
+				"knowledge": "2025-11",
+				"name": "Gemini Embedding 2",
 				"output": 0.0,
-				"tiers": []
+				"pdf_input": true,
+				"reasoning": false,
+				"release_date": "2026-04-22",
+				"tiers": [],
+				"tool_call": false
 			},
 			"gemini-flash-latest": {
 				"cache_read": 0.075,
 				"context": 1048576,
+				"deprecated": false,
+				"image_input": true,
 				"input": 0.75,
+				"knowledge": "2026-03",
+				"name": "Gemini Flash Latest",
 				"output": 3.75,
-				"tiers": []
+				"pdf_input": true,
+				"reasoning": true,
+				"release_date": "2026-08-13",
+				"tiers": [],
+				"tool_call": true
 			},
 			"gemini-flash-lite-latest": {
 				"cache_read": 0.03,
 				"context": 1048576,
+				"deprecated": false,
+				"image_input": true,
 				"input": 0.3,
+				"knowledge": "2026-03",
+				"name": "Gemini Flash-Lite Latest",
 				"output": 2.5,
-				"tiers": []
-			},
-			"gemini-omni-flash-preview": {
-				"cache_read": null,
-				"context": 131072,
-				"input": 1.5,
-				"output": 17.5,
-				"tiers": []
+				"pdf_input": true,
+				"reasoning": true,
+				"release_date": "2026-07-21",
+				"tiers": [],
+				"tool_call": true
 			},
 			"gemini-pro-latest": {
 				"cache_read": 0.2,
 				"context": 1048576,
+				"deprecated": false,
+				"image_input": true,
 				"input": 2.0,
+				"knowledge": "2025-01",
+				"name": "Gemini Pro Latest",
 				"output": 12.0,
+				"pdf_input": true,
+				"reasoning": true,
+				"release_date": "2026-02-19",
 				"tiers": [
 					{
 						"cache_read": 0.4,
@@ -273,169 +536,398 @@
 						"output": 18.0,
 						"over": 200000
 					}
-				]
+				],
+				"tool_call": true
+			},
+			"gemma-4-26b-a4b-it": {
+				"cache_read": null,
+				"context": 262144,
+				"deprecated": false,
+				"image_input": true,
+				"input": 0.0,
+				"knowledge": null,
+				"name": "Gemma 4 26B A4B IT",
+				"output": 0.0,
+				"pdf_input": false,
+				"reasoning": true,
+				"release_date": "2026-04-02",
+				"tiers": [],
+				"tool_call": true
+			},
+			"gemma-4-31b-it": {
+				"cache_read": null,
+				"context": 262144,
+				"deprecated": false,
+				"image_input": true,
+				"input": 0.0,
+				"knowledge": null,
+				"name": "Gemma 4 31B IT",
+				"output": 0.0,
+				"pdf_input": false,
+				"reasoning": true,
+				"release_date": "2026-04-02",
+				"tiers": [],
+				"tool_call": true
 			},
 			"lyria-3-clip-preview": {
 				"cache_read": null,
 				"context": 1048576,
+				"deprecated": false,
+				"image_input": true,
 				"input": 0.0,
+				"knowledge": null,
+				"name": "Lyria 3 Clip Preview",
 				"output": 0.0,
-				"tiers": []
+				"pdf_input": false,
+				"reasoning": false,
+				"release_date": "2026-03-25",
+				"tiers": [],
+				"tool_call": false
 			},
 			"lyria-3-pro-preview": {
 				"cache_read": null,
 				"context": 1048576,
+				"deprecated": false,
+				"image_input": true,
 				"input": 0.0,
+				"knowledge": null,
+				"name": "Lyria 3 Pro Preview",
 				"output": 0.0,
-				"tiers": []
+				"pdf_input": false,
+				"reasoning": false,
+				"release_date": "2026-03-25",
+				"tiers": [],
+				"tool_call": false
 			}
 		},
 		"openai": {
+			"chatgpt-image-latest": {
+				"cache_read": 1.25,
+				"context": 0,
+				"deprecated": true,
+				"image_input": true,
+				"input": 5.0,
+				"knowledge": null,
+				"name": "chatgpt-image-latest",
+				"output": 10.0,
+				"pdf_input": false,
+				"reasoning": false,
+				"release_date": "2025-12-16",
+				"tiers": [],
+				"tool_call": false
+			},
 			"gpt-3.5-turbo": {
 				"cache_read": 0.0,
 				"context": 16385,
+				"deprecated": true,
+				"image_input": false,
 				"input": 0.5,
+				"knowledge": "2021-09-01",
+				"name": "GPT-3.5-turbo",
 				"output": 1.5,
-				"tiers": []
+				"pdf_input": false,
+				"reasoning": false,
+				"release_date": "2023-03-01",
+				"tiers": [],
+				"tool_call": false
 			},
 			"gpt-4": {
 				"cache_read": null,
 				"context": 8192,
+				"deprecated": true,
+				"image_input": false,
 				"input": 30.0,
+				"knowledge": "2023-11",
+				"name": "GPT-4",
 				"output": 60.0,
-				"tiers": []
+				"pdf_input": false,
+				"reasoning": false,
+				"release_date": "2023-11-06",
+				"tiers": [],
+				"tool_call": true
 			},
 			"gpt-4-turbo": {
 				"cache_read": null,
 				"context": 128000,
+				"deprecated": true,
+				"image_input": true,
 				"input": 10.0,
+				"knowledge": "2023-12",
+				"name": "GPT-4 Turbo",
 				"output": 30.0,
-				"tiers": []
+				"pdf_input": false,
+				"reasoning": false,
+				"release_date": "2023-11-06",
+				"tiers": [],
+				"tool_call": true
 			},
 			"gpt-4.1": {
 				"cache_read": 0.5,
 				"context": 1047576,
+				"deprecated": false,
+				"image_input": true,
 				"input": 2.0,
+				"knowledge": "2024-04",
+				"name": "GPT-4.1",
 				"output": 8.0,
-				"tiers": []
+				"pdf_input": true,
+				"reasoning": false,
+				"release_date": "2025-04-14",
+				"tiers": [],
+				"tool_call": true
 			},
 			"gpt-4.1-mini": {
 				"cache_read": 0.1,
 				"context": 1047576,
+				"deprecated": false,
+				"image_input": true,
 				"input": 0.4,
+				"knowledge": "2024-04",
+				"name": "GPT-4.1 mini",
 				"output": 1.6,
-				"tiers": []
+				"pdf_input": true,
+				"reasoning": false,
+				"release_date": "2025-04-14",
+				"tiers": [],
+				"tool_call": true
 			},
 			"gpt-4.1-nano": {
 				"cache_read": 0.025,
 				"context": 1047576,
+				"deprecated": true,
+				"image_input": true,
 				"input": 0.1,
+				"knowledge": "2024-04",
+				"name": "GPT-4.1 nano",
 				"output": 0.4,
-				"tiers": []
+				"pdf_input": false,
+				"reasoning": false,
+				"release_date": "2025-04-14",
+				"tiers": [],
+				"tool_call": true
 			},
 			"gpt-4o": {
 				"cache_read": 1.25,
 				"context": 128000,
+				"deprecated": false,
+				"image_input": true,
 				"input": 2.5,
+				"knowledge": "2023-09",
+				"name": "GPT-4o",
 				"output": 10.0,
-				"tiers": []
+				"pdf_input": true,
+				"reasoning": false,
+				"release_date": "2024-05-13",
+				"tiers": [],
+				"tool_call": true
 			},
 			"gpt-4o-2024-05-13": {
 				"cache_read": null,
 				"context": 128000,
+				"deprecated": true,
+				"image_input": true,
 				"input": 5.0,
+				"knowledge": "2023-09",
+				"name": "GPT-4o (2024-05-13)",
 				"output": 15.0,
-				"tiers": []
+				"pdf_input": false,
+				"reasoning": false,
+				"release_date": "2024-05-13",
+				"tiers": [],
+				"tool_call": true
 			},
 			"gpt-4o-2024-08-06": {
 				"cache_read": 1.25,
 				"context": 128000,
+				"deprecated": false,
+				"image_input": true,
 				"input": 2.5,
+				"knowledge": "2023-09",
+				"name": "GPT-4o (2024-08-06)",
 				"output": 10.0,
-				"tiers": []
+				"pdf_input": false,
+				"reasoning": false,
+				"release_date": "2024-08-06",
+				"tiers": [],
+				"tool_call": true
 			},
 			"gpt-4o-2024-11-20": {
 				"cache_read": 1.25,
 				"context": 128000,
+				"deprecated": false,
+				"image_input": true,
 				"input": 2.5,
+				"knowledge": "2023-09",
+				"name": "GPT-4o (2024-11-20)",
 				"output": 10.0,
-				"tiers": []
+				"pdf_input": false,
+				"reasoning": false,
+				"release_date": "2024-11-20",
+				"tiers": [],
+				"tool_call": true
 			},
 			"gpt-4o-mini": {
 				"cache_read": 0.075,
 				"context": 128000,
+				"deprecated": false,
+				"image_input": true,
 				"input": 0.15,
+				"knowledge": "2023-09",
+				"name": "GPT-4o mini",
 				"output": 0.6,
-				"tiers": []
+				"pdf_input": true,
+				"reasoning": false,
+				"release_date": "2024-07-18",
+				"tiers": [],
+				"tool_call": true
 			},
 			"gpt-5": {
 				"cache_read": 0.125,
 				"context": 400000,
+				"deprecated": false,
+				"image_input": true,
 				"input": 1.25,
+				"knowledge": "2024-09-30",
+				"name": "GPT-5",
 				"output": 10.0,
-				"tiers": []
+				"pdf_input": false,
+				"reasoning": true,
+				"release_date": "2025-08-07",
+				"tiers": [],
+				"tool_call": true
 			},
 			"gpt-5-mini": {
 				"cache_read": 0.025,
 				"context": 400000,
+				"deprecated": false,
+				"image_input": true,
 				"input": 0.25,
+				"knowledge": "2024-05-30",
+				"name": "GPT-5 Mini",
 				"output": 2.0,
-				"tiers": []
+				"pdf_input": false,
+				"reasoning": true,
+				"release_date": "2025-08-07",
+				"tiers": [],
+				"tool_call": true
 			},
 			"gpt-5-nano": {
 				"cache_read": 0.005,
 				"context": 400000,
+				"deprecated": false,
+				"image_input": true,
 				"input": 0.05,
+				"knowledge": "2024-05-30",
+				"name": "GPT-5 Nano",
 				"output": 0.4,
-				"tiers": []
+				"pdf_input": false,
+				"reasoning": true,
+				"release_date": "2025-08-07",
+				"tiers": [],
+				"tool_call": true
 			},
 			"gpt-5-pro": {
 				"cache_read": null,
 				"context": 400000,
+				"deprecated": false,
+				"image_input": true,
 				"input": 15.0,
+				"knowledge": "2024-09-30",
+				"name": "GPT-5 Pro",
 				"output": 120.0,
-				"tiers": []
+				"pdf_input": false,
+				"reasoning": true,
+				"release_date": "2025-10-06",
+				"tiers": [],
+				"tool_call": true
 			},
 			"gpt-5.1": {
 				"cache_read": 0.125,
 				"context": 400000,
+				"deprecated": false,
+				"image_input": true,
 				"input": 1.25,
+				"knowledge": "2024-09-30",
+				"name": "GPT-5.1",
 				"output": 10.0,
-				"tiers": []
+				"pdf_input": false,
+				"reasoning": true,
+				"release_date": "2025-11-13",
+				"tiers": [],
+				"tool_call": true
 			},
 			"gpt-5.2": {
 				"cache_read": 0.175,
 				"context": 400000,
+				"deprecated": false,
+				"image_input": true,
 				"input": 1.75,
+				"knowledge": "2025-08-31",
+				"name": "GPT-5.2",
 				"output": 14.0,
-				"tiers": []
+				"pdf_input": false,
+				"reasoning": true,
+				"release_date": "2025-12-11",
+				"tiers": [],
+				"tool_call": true
 			},
 			"gpt-5.2-pro": {
 				"cache_read": null,
 				"context": 400000,
+				"deprecated": false,
+				"image_input": true,
 				"input": 21.0,
+				"knowledge": "2025-08-31",
+				"name": "GPT-5.2 Pro",
 				"output": 168.0,
-				"tiers": []
+				"pdf_input": false,
+				"reasoning": true,
+				"release_date": "2025-12-11",
+				"tiers": [],
+				"tool_call": true
 			},
 			"gpt-5.3-codex": {
 				"cache_read": 0.175,
 				"context": 400000,
+				"deprecated": false,
+				"image_input": true,
 				"input": 1.75,
+				"knowledge": "2025-08-31",
+				"name": "GPT-5.3 Codex",
 				"output": 14.0,
-				"tiers": []
+				"pdf_input": true,
+				"reasoning": true,
+				"release_date": "2026-02-05",
+				"tiers": [],
+				"tool_call": true
 			},
 			"gpt-5.3-codex-spark": {
 				"cache_read": 0.175,
 				"context": 128000,
+				"deprecated": false,
+				"image_input": true,
 				"input": 1.75,
+				"knowledge": "2025-08-31",
+				"name": "GPT-5.3 Codex Spark",
 				"output": 14.0,
-				"tiers": []
+				"pdf_input": true,
+				"reasoning": true,
+				"release_date": "2026-02-05",
+				"tiers": [],
+				"tool_call": true
 			},
 			"gpt-5.4": {
 				"cache_read": 0.25,
 				"context": 1050000,
+				"deprecated": false,
+				"image_input": true,
 				"input": 2.5,
+				"knowledge": "2025-08-31",
+				"name": "GPT-5.4",
 				"output": 15.0,
+				"pdf_input": true,
+				"reasoning": true,
+				"release_date": "2026-03-05",
 				"tiers": [
 					{
 						"cache_read": 0.5,
@@ -443,27 +935,51 @@
 						"output": 22.5,
 						"over": 272000
 					}
-				]
+				],
+				"tool_call": true
 			},
 			"gpt-5.4-mini": {
 				"cache_read": 0.075,
 				"context": 400000,
+				"deprecated": false,
+				"image_input": true,
 				"input": 0.75,
+				"knowledge": "2025-08-31",
+				"name": "GPT-5.4 mini",
 				"output": 4.5,
-				"tiers": []
+				"pdf_input": false,
+				"reasoning": true,
+				"release_date": "2026-03-17",
+				"tiers": [],
+				"tool_call": true
 			},
 			"gpt-5.4-nano": {
 				"cache_read": 0.02,
 				"context": 400000,
+				"deprecated": false,
+				"image_input": true,
 				"input": 0.2,
+				"knowledge": "2025-08-31",
+				"name": "GPT-5.4 nano",
 				"output": 1.25,
-				"tiers": []
+				"pdf_input": false,
+				"reasoning": true,
+				"release_date": "2026-03-17",
+				"tiers": [],
+				"tool_call": true
 			},
 			"gpt-5.4-pro": {
 				"cache_read": null,
 				"context": 1050000,
+				"deprecated": false,
+				"image_input": true,
 				"input": 30.0,
+				"knowledge": "2025-08-31",
+				"name": "GPT-5.4 Pro",
 				"output": 180.0,
+				"pdf_input": false,
+				"reasoning": true,
+				"release_date": "2026-03-05",
 				"tiers": [
 					{
 						"cache_read": null,
@@ -471,13 +987,21 @@
 						"output": 270.0,
 						"over": 272000
 					}
-				]
+				],
+				"tool_call": true
 			},
 			"gpt-5.5": {
 				"cache_read": 0.5,
 				"context": 1050000,
+				"deprecated": false,
+				"image_input": true,
 				"input": 5.0,
+				"knowledge": "2025-12-01",
+				"name": "GPT-5.5",
 				"output": 30.0,
+				"pdf_input": true,
+				"reasoning": true,
+				"release_date": "2026-04-23",
 				"tiers": [
 					{
 						"cache_read": 1.0,
@@ -485,13 +1009,21 @@
 						"output": 45.0,
 						"over": 272000
 					}
-				]
+				],
+				"tool_call": true
 			},
 			"gpt-5.5-pro": {
 				"cache_read": null,
 				"context": 1050000,
+				"deprecated": false,
+				"image_input": true,
 				"input": 30.0,
+				"knowledge": "2025-12-01",
+				"name": "GPT-5.5 Pro",
 				"output": 180.0,
+				"pdf_input": true,
+				"reasoning": true,
+				"release_date": "2026-04-23",
 				"tiers": [
 					{
 						"cache_read": null,
@@ -499,13 +1031,21 @@
 						"output": 270.0,
 						"over": 272000
 					}
-				]
+				],
+				"tool_call": true
 			},
 			"gpt-5.6": {
 				"cache_read": 0.4,
 				"context": 1050000,
+				"deprecated": false,
+				"image_input": true,
 				"input": 4.0,
+				"knowledge": "2026-02-16",
+				"name": "GPT-5.6",
 				"output": 20.0,
+				"pdf_input": true,
+				"reasoning": true,
+				"release_date": "2026-07-09",
 				"tiers": [
 					{
 						"cache_read": 0.8,
@@ -513,13 +1053,21 @@
 						"output": 30.0,
 						"over": 272000
 					}
-				]
+				],
+				"tool_call": true
 			},
 			"gpt-5.6-luna": {
 				"cache_read": 0.02,
 				"context": 1050000,
+				"deprecated": false,
+				"image_input": true,
 				"input": 0.2,
+				"knowledge": "2026-02-16",
+				"name": "GPT-5.6 Luna",
 				"output": 1.2,
+				"pdf_input": true,
+				"reasoning": true,
+				"release_date": "2026-07-09",
 				"tiers": [
 					{
 						"cache_read": 0.04,
@@ -527,13 +1075,21 @@
 						"output": 1.8,
 						"over": 272000
 					}
-				]
+				],
+				"tool_call": true
 			},
 			"gpt-5.6-sol": {
 				"cache_read": 0.4,
 				"context": 1050000,
+				"deprecated": false,
+				"image_input": true,
 				"input": 4.0,
+				"knowledge": "2026-02-16",
+				"name": "GPT-5.6 Sol",
 				"output": 20.0,
+				"pdf_input": true,
+				"reasoning": true,
+				"release_date": "2026-07-09",
 				"tiers": [
 					{
 						"cache_read": 0.8,
@@ -541,13 +1097,21 @@
 						"output": 30.0,
 						"over": 272000
 					}
-				]
+				],
+				"tool_call": true
 			},
 			"gpt-5.6-terra": {
 				"cache_read": 0.2,
 				"context": 1050000,
+				"deprecated": false,
+				"image_input": true,
 				"input": 2.0,
+				"knowledge": "2026-02-16",
+				"name": "GPT-5.6 Terra",
 				"output": 12.0,
+				"pdf_input": true,
+				"reasoning": true,
+				"release_date": "2026-07-09",
 				"tiers": [
 					{
 						"cache_read": 0.4,
@@ -555,13 +1119,21 @@
 						"output": 18.0,
 						"over": 272000
 					}
-				]
+				],
+				"tool_call": true
 			},
 			"gpt-6-astra": {
 				"cache_read": 1.0,
 				"context": 1050000,
+				"deprecated": false,
+				"image_input": true,
 				"input": 10.0,
+				"knowledge": "2026-04-30",
+				"name": "GPT-6 Astra",
 				"output": 50.0,
+				"pdf_input": true,
+				"reasoning": true,
+				"release_date": "2026-09-04",
 				"tiers": [
 					{
 						"cache_read": 2.0,
@@ -569,13 +1141,21 @@
 						"output": 75.0,
 						"over": 272000
 					}
-				]
+				],
+				"tool_call": true
 			},
 			"gpt-6-luna": {
 				"cache_read": 0.01,
 				"context": 1050000,
+				"deprecated": false,
+				"image_input": true,
 				"input": 0.1,
+				"knowledge": "2026-05-18",
+				"name": "GPT-6 Luna",
 				"output": 0.5,
+				"pdf_input": true,
+				"reasoning": true,
+				"release_date": "2026-09-22",
 				"tiers": [
 					{
 						"cache_read": 0.02,
@@ -583,13 +1163,21 @@
 						"output": 0.75,
 						"over": 272000
 					}
-				]
+				],
+				"tool_call": true
 			},
 			"gpt-6-sol": {
 				"cache_read": 0.2,
 				"context": 1050000,
+				"deprecated": false,
+				"image_input": true,
 				"input": 2.0,
+				"knowledge": "2026-04-20",
+				"name": "GPT-6 Sol",
 				"output": 10.0,
+				"pdf_input": true,
+				"reasoning": true,
+				"release_date": "2026-09-22",
 				"tiers": [
 					{
 						"cache_read": 0.4,
@@ -597,13 +1185,21 @@
 						"output": 15.0,
 						"over": 272000
 					}
-				]
+				],
+				"tool_call": true
 			},
 			"gpt-6.1-sol": {
 				"cache_read": 0.1,
 				"context": 1050000,
+				"deprecated": false,
+				"image_input": true,
 				"input": 2.0,
+				"knowledge": "2026-04-30",
+				"name": "GPT-6.1 Sol",
 				"output": 10.0,
+				"pdf_input": true,
+				"reasoning": true,
+				"release_date": "2026-09-29",
 				"tiers": [
 					{
 						"cache_read": 0.2,
@@ -611,13 +1207,21 @@
 						"output": 15.0,
 						"over": 272000
 					}
-				]
+				],
+				"tool_call": true
 			},
 			"gpt-6.1-terra": {
 				"cache_read": 0.05,
 				"context": 1050000,
+				"deprecated": false,
+				"image_input": true,
 				"input": 1.0,
+				"knowledge": "2026-06-01",
+				"name": "GPT-6.1 Terra",
 				"output": 5.0,
+				"pdf_input": true,
+				"reasoning": true,
+				"release_date": "2026-10-26",
 				"tiers": [
 					{
 						"cache_read": 0.1,
@@ -625,13 +1229,21 @@
 						"output": 7.5,
 						"over": 272000
 					}
-				]
+				],
+				"tool_call": true
 			},
 			"gpt-daybreak-blue-latest": {
 				"cache_read": 0.4,
 				"context": 1050000,
+				"deprecated": false,
+				"image_input": true,
 				"input": 4.0,
+				"knowledge": "2026-02-16",
+				"name": "Daybreak Blue",
 				"output": 20.0,
+				"pdf_input": true,
+				"reasoning": true,
+				"release_date": "2026-08-07",
 				"tiers": [
 					{
 						"cache_read": 0.8,
@@ -639,91 +1251,203 @@
 						"output": 30.0,
 						"over": 272000
 					}
-				]
+				],
+				"tool_call": true
 			},
 			"gpt-daybreak-red-latest": {
 				"cache_read": 1.25,
 				"context": 400000,
+				"deprecated": false,
+				"image_input": true,
 				"input": 12.5,
+				"knowledge": "2026-02-16",
+				"name": "Daybreak Red",
 				"output": 75.0,
-				"tiers": []
+				"pdf_input": false,
+				"reasoning": true,
+				"release_date": "2026-08-07",
+				"tiers": [],
+				"tool_call": true
+			},
+			"gpt-image-1.5": {
+				"cache_read": 1.25,
+				"context": 0,
+				"deprecated": true,
+				"image_input": true,
+				"input": 5.0,
+				"knowledge": null,
+				"name": "gpt-image-1.5",
+				"output": 10.0,
+				"pdf_input": false,
+				"reasoning": false,
+				"release_date": "2025-11-25",
+				"tiers": [],
+				"tool_call": false
 			},
 			"gpt-image-2": {
 				"cache_read": 1.25,
 				"context": 0,
+				"deprecated": false,
+				"image_input": true,
 				"input": 5.0,
+				"knowledge": null,
+				"name": "gpt-image-2",
 				"output": 30.0,
-				"tiers": []
+				"pdf_input": false,
+				"reasoning": false,
+				"release_date": "2026-04-21",
+				"tiers": [],
+				"tool_call": false
 			},
 			"gpt-realtime-2.1": {
 				"cache_read": 0.4,
 				"context": 128000,
+				"deprecated": false,
+				"image_input": true,
 				"input": 4.0,
+				"knowledge": "2024-09-30",
+				"name": "GPT-Realtime-2.1",
 				"output": 24.0,
-				"tiers": []
+				"pdf_input": false,
+				"reasoning": true,
+				"release_date": "2026-07-06",
+				"tiers": [],
+				"tool_call": true
 			},
 			"o1": {
 				"cache_read": 7.5,
 				"context": 200000,
+				"deprecated": true,
+				"image_input": true,
 				"input": 15.0,
+				"knowledge": "2023-09",
+				"name": "o1",
 				"output": 60.0,
-				"tiers": []
+				"pdf_input": true,
+				"reasoning": true,
+				"release_date": "2024-12-05",
+				"tiers": [],
+				"tool_call": true
 			},
 			"o1-pro": {
 				"cache_read": null,
 				"context": 200000,
+				"deprecated": true,
+				"image_input": true,
 				"input": 150.0,
+				"knowledge": "2023-09",
+				"name": "o1-pro",
 				"output": 600.0,
-				"tiers": []
+				"pdf_input": false,
+				"reasoning": true,
+				"release_date": "2025-03-19",
+				"tiers": [],
+				"tool_call": true
 			},
 			"o3": {
 				"cache_read": 0.5,
 				"context": 200000,
+				"deprecated": false,
+				"image_input": true,
 				"input": 2.0,
+				"knowledge": "2024-05",
+				"name": "o3",
 				"output": 8.0,
-				"tiers": []
+				"pdf_input": true,
+				"reasoning": true,
+				"release_date": "2025-04-16",
+				"tiers": [],
+				"tool_call": true
 			},
 			"o3-mini": {
 				"cache_read": 0.55,
 				"context": 200000,
+				"deprecated": true,
+				"image_input": false,
 				"input": 1.1,
+				"knowledge": "2024-05",
+				"name": "o3-mini",
 				"output": 4.4,
-				"tiers": []
+				"pdf_input": false,
+				"reasoning": true,
+				"release_date": "2024-12-20",
+				"tiers": [],
+				"tool_call": true
 			},
 			"o3-pro": {
 				"cache_read": null,
 				"context": 200000,
+				"deprecated": false,
+				"image_input": true,
 				"input": 20.0,
+				"knowledge": "2024-05",
+				"name": "o3-pro",
 				"output": 80.0,
-				"tiers": []
+				"pdf_input": false,
+				"reasoning": true,
+				"release_date": "2025-06-10",
+				"tiers": [],
+				"tool_call": true
 			},
 			"o4-mini": {
 				"cache_read": 0.275,
 				"context": 200000,
+				"deprecated": true,
+				"image_input": true,
 				"input": 1.1,
+				"knowledge": "2024-05",
+				"name": "o4-mini",
 				"output": 4.4,
-				"tiers": []
+				"pdf_input": false,
+				"reasoning": true,
+				"release_date": "2025-04-16",
+				"tiers": [],
+				"tool_call": true
 			},
 			"text-embedding-3-large": {
 				"cache_read": null,
 				"context": 8191,
+				"deprecated": false,
+				"image_input": false,
 				"input": 0.13,
+				"knowledge": "2024-01",
+				"name": "text-embedding-3-large",
 				"output": 0.0,
-				"tiers": []
+				"pdf_input": false,
+				"reasoning": false,
+				"release_date": "2024-01-25",
+				"tiers": [],
+				"tool_call": false
 			},
 			"text-embedding-3-small": {
 				"cache_read": null,
 				"context": 8191,
+				"deprecated": false,
+				"image_input": false,
 				"input": 0.02,
+				"knowledge": "2024-01",
+				"name": "text-embedding-3-small",
 				"output": 0.0,
-				"tiers": []
+				"pdf_input": false,
+				"reasoning": false,
+				"release_date": "2024-01-25",
+				"tiers": [],
+				"tool_call": false
 			},
 			"text-embedding-ada-002": {
 				"cache_read": null,
 				"context": 8192,
+				"deprecated": false,
+				"image_input": false,
 				"input": 0.1,
+				"knowledge": "2022-12",
+				"name": "text-embedding-ada-002",
 				"output": 0.0,
-				"tiers": []
+				"pdf_input": false,
+				"reasoning": false,
+				"release_date": "2022-12-15",
+				"tiers": [],
+				"tool_call": false
 			}
 		}
 	},
