@@ -11,7 +11,10 @@ import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { useEffect, useRef, useState } from "react";
 import { Button, IconButton, Spinner } from "../../components/ui";
 import type { PageBoxes } from "../../lib/bindings";
+import { useLayoutOverlay } from "../../lib/devtools";
+import { useLayout } from "../../lib/queries";
 import { clearHighlights, drawHighlights } from "./highlight";
+import { clearLayout, drawLayout } from "./layoutOverlay";
 import { attachPinchZoom } from "./pinch";
 
 type Viewer = import("pdfjs-dist/web/pdf_viewer.mjs").PDFViewer;
@@ -61,6 +64,10 @@ export function PdfReader({
 	const highlightRef = useRef(highlight);
 	highlightRef.current = highlight;
 	const scrolledFor = useRef<Highlight | null>(null);
+	const showLayout = useLayoutOverlay();
+	const layout = useLayout(documentId, showLayout);
+	const regionsRef = useRef(layout.data);
+	regionsRef.current = showLayout ? layout.data : undefined;
 
 	const [status, setStatus] = useState<"loading" | "ready" | "error">(
 		"loading",
@@ -89,6 +96,17 @@ export function PdfReader({
 				return undefined;
 			}
 		});
+		clearLayout(root);
+		const regions = regionsRef.current;
+		if (regions?.length) {
+			drawLayout(regions, (i) => {
+				try {
+					return viewer.getPageView(i);
+				} catch {
+					return undefined;
+				}
+			});
+		}
 		if (first && scrolledFor.current !== h) {
 			scrolledFor.current = h;
 			first.scrollIntoView({ block: "center", behavior: "instant" });
@@ -235,6 +253,12 @@ export function PdfReader({
 		);
 		paint.current();
 	}, [highlight, status]);
+
+	// The developer overlay was switched on or off, or its regions arrived.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: repaint when these change
+	useEffect(() => {
+		if (status === "ready") paint.current();
+	}, [showLayout, layout.data, status]);
 
 	const runFind = (query: string, again = false, previous = false) => {
 		setFind((f) => ({ ...f, query }));

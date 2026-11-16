@@ -532,6 +532,37 @@ mod tests {
         assert_eq!(seen.get(), 1);
     }
 
+    /// Imports a folder into a database file for the retrieval bench (keyword search only, no vectors).
+    /// CHINGUI_TEST_PAPERS=<folder> CHINGUI_KEEP_DB=<file> [CHINGUI_LAYOUT_DIR=<model folder>] cargo test corpus_db -- --ignored --nocapture
+    #[tokio::test]
+    #[ignore]
+    async fn corpus_db() {
+        use super::super::import::import_paths;
+        let papers = PathBuf::from(std::env::var("CHINGUI_TEST_PAPERS").expect("set CHINGUI_TEST_PAPERS"));
+        let db_path = PathBuf::from(std::env::var("CHINGUI_KEEP_DB").expect("set CHINGUI_KEEP_DB"));
+        for ext in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{ext}", db_path.display()));
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Db::open(&db_path).unwrap();
+        let ingest = Ingestor::start(&db_path, tmp.path().join("library"), Arc::new(|_| {})).unwrap();
+        let layout = std::env::var("CHINGUI_LAYOUT_DIR").ok().map(PathBuf::from);
+        ingest.set_layout_dir(layout.clone());
+        let t = std::time::Instant::now();
+        import_paths(&db, &ingest, vec![papers], None).await.unwrap();
+        loop {
+            let docs = db.call(|c| repo::list_documents(c, None)).await.unwrap();
+            let busy = docs.iter().any(|d| matches!(d.status, DocStatus::Queued | DocStatus::Processing));
+            let waiting = layout.is_some() && !db.call(|c| repo::documents_without_layout(c)).await.unwrap().is_empty();
+            if !busy && !waiting {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+        let n: i64 = db.call(|c| Ok(c.query_row("SELECT count(*) FROM passages", [], |r| r.get(0))?)).await.unwrap();
+        println!("{n} passages after {:.0}s", t.elapsed().as_secs_f32());
+    }
+
     #[test]
     fn library_paths_are_sharded_by_hash() {
         let p = library_path(Path::new("/lib"), "abcdef", DocKind::Pdf);

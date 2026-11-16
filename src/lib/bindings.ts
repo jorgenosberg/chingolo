@@ -74,6 +74,8 @@ export const commands = {
 	searchLibrary: (query: string, projectId: string | null, limit: number | null, meaning: boolean) => typedError<SearchHit[], CmdError>(__TAURI_INVOKE("search_library", { query, projectId, limit, meaning })),
 	/**  A passage with its line boxes, for opening it in the reader. */
 	getPassage: (passageId: string) => typedError<PassageView, CmdError>(__TAURI_INVOKE("get_passage", { passageId })),
+	/**  The layout regions stored for a document, for the developer view. Empty before layout has run. */
+	getLayout: (documentId: string) => typedError<PageRegion[], CmdError>(__TAURI_INVOKE("get_layout", { documentId })),
 	/**  The saved copy of a cited passage, for when its document was deleted or read again. */
 	getSource: (conversationId: string, handle: number) => typedError<SourceView, CmdError>(__TAURI_INVOKE("get_source", { conversationId, handle })),
 	ocrStatus: () => __TAURI_INVOKE<ModelState>("ocr_status"),
@@ -429,6 +431,16 @@ export type ModelState = { kind: "missing" } | { kind: "downloading"; done: numb
 export type PageBoxes = {
 	page: number,
 	rects: ([(number | null), (number | null), (number | null), (number | null)])[],
+};
+
+/**  A region the layout model found on a page, in PDF user space. For the developer view. */
+export type PageRegion = {
+	page: number,
+	/**  Reading order on the page, from 0. */
+	ordinal: number,
+	label: string,
+	score: number | null,
+	rect: [(number | null), (number | null), (number | null), (number | null)],
 };
 
 /**  A stored passage with what the reader needs to show it. */

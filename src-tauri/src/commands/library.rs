@@ -5,7 +5,7 @@ use specta::Type;
 use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 
-use crate::domain::library::{DocFilter, DocStatus, Document, MetadataPatch, PageBoxes, PassageView, SearchHit, SourceView};
+use crate::domain::library::{DocFilter, DocStatus, Document, MetadataPatch, PageBoxes, PageRegion, PassageView, SearchHit, SourceView};
 use crate::error::{AppError, CmdResult};
 use crate::persistence::library::{self as repo, SearchOptions};
 use crate::services::ingestion::import::{self, ImportSummary};
@@ -211,6 +211,13 @@ pub async fn get_source(state: State<'_, AppState>, conversation_id: String, han
         .await?
         .ok_or(AppError::NotFound)?;
     Ok(SourceView { handle: s.handle, title: s.title, page: s.page, text: s.text })
+}
+
+/// The layout regions stored for a document, for the developer view. Empty before layout has run.
+#[tauri::command]
+#[specta::specta]
+pub async fn get_layout(state: State<'_, AppState>, document_id: String) -> CmdResult<Vec<PageRegion>> {
+    Ok(state.db.call(move |c| repo::list_regions(c, &document_id)).await?)
 }
 
 /// A passage with its line boxes, for opening it in the reader.

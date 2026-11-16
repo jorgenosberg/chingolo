@@ -21,6 +21,7 @@ export const keys = {
 	documents: ["documents"] as const,
 	documentsIn: (scope: string | null) => ["documents", scope] as const,
 	passage: (id: string) => ["passage", id] as const,
+	layout: (id: string) => ["layout", id] as const,
 	source: (conversationId: string, handle: number) =>
 		["source", conversationId, handle] as const,
 	librarySearch: (q: string, scope: string | null, meaning: boolean) =>
@@ -118,6 +119,17 @@ export function useSource(
 			),
 		enabled: enabled && source !== null,
 		staleTime: Number.POSITIVE_INFINITY,
+	});
+}
+
+/** Layout regions of a document, for the developer view. */
+export function useLayout(documentId: string, enabled: boolean) {
+	return useQuery({
+		queryKey: keys.layout(documentId),
+		queryFn: () => api.getLayout(documentId),
+		enabled,
+		// layout arrives in the background, so look again now and then
+		refetchInterval: (q) => (q.state.data?.length ? false : 5000),
 	});
 }
 

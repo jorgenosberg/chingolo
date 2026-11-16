@@ -183,6 +183,18 @@ pub struct PageBoxes {
     pub rects: Vec<[f32; 4]>,
 }
 
+/// A region the layout model found on a page, in PDF user space. For the developer view.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PageRegion {
+    pub page: u32,
+    /// Reading order on the page, from 0.
+    pub ordinal: u32,
+    pub label: String,
+    pub score: f32,
+    pub rect: [f32; 4],
+}
+
 /// A stored passage with what the reader needs to show it.
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]

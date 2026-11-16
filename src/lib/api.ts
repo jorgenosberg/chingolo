@@ -117,6 +117,7 @@ export const api = {
 	detachDocument: (projectId: string, documentId: string) =>
 		unwrap(commands.detachDocument(projectId, documentId)),
 	getPassage: (passageId: string) => unwrap(commands.getPassage(passageId)),
+	getLayout: (documentId: string) => unwrap(commands.getLayout(documentId)),
 	getSource: (conversationId: string, handle: number) =>
 		unwrap(commands.getSource(conversationId, handle)),
 	searchLibrary: (query: string, projectId: string | null, meaning: boolean) =>

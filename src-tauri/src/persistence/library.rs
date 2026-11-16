@@ -498,6 +498,22 @@ pub fn store_layout(
     get_document(conn, id)
 }
 
+pub fn list_regions(conn: &Connection, id: &str) -> Result<Vec<crate::domain::library::PageRegion>> {
+    let mut stmt = conn.prepare(
+        "SELECT page_no, ordinal, label, score, left, bottom, right, top FROM page_regions WHERE document_id = ?1 ORDER BY page_no, ordinal",
+    )?;
+    let rows = stmt.query_map([id], |r| {
+        Ok(crate::domain::library::PageRegion {
+            page: r.get(0)?,
+            ordinal: r.get(1)?,
+            label: r.get(2)?,
+            score: r.get(3)?,
+            rect: [r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?],
+        })
+    })?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
 /// PDF documents that are ready and have pages without layout yet.
 pub fn documents_without_layout(conn: &Connection) -> Result<Vec<Document>> {
     let mut stmt = conn.prepare(&format!(

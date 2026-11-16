@@ -67,6 +67,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
         commands::library::detach_document,
         commands::library::search_library,
         commands::library::get_passage,
+        commands::library::get_layout,
         commands::library::get_source,
         commands::ocr::ocr_status,
         commands::ocr::download_ocr_model,

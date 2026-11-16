@@ -11,6 +11,7 @@ import {
 	SlidersHorizontalIcon,
 	SparkleIcon,
 	TrashIcon,
+	WrenchIcon,
 } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
@@ -29,6 +30,7 @@ import { ModelSelect } from "../../components/ModelSelect";
 import { Button, cx, focus, Spinner, TextInput } from "../../components/ui";
 import { api } from "../../lib/api";
 import type { ModelState } from "../../lib/bindings";
+import { setLayoutOverlay, useLayoutOverlay } from "../../lib/devtools";
 import { useEmbeddingStatus } from "../../lib/library";
 import { type ModelRef, PROVIDERS, type Provider } from "../../lib/providers";
 import { keys, useModels, useSettings } from "../../lib/queries";
@@ -697,6 +699,54 @@ function ApiKeySection({ provider }: { provider: Provider }) {
 	);
 }
 
+const LEGEND = [
+	["layout-body", "Body text, titles"],
+	["layout-table", "Table"],
+	["layout-figure", "Figure, chart and captions"],
+	["layout-aside", "Footnote"],
+	[
+		"layout-furniture",
+		"Running head, footer, page number (left out of search)",
+	],
+];
+
+/** Draws the layout model's regions over pages in the reader. */
+function LayoutViewSwitch() {
+	const on = useLayoutOverlay();
+	return (
+		<div className="flex flex-col gap-3">
+			<Checkbox
+				isSelected={on}
+				onChange={setLayoutOverlay}
+				className={cx(
+					"group flex cursor-default items-center gap-2.5 text-[13px]",
+					focus,
+				)}
+			>
+				<span className="flex size-4 items-center justify-center rounded border border-input bg-card text-primary-foreground group-data-[selected]:border-primary group-data-[selected]:bg-primary">
+					<CheckIcon className="size-4 opacity-0 group-data-[selected]:opacity-100" />
+				</span>
+				Show page layout in the reader
+			</Checkbox>
+			<p className="text-sm leading-relaxed text-muted-foreground">
+				Draws the regions the layout model found on each page, numbered in
+				reading order with its confidence. A document shows nothing until its
+				layout has been processed in the background.
+			</p>
+			<ul className="flex flex-col gap-1.5 text-[13px]">
+				{LEGEND.map(([cls, text]) => (
+					<li key={cls} className="flex items-center gap-2">
+						<span
+							className={`layout-box ${cls} relative inline-block h-3 w-5`}
+						/>
+						{text}
+					</li>
+				))}
+			</ul>
+		</div>
+	);
+}
+
 export function SettingsView() {
 	const { closeSettings } = useNav();
 	const [tab, setTab] = useState(savedTab);
@@ -746,6 +796,10 @@ export function SettingsView() {
 						<Tab id="usage" className={tabClass}>
 							<ChartBarIcon className="size-4" />
 							Usage
+						</Tab>
+						<Tab id="developer" className={tabClass}>
+							<WrenchIcon className="size-4" />
+							Developer
 						</Tab>
 						<Tab id="privacy" className={tabClass}>
 							<LockSimpleIcon className="size-4" />
@@ -808,6 +862,11 @@ export function SettingsView() {
 						<TabPanel id="usage" className="outline-none">
 							<Section title="Usage and cost">
 								<UsageSection />
+							</Section>
+						</TabPanel>
+						<TabPanel id="developer" className="outline-none">
+							<Section title="Layout view">
+								<LayoutViewSwitch />
 							</Section>
 						</TabPanel>
 						<TabPanel id="privacy" className="outline-none">
