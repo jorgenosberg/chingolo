@@ -499,6 +499,39 @@ mod tests {
         assert!(n.contains("1 pages could not be read") && n.contains("1 of 4 pages have no text") && n.contains("1 pages have unreliable"), "{n}");
     }
 
+    /// CHINGUI_TEST_PAPERS=<folder> CHINGUI_LAYOUT_DIR=<model folder> cargo test layout_job -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn layout_job_rebuilds_passages_and_keeps_unchanged_ones() {
+        let papers = std::env::var("CHINGUI_TEST_PAPERS").expect("set CHINGUI_TEST_PAPERS");
+        let model = std::env::var("CHINGUI_LAYOUT_DIR").expect("set CHINGUI_LAYOUT_DIR");
+        let path = Path::new(&papers).join("nature02437.pdf");
+        let mut conn = test_conn();
+        let doc = repo::insert_document(&conn, "hnat", "nature02437.pdf", DocKind::Pdf).unwrap();
+        let mut pdf = None;
+        let mut ocr = OcrSlot::default();
+        run_job(&mut conn, &mut pdf, &mut ocr, &path, &doc, &CancellationToken::new(), &|_, _| {});
+        let ids = |c: &Connection| -> Vec<String> {
+            let mut s = c.prepare("SELECT id FROM passages WHERE document_id = ?1").unwrap();
+            s.query_map([&doc.id], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect()
+        };
+        let before = ids(&conn);
+        let mut slot = LayoutSlot::default();
+        slot.set_dir(Some(model.into()));
+        let seen = std::cell::Cell::new(0);
+        run_layout(&mut conn, &mut pdf, &mut ocr, &mut slot, &path, &doc, &CancellationToken::new(), &|_| seen.set(seen.get() + 1));
+        let after = ids(&conn);
+        let same = after.iter().filter(|a| before.contains(a)).count();
+        println!("passages {} -> {}, {} kept their id", before.len(), after.len(), same);
+        assert_eq!(seen.get(), 1);
+        assert!(same > 0 && repo::pages_without_layout(&conn, &doc.id).unwrap().is_empty());
+        let regions: i64 = conn.query_row("SELECT count(*) FROM page_regions", [], |r| r.get(0)).unwrap();
+        assert!(regions > 50);
+        // a second run has nothing left to do
+        run_layout(&mut conn, &mut pdf, &mut ocr, &mut slot, &path, &doc, &CancellationToken::new(), &|_| seen.set(seen.get() + 1));
+        assert_eq!(seen.get(), 1);
+    }
+
     #[test]
     fn library_paths_are_sharded_by_hash() {
         let p = library_path(Path::new("/lib"), "abcdef", DocKind::Pdf);

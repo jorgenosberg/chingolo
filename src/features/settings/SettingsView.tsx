@@ -129,20 +129,34 @@ function ProgressBar({
 	);
 }
 
-/** The text recognition models that read scanned pages. They stay on this Mac. */
-function ScannedPages() {
+/** A model that runs on this Mac and is downloaded once. */
+function LocalModel({
+	title,
+	size,
+	status,
+	download,
+	ready,
+	missing,
+}: {
+	title: string;
+	size: string;
+	status: () => Promise<ModelState>;
+	download: () => Promise<ModelState>;
+	ready: string;
+	missing: string;
+}) {
 	const [model, setModel] = useState<ModelState | null>(null);
 	useEffect(() => {
-		api.ocrStatus().then(setModel);
-	}, []);
+		status().then(setModel);
+	}, [status]);
 	const downloading = model?.kind === "downloading";
 	useEffect(() => {
 		if (!downloading) return;
-		const timer = setInterval(() => api.ocrStatus().then(setModel), 1000);
+		const timer = setInterval(() => status().then(setModel), 1000);
 		return () => clearInterval(timer);
-	}, [downloading]);
+	}, [downloading, status]);
 	if (!model) return null;
-	const start = () => api.downloadOcrModel().then(setModel);
+	const start = () => download().then(setModel);
 
 	return (
 		<div
@@ -151,7 +165,7 @@ function ScannedPages() {
 		>
 			<div className="flex items-center justify-between gap-3">
 				<div className="text-[13px] font-medium">
-					Text recognition
+					{title}
 					<span className="font-normal text-muted-foreground">
 						{" "}
 						·{" "}
@@ -172,7 +186,7 @@ function ScannedPages() {
 				)}
 				{model.kind === "missing" && (
 					<Button variant="primary" onPress={start}>
-						Download 31 MB
+						Download {size}
 					</Button>
 				)}
 			</div>
@@ -180,17 +194,45 @@ function ScannedPages() {
 				<ProgressBar
 					value={model.done ?? 0}
 					max={model.total ?? 0}
-					label="Text recognition download"
+					label={`${title} download`}
 				/>
 			)}
 			<p className="text-[13px] text-muted-foreground">
 				{model.kind === "ready"
-					? "Pages without text, like scans, are read automatically when a paper is added. To read a paper you added earlier, use Read again in the library."
+					? ready
 					: model.kind === "failed"
 						? model.message
-						: "Reads pages that have no text, like scans. It runs on this Mac and nothing is sent anywhere. Needs a one-time 31 MB download from GitHub."}
+						: missing}
 			</p>
 		</div>
+	);
+}
+
+/** The text recognition models that read scanned pages. They stay on this Mac. */
+function ScannedPages() {
+	return (
+		<LocalModel
+			title="Text recognition"
+			size="31 MB"
+			status={api.ocrStatus}
+			download={api.downloadOcrModel}
+			ready="Pages without text, like scans, are read automatically when a paper is added. To read a paper you added earlier, use Read again in the library."
+			missing="Reads pages that have no text, like scans. It runs on this Mac and nothing is sent anywhere. Needs a one-time 31 MB download from GitHub."
+		/>
+	);
+}
+
+/** Finds headers, footers, columns and tables on each page. Runs on this Mac. */
+function PageLayout() {
+	return (
+		<LocalModel
+			title="Page layout"
+			size="130 MB"
+			status={api.layoutStatus}
+			download={api.downloadLayoutModel}
+			ready="Running heads, footers and page numbers are left out of search, and text is read in column order. Papers already in the library are processed in the background."
+			missing="Finds headers, footers and columns on each page, so search and answers skip page furniture and read in the right order. It runs on this Mac and nothing is sent anywhere. Needs a one-time 130 MB download from GitHub."
+		/>
 	);
 }
 
@@ -754,6 +796,7 @@ export function SettingsView() {
 							</Section>
 							<Section title="Scanned pages">
 								<ScannedPages />
+								<PageLayout />
 							</Section>
 							<Section title="Paper details">
 								<div className="flex flex-col gap-6">
