@@ -307,7 +307,19 @@ fn run_layout(
             return Ok(None);
         }
         let r = reader(pdf)?;
-        let found = r.detect_layout(path, &pages, model, &cancelled, &mut |done, _| live.store(done, Ordering::Relaxed))?;
+        let new = r.detect_layout(path, &pages, model, &cancelled, &mut |done, _| live.store(done, Ordering::Relaxed))?;
+        // pages done by an earlier run keep their regions, so the rebuilt passages don't lose them
+        let mut found = repo::list_regions(conn, &doc.id)?.into_iter().fold(Vec::<layout::PageRegions>::new(), |mut acc, g| {
+            if acc.last().is_none_or(|p| p.page != g.page) {
+                acc.push(layout::PageRegions { page: g.page, regions: vec![] });
+            }
+            if let Some(p) = acc.last_mut() {
+                p.regions.push(layout::Region { label: g.label, rect: g.rect, score: g.score, order: g.ordinal });
+            }
+            acc
+        });
+        let done: Vec<u32> = new.iter().map(|p| p.page).collect();
+        found.extend(new);
         let ex = r.extract_with(path, ocr, &cancelled, &mut |_, _| {})?;
         let (blocks, stats) = layout::apply(ex.blocks, &found);
         let passages = segment(&blocks);
@@ -318,7 +330,6 @@ fn run_layout(
             .iter()
             .flat_map(|p| p.regions.iter().map(|g| repo::NewRegion { page_no: p.page, ordinal: g.order, label: g.label.clone(), score: g.score, rect: g.rect }))
             .collect();
-        let done: Vec<u32> = found.iter().map(|p| p.page).collect();
         let d = repo::store_layout(conn, &doc.id, &done, &regions, &passages)?;
         log::info!(
             "layout for {}: {} pages, {} lines, {} dropped (headers, footers, numbers), {} unplaced, {} pages kept as they were, {} passages, {} ms",

@@ -152,7 +152,7 @@ impl PdfReader {
         self.read(path, ocr, cancelled, progress, usize::MAX)
     }
 
-    /// Runs layout detection on pages that have text, and returns the regions in PDF user space.
+    /// Runs layout detection on the given pages (with or without text), and returns the regions in PDF user space.
     /// `pages` are the page numbers to look at. `progress` gets (pages done, pages to do).
     pub fn detect_layout(
         &self,
@@ -168,16 +168,22 @@ impl PdfReader {
             if cancelled() {
                 return Err(AppError::Cancelled);
             }
-            let page = doc.pages().get(no as i32 - 1).map_err(|e| AppError::Internal(e.to_string()))?;
-            let Rendered { img, scale, crop, rotation } = render(&page)?;
-            match layout.detect(img) {
-                Ok(regions) => out.push(PageRegions {
-                    page: no,
-                    regions: regions.into_iter().map(|r| Region { rect: ocr::to_user_space(r.rect, scale, crop, rotation), ..r }).collect(),
-                }),
-                // one page failing leaves that page as it was
-                Err(e) => log::warn!("layout failed on page {no}: {e}"),
-            }
+            // A page that can't be drawn or read still counts as done, with no regions, so it
+            // isn't tried again at every start.
+            let regions = doc
+                .pages()
+                .get(no as i32 - 1)
+                .map_err(|e| AppError::Internal(e.to_string()))
+                .and_then(|page| {
+                    let Rendered { img, scale, crop, rotation } = render(&page)?;
+                    let found = layout.detect(img)?;
+                    Ok(found.into_iter().map(|r| Region { rect: ocr::to_user_space(r.rect, scale, crop, rotation), ..r }).collect())
+                })
+                .unwrap_or_else(|e| {
+                    log::warn!("layout failed on page {no}: {e}");
+                    vec![]
+                });
+            out.push(PageRegions { page: no, regions });
             progress(done as u32 + 1, pages.len() as u32);
         }
         Ok(out)

@@ -518,27 +518,27 @@ pub fn list_regions(conn: &Connection, id: &str) -> Result<Vec<crate::domain::li
 pub fn documents_without_layout(conn: &Connection) -> Result<Vec<Document>> {
     let mut stmt = conn.prepare(&format!(
         "SELECT {DOC_COLS} FROM documents WHERE status = 'ready' AND kind = 'pdf'
-           AND EXISTS (SELECT 1 FROM pages p WHERE p.document_id = documents.id AND p.quality = 'ok' AND p.layout_at IS NULL)
+           AND EXISTS (SELECT 1 FROM pages p WHERE p.document_id = documents.id AND p.layout_at IS NULL)
          ORDER BY created_at, id"
     ))?;
     let rows = stmt.query_map([], document_from_row)?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
-/// (pages with layout, pages that have text, documents still without layout) over ready PDFs.
+/// (pages with layout, all pages, documents still without layout) over ready PDFs.
 pub fn layout_counts(conn: &Connection) -> Result<(u32, u32, u32)> {
     Ok(conn.query_row(
         "SELECT COALESCE(SUM(p.layout_at IS NOT NULL), 0), COUNT(*), COUNT(DISTINCT CASE WHEN p.layout_at IS NULL THEN p.document_id END)
            FROM pages p JOIN documents d ON d.id = p.document_id
-          WHERE d.kind = 'pdf' AND d.status = 'ready' AND p.quality = 'ok'",
+          WHERE d.kind = 'pdf' AND d.status = 'ready'",
         [],
         |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
     )?)
 }
 
-/// Pages of a document that have text and no layout yet.
+/// Pages of a document without layout yet, text or not (figure pages have none).
 pub fn pages_without_layout(conn: &Connection, id: &str) -> Result<Vec<u32>> {
-    let mut stmt = conn.prepare("SELECT page_no FROM pages WHERE document_id = ?1 AND quality = 'ok' AND layout_at IS NULL ORDER BY page_no")?;
+    let mut stmt = conn.prepare("SELECT page_no FROM pages WHERE document_id = ?1 AND layout_at IS NULL ORDER BY page_no")?;
     let rows = stmt.query_map([id], |r| r.get(0))?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
