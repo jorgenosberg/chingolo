@@ -72,6 +72,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
         commands::ocr::ocr_status,
         commands::ocr::download_ocr_model,
         commands::ocr::layout_status,
+        commands::ocr::layout_progress,
         commands::ocr::download_layout_model,
         commands::embedding::embedding_status,
         commands::embedding::download_embedding_model,

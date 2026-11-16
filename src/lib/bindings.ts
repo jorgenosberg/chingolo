@@ -85,6 +85,8 @@ export const commands = {
 	 */
 	downloadOcrModel: () => __TAURI_INVOKE<ModelState>("download_ocr_model"),
 	layoutStatus: () => __TAURI_INVOKE<ModelState>("layout_status"),
+	/**  How far page layout has got over the library. Poll while `done < total`. */
+	layoutProgress: () => typedError<LayoutProgress, CmdError>(__TAURI_INVOKE("layout_progress")),
 	/**
 	 *  Downloads the page layout model (about 130 MB), if it isn't there yet. When it is ready, documents
 	 *  already in the library get their layout in the background. Returns at once, poll `layout_status`.
@@ -339,6 +341,15 @@ export type ImportSummary = {
 	/**  Files that were already in the library (same content). */
 	duplicates: Document[],
 	skipped: SkippedFile[],
+};
+
+/**  How far page layout has got, for the library's progress notice. */
+export type LayoutProgress = {
+	/**  False until the layout model is downloaded. */
+	available: boolean,
+	done: number,
+	total: number,
+	docsLeft: number,
 };
 
 /**  Why a passage is in the results. */

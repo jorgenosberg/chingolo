@@ -126,6 +126,7 @@ export const api = {
 	ocrStatus: () => commands.ocrStatus(),
 	downloadOcrModel: () => commands.downloadOcrModel(),
 	layoutStatus: () => commands.layoutStatus(),
+	layoutProgress: () => unwrap(commands.layoutProgress()),
 	downloadLayoutModel: () => commands.downloadLayoutModel(),
 	embeddingStatus: () => commands.embeddingStatus(),
 	downloadEmbeddingModel: () => unwrap(commands.downloadEmbeddingModel()),

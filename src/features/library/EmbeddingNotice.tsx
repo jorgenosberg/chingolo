@@ -2,7 +2,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Button } from "../../components/ui";
 import { api } from "../../lib/api";
-import { useEmbeddingStatus } from "../../lib/library";
+import type { LayoutProgress } from "../../lib/bindings";
+import { useEmbeddingStatus, useLayoutProgress } from "../../lib/library";
 import { keys, useSettings } from "../../lib/queries";
 
 export const mb = (bytes: number | null) =>
@@ -34,6 +35,65 @@ function Banner({
  * says so where it matters.
  */
 export function EmbeddingNotice() {
+	const status = useEmbeddingStatus();
+	const layout = useLayoutProgress().data;
+	// Offers and failures of the search model come first. Layout shows by itself then.
+	const embeddingReady = status?.model.kind === "ready";
+	return (
+		<>
+			<EmbeddingBanner layout={embeddingReady ? layout : undefined} />
+			{!embeddingReady && <LayoutBanner layout={layout} />}
+		</>
+	);
+}
+
+const layoutBusy = (l?: LayoutProgress) =>
+	Boolean(l?.available && l.done < l.total);
+
+function ProgressLine({
+	label,
+	value,
+	max,
+}: {
+	label: string;
+	value: number;
+	max: number;
+}) {
+	return (
+		<div
+			role="progressbar"
+			aria-label={label}
+			aria-valuemin={0}
+			aria-valuemax={max}
+			aria-valuenow={value}
+			className="mt-1.5 h-1 w-56 overflow-hidden rounded-full bg-border"
+		>
+			<div
+				className="h-full bg-primary transition-[width]"
+				style={{ width: `${max ? (value / max) * 100 : 0}%` }}
+			/>
+		</div>
+	);
+}
+
+const layoutText = (l: LayoutProgress) =>
+	`Cleaning up page layout (headers, footers, columns): ${l.done.toLocaleString()} of ${l.total.toLocaleString()} pages. Search works meanwhile.`;
+
+function LayoutBanner({ layout }: { layout?: LayoutProgress }) {
+	if (!layout || !layoutBusy(layout)) return null;
+	return (
+		<Banner>
+			<p>{layoutText(layout)}</p>
+			<ProgressLine
+				label="Page layout"
+				value={layout.done}
+				max={layout.total}
+			/>
+		</Banner>
+	);
+}
+
+function EmbeddingBanner({ layout }: { layout?: LayoutProgress }) {
 	const qc = useQueryClient();
 	const status = useEmbeddingStatus();
 	const { data: settings } = useSettings();
@@ -157,32 +217,34 @@ export function EmbeddingNotice() {
 		);
 	}
 
-	if (indexed >= total) return null;
+	const indexing = indexed < total;
+	const laying = layoutBusy(layout);
+	if (!indexing && !laying) return null;
+	if (!indexing && layout) return <LayoutBanner layout={layout} />;
+	const pause = (
+		<Button variant="ghost" onPress={() => api.setEmbeddingPaused(!paused)}>
+			{paused ? "Resume indexing" : "Pause indexing"}
+		</Button>
+	);
+	// Two things at once: say what is going on, without numbers.
+	if (laying) {
+		return (
+			<Banner actions={pause}>
+				<p>
+					Getting your library ready:{" "}
+					{paused ? "indexing is paused" : "indexing for meaning search"} and
+					cleaning up page layout. Search works meanwhile.
+				</p>
+			</Banner>
+		);
+	}
 	return (
-		<Banner
-			actions={
-				<Button variant="ghost" onPress={() => api.setEmbeddingPaused(!paused)}>
-					{paused ? "Resume" : "Pause"}
-				</Button>
-			}
-		>
+		<Banner actions={pause}>
 			<p>
 				{paused ? "Indexing paused" : "Indexing for meaning search"}:{" "}
 				{indexed.toLocaleString()} of {total.toLocaleString()} passages.
 			</p>
-			<div
-				role="progressbar"
-				aria-label="Indexing passages"
-				aria-valuemin={0}
-				aria-valuemax={total}
-				aria-valuenow={indexed}
-				className="mt-1.5 h-1 w-56 overflow-hidden rounded-full bg-border"
-			>
-				<div
-					className="h-full bg-primary transition-[width]"
-					style={{ width: `${(indexed / total) * 100}%` }}
-				/>
-			</div>
+			<ProgressLine label="Indexing passages" value={indexed} max={total} />
 		</Banner>
 	);
 }

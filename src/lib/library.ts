@@ -1,4 +1,4 @@
-import type { QueryClient } from "@tanstack/react-query";
+import { type QueryClient, useQuery } from "@tanstack/react-query";
 import { useEffect, useSyncExternalStore } from "react";
 import { api } from "./api";
 import {
@@ -187,4 +187,16 @@ export function attentionFor(doc: Document): string[] {
 		);
 	if (doc.enrichError) issues.push(doc.enrichError);
 	return issues;
+}
+
+/** How far page layout has got. Polls while there is work left, and stops when there isn't. */
+export function useLayoutProgress() {
+	return useQuery({
+		queryKey: ["layout-progress"],
+		queryFn: api.layoutProgress,
+		refetchInterval: (q) => {
+			const d = q.state.data;
+			return d?.available && d.done < d.total ? 3000 : 30000;
+		},
+	});
 }

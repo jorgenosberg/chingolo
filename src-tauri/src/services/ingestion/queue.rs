@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 use std::panic::AssertUnwindSafe;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
@@ -38,6 +39,17 @@ pub struct DocumentChanged {
     pub progress: Option<Progress>,
 }
 
+/// How far page layout has got, for the library's progress notice.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LayoutProgress {
+    /// False until the layout model is downloaded.
+    pub available: bool,
+    pub done: u32,
+    pub total: u32,
+    pub docs_left: u32,
+}
+
 pub type Emit = Arc<dyn Fn(DocumentChanged) + Send + Sync>;
 
 /// Read everything again, or only look at the details (title, authors and so on).
@@ -59,6 +71,8 @@ struct Inner {
     layout_dir: Mutex<Option<PathBuf>>,
     /// Called with the document after layout changed its passages (new ones need vectors).
     on_layout: Mutex<Option<Arc<dyn Fn(&Document) + Send + Sync>>>,
+    /// Pages the running layout job has done, which the database doesn't know until it ends.
+    layout_live: AtomicU32,
     activity: Mutex<Option<Activity>>,
 }
 
@@ -74,7 +88,7 @@ impl Ingestor {
     pub fn start(db_path: &Path, library_dir: PathBuf, emit: Emit) -> Result<Self> {
         let conn = Db::open_secondary(db_path)?;
         let (tx, rx) = mpsc::unbounded_channel();
-        let inner = Arc::new(Inner { tx, tokens: Mutex::new(HashMap::new()), library_dir, emit, ocr_dir: Mutex::new(None), layout_dir: Mutex::new(None), on_layout: Mutex::new(None), activity: Mutex::new(None) });
+        let inner = Arc::new(Inner { tx, tokens: Mutex::new(HashMap::new()), library_dir, emit, ocr_dir: Mutex::new(None), layout_dir: Mutex::new(None), on_layout: Mutex::new(None), layout_live: AtomicU32::new(0), activity: Mutex::new(None) });
         let worker = inner.clone();
         std::thread::Builder::new()
             .name("ingest".into())
@@ -102,6 +116,16 @@ impl Ingestor {
         if let Ok(mut h) = self.0.on_layout.lock() {
             *h = Some(f);
         }
+    }
+
+    /// Layout work: pages done and in all (pages with text of ready PDFs), and documents still waiting.
+    pub async fn layout_progress(&self, db: &Db) -> Result<LayoutProgress> {
+        let ready = self.0.layout_dir.lock().ok().and_then(|d| d.clone()).is_some_and(|d| layout::is_ready(&d));
+        if !ready {
+            return Ok(LayoutProgress::default());
+        }
+        let (done, total, docs_left) = db.call(|c| repo::layout_counts(c)).await?;
+        Ok(LayoutProgress { available: true, done: (done + self.0.layout_live.load(Ordering::Relaxed)).min(total), total, docs_left })
     }
 
     /// Queues layout for every ready PDF that has pages without it. Call at start and after the
@@ -192,8 +216,11 @@ fn worker_loop(mut conn: Connection, mut rx: mpsc::UnboundedReceiver<Job>, inner
             Job::Read(_) => run_job(&mut conn, &mut pdf, &mut ocr, &path, &doc, &token, &emit),
             Job::Details(_) => run_details(&conn, &mut pdf, &mut ocr, &path, &doc, &emit),
             Job::Layout(_) => {
+                let live = &inner.layout_live;
                 let notify = |d: &Document| inner.on_layout.lock().ok().and_then(|h| h.clone()).iter().for_each(|f| f(d));
-                run_layout(&mut conn, &mut pdf, &mut ocr, &mut layout, &path, &doc, &token, &notify)
+                let out = run_layout(&mut conn, &mut pdf, &mut ocr, &mut layout, &path, &doc, &token, live, &notify);
+                live.store(0, Ordering::Relaxed);
+                out
             }
         }));
         if ran.is_err() && matches!(job, Job::Details(_)) {
@@ -268,6 +295,7 @@ fn run_layout(
     path: &Path,
     doc: &Document,
     token: &CancellationToken,
+    live: &AtomicU32,
     notify: &dyn Fn(&Document),
 ) {
     let started = std::time::Instant::now();
@@ -279,7 +307,7 @@ fn run_layout(
             return Ok(None);
         }
         let r = reader(pdf)?;
-        let found = r.detect_layout(path, &pages, model, &cancelled, &mut |_, _| {})?;
+        let found = r.detect_layout(path, &pages, model, &cancelled, &mut |done, _| live.store(done, Ordering::Relaxed))?;
         let ex = r.extract_with(path, ocr, &cancelled, &mut |_, _| {})?;
         let (blocks, stats) = layout::apply(ex.blocks, &found);
         let passages = segment(&blocks);
@@ -519,7 +547,7 @@ mod tests {
         let mut slot = LayoutSlot::default();
         slot.set_dir(Some(model.into()));
         let seen = std::cell::Cell::new(0);
-        run_layout(&mut conn, &mut pdf, &mut ocr, &mut slot, &path, &doc, &CancellationToken::new(), &|_| seen.set(seen.get() + 1));
+        run_layout(&mut conn, &mut pdf, &mut ocr, &mut slot, &path, &doc, &CancellationToken::new(), &AtomicU32::new(0), &|_| seen.set(seen.get() + 1));
         let after = ids(&conn);
         let same = after.iter().filter(|a| before.contains(a)).count();
         println!("passages {} -> {}, {} kept their id", before.len(), after.len(), same);
@@ -528,7 +556,7 @@ mod tests {
         let regions: i64 = conn.query_row("SELECT count(*) FROM page_regions", [], |r| r.get(0)).unwrap();
         assert!(regions > 50);
         // a second run has nothing left to do
-        run_layout(&mut conn, &mut pdf, &mut ocr, &mut slot, &path, &doc, &CancellationToken::new(), &|_| seen.set(seen.get() + 1));
+        run_layout(&mut conn, &mut pdf, &mut ocr, &mut slot, &path, &doc, &CancellationToken::new(), &AtomicU32::new(0), &|_| seen.set(seen.get() + 1));
         assert_eq!(seen.get(), 1);
     }
 

@@ -31,7 +31,7 @@ import { Button, cx, focus, Spinner, TextInput } from "../../components/ui";
 import { api } from "../../lib/api";
 import type { ModelState } from "../../lib/bindings";
 import { setLayoutOverlay, useLayoutOverlay } from "../../lib/devtools";
-import { useEmbeddingStatus } from "../../lib/library";
+import { useEmbeddingStatus, useLayoutProgress } from "../../lib/library";
 import { type ModelRef, PROVIDERS, type Provider } from "../../lib/providers";
 import { keys, useModels, useSettings } from "../../lib/queries";
 import { setTheme, type ThemePref, useTheme } from "../../lib/theme";
@@ -713,6 +713,7 @@ const LEGEND = [
 /** Draws the layout model's regions over pages in the reader. */
 function LayoutViewSwitch() {
 	const on = useLayoutOverlay();
+	const progress = useLayoutProgress().data;
 	return (
 		<div className="flex flex-col gap-3">
 			<Checkbox
@@ -733,6 +734,15 @@ function LayoutViewSwitch() {
 				reading order with its confidence. A document shows nothing until its
 				layout has been processed in the background.
 			</p>
+			{progress?.available && (
+				<p className="text-[13px]">
+					Layout processed for {progress.done.toLocaleString()} of{" "}
+					{progress.total.toLocaleString()} pages
+					{progress.docsLeft > 0
+						? `, ${progress.docsLeft} ${progress.docsLeft === 1 ? "paper" : "papers"} still waiting.`
+						: "."}
+				</p>
+			)}
 			<ul className="flex flex-col gap-1.5 text-[13px]">
 				{LEGEND.map(([cls, text]) => (
 					<li key={cls} className="flex items-center gap-2">

@@ -525,6 +525,17 @@ pub fn documents_without_layout(conn: &Connection) -> Result<Vec<Document>> {
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
+/// (pages with layout, pages that have text, documents still without layout) over ready PDFs.
+pub fn layout_counts(conn: &Connection) -> Result<(u32, u32, u32)> {
+    Ok(conn.query_row(
+        "SELECT COALESCE(SUM(p.layout_at IS NOT NULL), 0), COUNT(*), COUNT(DISTINCT CASE WHEN p.layout_at IS NULL THEN p.document_id END)
+           FROM pages p JOIN documents d ON d.id = p.document_id
+          WHERE d.kind = 'pdf' AND d.status = 'ready' AND p.quality = 'ok'",
+        [],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    )?)
+}
+
 /// Pages of a document that have text and no layout yet.
 pub fn pages_without_layout(conn: &Connection, id: &str) -> Result<Vec<u32>> {
     let mut stmt = conn.prepare("SELECT page_no FROM pages WHERE document_id = ?1 AND quality = 'ok' AND layout_at IS NULL ORDER BY page_no")?;
