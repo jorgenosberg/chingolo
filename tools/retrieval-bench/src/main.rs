@@ -358,7 +358,11 @@ fn run_app(qs: &[Value], queries: &[String], out_dir: &str) {
     let passages = load_passages_db();
     let embedded = passages.iter().filter(|p| p.vec.is_some()).count();
     println!("app: {} passages ({embedded} with a vector), {} questions", passages.len(), qs.len());
-    assert!(embedded > 0, "no vectors in the database: let the app finish indexing first");
+    if embedded == 0 {
+        // a database made without the embedder (CHINGUI_BENCH_DB from `cargo test corpus_db`): keyword search only
+        println!("app-bm25 (no vectors in the database)");
+        return report("app-bm25", &passages, qs, bm25_app(&passages, queries), out_dir, None);
+    }
     if embedded < passages.len() {
         println!("  warning: {} passages have no vector yet, the vector ranking ignores them", passages.len() - embedded);
     }
