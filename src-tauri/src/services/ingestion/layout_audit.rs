@@ -12,7 +12,7 @@ use serde_json::Value;
 use super::pdf::PdfReader;
 
 /// Numbers as printed: optional sign (hyphen, en dash or minus), digits, one decimal mark.
-/// Thousands separators are not joined, so `1,000` is two tokens on both sides.
+/// A comma or dot between digits is one decimal mark (Norwegian style), so `1,000` is one token.
 fn numeric_tokens(s: &str) -> Vec<String> {
     let chars: Vec<char> = s.chars().collect();
     let mut out = Vec::new();
@@ -97,7 +97,7 @@ fn missing_tokens(want: &[Vec<String>], page_text: &str) -> Vec<String> {
 
 #[test]
 fn numeric_tokens_keep_signs() {
-    assert_eq!(numeric_tokens("−258 (18%) 0.65 1,000 a-3 (-47)"), ["−258", "18", "0.65", "1", "000", "3", "−47"]);
+    assert_eq!(numeric_tokens("−258 (18%) 0.65 1,000 a-3 (-47)"), ["−258", "18", "0.65", "1,000", "3", "−47"]);
     assert_eq!(numeric_tokens("2258"), ["2258"]);
 }
 
