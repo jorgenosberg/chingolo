@@ -3,6 +3,8 @@
 
 #[cfg(test)]
 mod audit;
+#[cfg(test)]
+mod layout_audit;
 pub mod activity;
 pub mod crossref;
 pub mod detect;
