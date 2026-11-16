@@ -736,9 +736,7 @@ function LayoutViewSwitch() {
 			<ul className="flex flex-col gap-1.5 text-[13px]">
 				{LEGEND.map(([cls, text]) => (
 					<li key={cls} className="flex items-center gap-2">
-						<span
-							className={`layout-box ${cls} relative inline-block h-3 w-5`}
-						/>
+						<span className={`layout-box layout-swatch ${cls}`} />
 						{text}
 					</li>
 				))}
