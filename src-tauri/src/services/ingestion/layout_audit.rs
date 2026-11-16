@@ -10,37 +10,7 @@ use std::path::Path;
 use serde_json::Value;
 
 use super::pdf::PdfReader;
-
-/// Numbers as printed: optional sign (hyphen, en dash or minus), digits, one decimal mark.
-/// A comma or dot between digits is one decimal mark (Norwegian style), so `1,000` is one token.
-fn numeric_tokens(s: &str) -> Vec<String> {
-    let chars: Vec<char> = s.chars().collect();
-    let mut out = Vec::new();
-    let mut i = 0;
-    while i < chars.len() {
-        if !chars[i].is_ascii_digit() {
-            i += 1;
-            continue;
-        }
-        let start = i;
-        while i < chars.len() && chars[i].is_ascii_digit() {
-            i += 1;
-        }
-        if i + 1 < chars.len() && matches!(chars[i], '.' | ',') && chars[i + 1].is_ascii_digit() {
-            i += 1;
-            while i < chars.len() && chars[i].is_ascii_digit() {
-                i += 1;
-            }
-        }
-        let signed = start > 0 && matches!(chars[start - 1], '−' | '-' | '–') && (start < 2 || chars[start - 2].is_whitespace() || matches!(chars[start - 2], '(' | '['));
-        let mut tok: String = chars[start..i].iter().collect();
-        if signed {
-            tok.insert(0, '−');
-        }
-        out.push(tok);
-    }
-    out
-}
+use super::tables::numeric_tokens;
 
 fn norm(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
