@@ -267,9 +267,39 @@ pub fn to_user_space(px: [f32; 4], scale: (f32, f32), crop: [f32; 4], rotation: 
     [ax.min(bx), ay.min(by), ax.max(bx), ay.max(by)]
 }
 
+/// The inverse of `to_user_space`: a user space box `[left, bottom, right, top]` as a pixel box of
+/// the rendered page `[x0, y0, x1, y1]` (top-left origin).
+pub fn to_pixels(user: [f32; 4], scale: (f32, f32), crop: [f32; 4], rotation: Rotation) -> [f32; 4] {
+    let (cw, ch) = (crop[2] - crop[0], crop[3] - crop[1]);
+    let vis_h = if rotation % 180 == 0 { ch } else { cw };
+    let corner = |x: f32, y: f32| -> (f32, f32) {
+        let (ux, uy) = (x - crop[0], y - crop[1]);
+        let (vx, vy) = match rotation {
+            90 => (uy, cw - ux),
+            180 => (cw - ux, ch - uy),
+            270 => (ch - uy, ux),
+            _ => (ux, uy),
+        };
+        (vx * scale.0, (vis_h - vy) * scale.1)
+    };
+    let (ax, ay) = corner(user[0], user[1]);
+    let (bx, by) = corner(user[2], user[3]);
+    [ax.min(bx), ay.min(by), ax.max(bx), ay.max(by)]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn user_space_boxes_round_trip_through_pixels() {
+        let crop = [10.0, 20.0, 310.0, 420.0];
+        for rotation in [0, 90, 180, 270] {
+            let user = [50.0, 100.0, 120.0, 160.0];
+            let px = to_pixels(user, (3.0, 3.0), crop, rotation);
+            assert!(close(to_user_space(px, (3.0, 3.0), crop, rotation), user), "rotation {rotation}");
+        }
+    }
 
     fn close(a: [f32; 4], b: [f32; 4]) -> bool {
         a.iter().zip(b).all(|(x, y)| (x - y).abs() < 0.01)

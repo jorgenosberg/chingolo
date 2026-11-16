@@ -160,3 +160,82 @@ fn layout_apply() {
         }
     }
 }
+
+/// The table pipeline on the ground-truth tables: layout finds the regions, the table model the
+/// cells, the text layer the characters. Prints, per truth table, the best matching region.
+/// CHINGUI_LAYOUT_DIR=<pp-doclayoutv3 folder> CHINGUI_TABLES_DIR=<slanet_plus folder>
+/// CHINGUI_TABLE_IDS=nature-t1,sci-t1 (optional, default every table that is not a scan)
+#[test]
+#[ignore]
+fn table_grids() {
+    use super::layout::Layout;
+    use super::tables::Tables;
+    let dir = std::env::var("CHINGUI_TEST_PAPERS").expect("set CHINGUI_TEST_PAPERS");
+    let layout = Layout::load(Path::new(&std::env::var("CHINGUI_LAYOUT_DIR").expect("set CHINGUI_LAYOUT_DIR"))).unwrap();
+    let tables = Tables::load(Path::new(&std::env::var("CHINGUI_TABLES_DIR").expect("set CHINGUI_TABLES_DIR"))).unwrap();
+    let only: Option<Vec<String>> = std::env::var("CHINGUI_TABLE_IDS").ok().map(|s| s.split(',').map(str::to_string).collect());
+    let reader = PdfReader::new().expect("libpdfium");
+    let truth: Value = serde_json::from_slice(&std::fs::read(Path::new(&dir).join("expected-tables.json")).expect("expected-tables.json")).unwrap();
+    for t in truth["tables"].as_array().unwrap() {
+        let id = t["id"].as_str().unwrap();
+        let scan = t["kind"].as_str().unwrap_or("").starts_with("scan");
+        if only.as_ref().map_or(scan, |o| !o.iter().any(|x| x == id)) {
+            continue;
+        }
+        let page = t["page"].as_u64().unwrap() as u32;
+        let path = Path::new(&dir).join(t["file"].as_str().unwrap());
+        let want = grid(&t["rows"]);
+        let started = std::time::Instant::now();
+        let found = reader.detect_layout(&path, &[page], &layout, &|| false, &mut |_, _| {}).unwrap();
+        let regions: Vec<(u32, [f32; 4])> = found.iter().flat_map(|p| p.regions.iter().filter(|r| r.label == "table").map(move |r| (p.page, r.rect))).collect();
+        let reads = reader.read_tables(&path, &regions, &tables, &|| false, &mut |_, _| {}).unwrap();
+        let secs = started.elapsed().as_secs_f32();
+        println!("== {id} (checked: {}) {} table regions on p{page}, {secs:.1}s", t["checked"].as_bool().unwrap_or(false), reads.len());
+        let mut best: Option<(usize, GridScore, String)> = None;
+        for (i, r) in reads.iter().enumerate() {
+            match &r.filled {
+                Err(e) => println!("   region {i}: failed: {e}"),
+                Ok(f) => {
+                    let rows = f.cells.iter().map(|c| c.row + 1).max().unwrap_or(0);
+                    let cols = f.cells.iter().map(|c| c.col + 1).max().unwrap_or(0);
+                    let mut got = vec![vec![String::new(); cols]; rows];
+                    for c in &f.cells {
+                        got[c.row][c.col] = c.text.clone();
+                    }
+                    let s = score_grid(&got, &want);
+                    println!(
+                        "   region {i}: {rows}x{cols} (truth {}x{}), chars {}/{}, numbers_ok {}, sound {}, cells exact {}/{}, numeric exact {}/{}",
+                        want.len(), want.first().map_or(0, Vec::len), f.assigned, f.glyphs, f.numbers_ok, f.sound(), s.cells_exact, s.cells, s.numeric_exact, s.numeric_cells
+                    );
+                    if !f.numbers_ok {
+                        println!("      numbers only in the region: {:?}, only in the cells: {:?}", f.number_diff.0, f.number_diff.1);
+                    }
+                    let line = got.iter().map(|r| r.join(" | ")).collect::<Vec<_>>().join("\n      ");
+                    if best.as_ref().is_none_or(|b| s.numeric_exact > b.1.numeric_exact) {
+                        best = Some((i, s, line));
+                    }
+                }
+            }
+        }
+        if let Some((i, _, text)) = best {
+            if std::env::var("CHINGUI_TABLE_TEXT").is_ok() {
+                println!("   best region {i}:\n      {text}");
+            }
+            if let Ok(f) = &reads[i].filled {
+                let mut got = vec![vec![String::new(); want.first().map_or(0, Vec::len)]; want.len()];
+                for c in &f.cells {
+                    if let Some(slot) = got.get_mut(c.row).and_then(|r| r.get_mut(c.col)) {
+                        *slot = c.text.clone();
+                    }
+                }
+                for (r, row) in want.iter().enumerate() {
+                    for (c, w) in row.iter().enumerate() {
+                        if norm(&got[r][c]) != norm(w) {
+                            println!("   differs r{r} c{c}: want {:?} got {:?}", norm(w), norm(&got[r][c]));
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

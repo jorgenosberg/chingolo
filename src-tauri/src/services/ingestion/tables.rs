@@ -79,7 +79,7 @@ impl Tables {
         };
         let info = parse_cell_grid_info(tokens);
         if info.len() != boxes.len() || info.is_empty() {
-            return Err(fail(format!("{} cells in the structure but {} boxes", info.len(), boxes.len())));
+            return Err(fail(format!("{} cells in the structure ({} tokens) but {} boxes", info.len(), tokens.len(), boxes.len())));
         }
         Ok(info
             .into_iter()
@@ -171,6 +171,8 @@ pub fn numeric_tokens(s: &str) -> Vec<String> {
 pub struct Glyph {
     pub ch: char,
     pub rect: [f32; 4],
+    /// The text layer has a space or a line break right before this character.
+    pub space_before: bool,
 }
 
 impl Glyph {
@@ -203,7 +205,7 @@ fn area(r: &[f32; 4]) -> f32 {
 }
 
 /// Reads glyphs in reading order: top line first, left to right inside a line, a space where the
-/// gap is wider than a quarter of the type size, lines joined by a space.
+/// text layer has one (or the gap is wider than a quarter of the type size), lines joined by a space.
 fn text_of(glyphs: &[Glyph]) -> String {
     let mut g = glyphs.to_vec();
     g.sort_by(|a, b| b.centre().1.total_cmp(&a.centre().1));
@@ -219,7 +221,7 @@ fn text_of(glyphs: &[Glyph]) -> String {
         l.sort_by(|a, b| a.rect[0].total_cmp(&b.rect[0]));
         let mut s = String::new();
         for (i, x) in l.iter().enumerate() {
-            if i > 0 && x.rect[0] - l[i - 1].rect[2] > 0.25 * l[i - 1].height().max(x.height()) {
+            if i > 0 && (x.space_before || x.rect[0] - l[i - 1].rect[2] > 0.25 * l[i - 1].height().max(x.height())) {
                 s.push(' ');
             }
             s.push(x.ch);
@@ -238,6 +240,8 @@ pub struct Filled {
     pub assigned: usize,
     /// The numbers in the region are the numbers in the cells (none cut in two, none lost).
     pub numbers_ok: bool,
+    /// Numbers the region reads that the cells don't, and the other way round (for the log).
+    pub number_diff: (Vec<String>, Vec<String>),
 }
 
 impl Filled {
@@ -248,36 +252,89 @@ impl Filled {
     }
 }
 
-/// Puts the text layer's characters into the cells. A character belongs to the smallest cell that
-/// holds its centre. Spaces carry no box in the text layer and are not needed: they come back from
-/// the gaps between characters.
+/// How far outside a cell a character may sit and still belong to it, in character heights. The
+/// model's cell boxes often clip the first or last letter of a cell.
+const SLACK: f32 = 0.75;
+
+fn distance(r: &[f32; 4], (x, y): (f32, f32)) -> f32 {
+    let dx = (r[0] - x).max(0.0).max(x - r[2]);
+    let dy = (r[1] - y).max(0.0).max(y - r[3]);
+    dx.hypot(dy)
+}
+
+/// The next character of the text layer carries on the word: no space before it, on the same line,
+/// and close behind the last one.
+fn continues_word(prev: &Glyph, next: &Glyph) -> bool {
+    let h = prev.height().max(next.height());
+    let gap = next.rect[0] - prev.rect[2];
+    !next.space_before && (next.centre().1 - prev.centre().1).abs() <= 0.5 * h && (-0.5 * h..=0.25 * h).contains(&gap)
+}
+
+/// Puts the text layer's characters into the cells. A character belongs to the nearest cell, the
+/// smallest one when it sits inside several, and only if it is within `SLACK` character heights.
+/// Spaces carry no box in the text layer: each character remembers whether one came before it.
 pub fn fill(grid: &[(GridCell, [f32; 4])], region: [f32; 4], glyphs: &[Glyph]) -> Filled {
     let inside: Vec<&Glyph> = glyphs.iter().filter(|g| !g.ch.is_whitespace() && contains(&region, g.centre())).collect();
+    let nearest = |g: &Glyph| -> Option<usize> {
+        let c = g.centre();
+        grid.iter()
+            .enumerate()
+            .map(|(i, (_, r))| (i, distance(r, c), area(r)))
+            .filter(|(_, d, _)| *d <= SLACK * g.height())
+            .min_by(|a, b| a.1.total_cmp(&b.1).then(a.2.total_cmp(&b.2)))
+            .map(|(i, _, _)| i)
+    };
+    // A word (no space, no wide gap) goes to one cell, the one most of its characters are nearest
+    // to, so a box that clips the start of a word doesn't split it.
     let mut per_cell: Vec<Vec<Glyph>> = vec![Vec::new(); grid.len()];
     let mut assigned = 0;
-    for g in &inside {
-        let c = g.centre();
-        let best = grid
-            .iter()
-            .enumerate()
-            .filter(|(_, (_, r))| contains(r, c))
-            .min_by(|(_, (_, a)), (_, (_, b))| area(a).total_cmp(&area(b)))
-            .map(|(i, _)| i);
-        if let Some(i) = best {
-            per_cell[i].push(**g);
-            assigned += 1;
+    let mut i = 0;
+    while i < inside.len() {
+        let mut end = i + 1;
+        while end < inside.len() && continues_word(inside[end - 1], inside[end]) {
+            end += 1;
         }
+        let mut votes = vec![0usize; grid.len()];
+        for g in &inside[i..end] {
+            if let Some(c) = nearest(g) {
+                votes[c] += 1;
+            }
+        }
+        let best = votes.iter().enumerate().max_by(|a, b| a.1.cmp(b.1).then(b.0.cmp(&a.0))).filter(|(_, v)| **v > 0).map(|(c, _)| c);
+        if let Some(c) = best {
+            per_cell[c].extend(inside[i..end].iter().map(|g| **g));
+            assigned += end - i;
+        }
+        i = end;
     }
     let cells: Vec<Cell> = grid
         .iter()
         .zip(&per_cell)
         .map(|((g, rect), gl)| Cell { row: g.row, col: g.col, row_span: g.row_span, col_span: g.col_span, rect: *rect, text: text_of(gl) })
         .collect();
-    let mut want = numeric_tokens(&text_of(&inside.iter().map(|g| **g).collect::<Vec<_>>()));
-    let mut got: Vec<String> = cells.iter().flat_map(|c| numeric_tokens(&c.text)).collect();
+    // Signs are left out: whether a minus belongs to a number depends on the space before it,
+    // which the region text loses where cells meet. No character changes cell by mistake here
+    // without the digits showing it.
+    let unsigned = |t: String| t.trim_start_matches('−').to_string();
+    let mut want: Vec<String> = numeric_tokens(&text_of(&inside.iter().map(|g| **g).collect::<Vec<_>>())).into_iter().map(unsigned).collect();
+    let mut got: Vec<String> = cells.iter().flat_map(|c| numeric_tokens(&c.text)).map(unsigned).collect();
     want.sort();
     got.sort();
-    Filled { cells, glyphs: inside.len(), assigned, numbers_ok: want == got }
+    let number_diff = (minus(&want, &got), minus(&got, &want));
+    Filled { cells, glyphs: inside.len(), assigned, numbers_ok: number_diff.0.is_empty() && number_diff.1.is_empty(), number_diff }
+}
+
+/// `a` without the items of `b`, both sorted, counting repeats.
+fn minus(a: &[String], b: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = b.iter().peekable();
+    for x in a {
+        while rest.next_if(|y| *y < x).is_some() {}
+        if rest.next_if(|y| *y == x).is_none() {
+            out.push(x.clone());
+        }
+    }
+    out
 }
 
 /// Passages are cut at about this many characters, on row boundaries.
@@ -322,7 +379,7 @@ mod tests {
 
     /// A word laid out left to right from `x`, glyphs 5 wide and 10 high, baseline `y`.
     fn word(s: &str, x: f32, y: f32) -> Vec<Glyph> {
-        s.chars().enumerate().map(|(i, ch)| Glyph { ch, rect: [x + i as f32 * 5.0, y, x + i as f32 * 5.0 + 5.0, y + 10.0] }).collect()
+        s.chars().enumerate().map(|(i, ch)| Glyph { ch, rect: [x + i as f32 * 5.0, y, x + i as f32 * 5.0 + 5.0, y + 10.0], space_before: false }).collect()
     }
 
     fn gc(row: usize, col: usize) -> GridCell {
@@ -353,6 +410,45 @@ mod tests {
     }
 
     #[test]
+    fn a_letter_clipped_by_the_cell_box_still_belongs_to_it() {
+        // The model's box for the right cell starts at 52 and cut the S (centre 49.5).
+        let cells = vec![(gc(0, 0), [0.0, 0.0, 40.0, 30.0]), (gc(0, 1), [52.0, 0.0, 100.0, 30.0])];
+        let g = word("Summer", 47.0, 10.0);
+        let f = fill(&cells, [0.0, 0.0, 100.0, 30.0], &g);
+        assert_eq!(f.cells[1].text, "Summer");
+        assert!(f.sound());
+    }
+
+    #[test]
+    fn a_word_clipped_by_a_cell_box_stays_whole() {
+        // "2023-08-21" starts 2 characters left of the right cell's box: per character the first
+        // two would be nearer the left cell, as a word they follow the other eight.
+        let cells = vec![(gc(0, 0), [0.0, 0.0, 40.0, 30.0]), (gc(0, 1), [52.0, 0.0, 100.0, 30.0])];
+        let g = word("2023-08-21", 38.0, 10.0);
+        let f = fill(&cells, [0.0, 0.0, 100.0, 30.0], &g);
+        assert_eq!((f.cells[0].text.as_str(), f.cells[1].text.as_str()), ("", "2023-08-21"));
+    }
+
+    #[test]
+    fn two_columns_that_touch_still_split_at_the_gap() {
+        let cells = vec![(gc(0, 0), [0.0, 0.0, 40.0, 30.0]), (gc(0, 1), [52.0, 0.0, 100.0, 30.0])];
+        let mut g = word("KVOP", 20.0, 10.0);
+        g.extend(word("2021", 54.0, 10.0)); // no space in the text layer, but a visible gap
+        let f = fill(&cells, [0.0, 0.0, 100.0, 30.0], &g);
+        assert_eq!((f.cells[0].text.as_str(), f.cells[1].text.as_str()), ("KVOP", "2021"));
+    }
+
+    #[test]
+    fn the_text_layers_own_spaces_are_kept() {
+        let mut g = word("Navn", 2.0, 50.0);
+        let mut p = word("pa", 21.0, 50.0); // no visible gap at all
+        p[0].space_before = true;
+        g.extend(p);
+        let f = fill(&grid(), REGION, &g);
+        assert_eq!(f.cells[0].text, "Navn pa");
+    }
+
+    #[test]
     fn a_wrapped_cell_reads_top_line_first_and_gaps_become_spaces() {
         let mut g = word("mg", 2.0, 55.0);
         g.extend(word("per", 22.0, 55.0));
@@ -362,10 +458,12 @@ mod tests {
     }
 
     #[test]
-    fn a_character_outside_every_cell_makes_the_table_unsure() {
-        let mut g = word("a", 2.0, 50.0);
-        g.extend(word("x", 2.0, 33.0)); // in the gap between the rows, inside the region
-        let f = fill(&grid(), REGION, &g);
+    fn a_character_far_from_every_cell_makes_the_table_unsure() {
+        // rows 30 apart, so a character between them is 15 from both, over the slack of 7.5
+        let cells = vec![(gc(0, 0), [0.0, 60.0, 100.0, 90.0]), (gc(1, 0), [0.0, 0.0, 100.0, 30.0])];
+        let mut g = word("a", 2.0, 70.0);
+        g.extend(word("x", 2.0, 40.0));
+        let f = fill(&cells, [0.0, 0.0, 100.0, 90.0], &g);
         assert_eq!((f.glyphs, f.assigned), (2, 1));
         assert!(!f.sound());
     }
@@ -380,13 +478,12 @@ mod tests {
     }
 
     #[test]
-    fn a_number_cut_across_two_cells_is_flagged() {
-        // "1,000" printed across the column line: the region reads one number, the cells two.
+    fn a_number_across_the_column_line_stays_whole_in_the_cell_with_most_of_it() {
+        // "1,000" printed across the column line: 2 characters left of it, 3 right of it.
         let g = word("1,000", 40.0, 50.0);
         let f = fill(&grid(), REGION, &g);
-        assert_eq!(f.assigned, f.glyphs);
-        assert!(!f.numbers_ok);
-        assert!(!f.sound());
+        assert_eq!((f.cells[0].text.as_str(), f.cells[1].text.as_str()), ("", "1,000"));
+        assert!(f.sound());
     }
 
     #[test]

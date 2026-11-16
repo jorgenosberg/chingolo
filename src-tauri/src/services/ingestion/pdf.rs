@@ -11,6 +11,7 @@ use super::detect::{Info, detect};
 use super::layout::{Layout, PageRegions, Region};
 use super::ocr::{self, Ocr, OcrSlot};
 use super::segment::{Block, Join};
+use super::tables::{self, Filled, Glyph, Tables};
 use super::Extraction;
 use crate::error::{AppError, Result};
 use crate::persistence::library::{Extracted, NewPage};
@@ -189,6 +190,41 @@ impl PdfReader {
         Ok(out)
     }
 
+    /// Reads the tables in the given regions (PDF user space, grouped by page). The grid comes from
+    /// the table model, the text from the page's own characters. A table that fails gets an error
+    /// string and nothing else is affected.
+    pub fn read_tables(
+        &self,
+        path: &Path,
+        regions: &[(u32, [f32; 4])],
+        tables: &Tables,
+        cancelled: &dyn Fn() -> bool,
+        progress: &mut dyn FnMut(u32, u32),
+    ) -> Result<Vec<TableRead>> {
+        let doc = self.pdfium.load_pdf_from_file(path, None).map_err(open_error)?;
+        let mut out = Vec::with_capacity(regions.len());
+        let mut i = 0;
+        while i < regions.len() {
+            if cancelled() {
+                return Err(AppError::Cancelled);
+            }
+            let no = regions[i].0;
+            let end = regions[i..].iter().position(|r| r.0 != no).map_or(regions.len(), |n| i + n);
+            let page = doc.pages().get(no as i32 - 1).map_err(|e| AppError::Internal(e.to_string()));
+            let drawn = page.as_ref().map_err(|e| e.to_string()).and_then(|p| render(p).map(|r| (r, page_glyphs(p))).map_err(|e| e.to_string()));
+            for &(_, region) in &regions[i..end] {
+                let filled = match &drawn {
+                    Ok((r, glyphs)) => read_table(r, glyphs, region, tables),
+                    Err(e) => Err(e.clone()),
+                };
+                out.push(TableRead { page: no, region, filled });
+            }
+            i = end;
+            progress(i as u32, regions.len() as u32);
+        }
+        Ok(out)
+    }
+
     /// One page drawn for layout detection (1-based page number).
     #[cfg(test)]
     pub(super) fn render_page(&self, path: &Path, page: u32) -> Result<Rendered> {
@@ -298,6 +334,59 @@ fn open_error(e: PdfiumError) -> AppError {
 }
 
 /// A page drawn the way a viewer shows it, with what is needed to map pixels back to user space.
+/// A table region of a page and what reading it gave: the cells with their text, or why not.
+#[derive(Debug)]
+pub struct TableRead {
+    pub page: u32,
+    pub region: [f32; 4],
+    pub filled: std::result::Result<Filled, String>,
+}
+
+/// Room around a table region for the model, in pixels. Layout boxes are tight.
+const TABLE_PAD_PX: f32 = 6.0;
+
+fn read_table(r: &Rendered, glyphs: &[Glyph], region: [f32; 4], tables: &Tables) -> std::result::Result<Filled, String> {
+    let [x0, y0, x1, y1] = ocr::to_pixels(region, r.scale, r.crop, r.rotation);
+    let (x0, y0) = ((x0 - TABLE_PAD_PX).max(0.0).floor(), (y0 - TABLE_PAD_PX).max(0.0).floor());
+    let (x1, y1) = ((x1 + TABLE_PAD_PX).min(r.img.width() as f32).ceil(), (y1 + TABLE_PAD_PX).min(r.img.height() as f32).ceil());
+    let (w, h) = ((x1 - x0).max(0.0) as u32, (y1 - y0).max(0.0) as u32);
+    if w < 16 || h < 16 {
+        return Err("the table region is empty".into());
+    }
+    let crop = image::imageops::crop_imm(&r.img, x0 as u32, y0 as u32, w, h).to_image();
+    let grid = tables.grid(crop).map_err(|e| e.to_string())?;
+    let cells: Vec<_> = grid
+        .into_iter()
+        .map(|c| {
+            let px = [c.rect[0] + x0, c.rect[1] + y0, c.rect[2] + x0, c.rect[3] + y0];
+            (c, ocr::to_user_space(px, r.scale, r.crop, r.rotation))
+        })
+        .collect();
+    Ok(tables::fill(&cells, region, glyphs))
+}
+
+/// Every character of the page with a box, in PDF user space. Spaces have no box: the character
+/// after one remembers it.
+fn page_glyphs(page: &PdfPage) -> Vec<Glyph> {
+    let Ok(text) = page.text() else { return vec![] };
+    let mut out = Vec::new();
+    let mut space = false;
+    for ch in text.chars().iter() {
+        let Some(c) = ch.unicode_char() else { continue };
+        if c.is_whitespace() || c == '\r' || c == '\n' {
+            space = true;
+            continue;
+        }
+        if c.is_control() {
+            continue;
+        }
+        if let Ok(r) = ch.loose_bounds() {
+            out.push(Glyph { ch: c, rect: [r.left().value, r.bottom().value, r.right().value, r.top().value], space_before: std::mem::take(&mut space) });
+        }
+    }
+    out
+}
+
 pub(super) struct Rendered {
     pub img: image::RgbImage,
     pub scale: (f32, f32),
