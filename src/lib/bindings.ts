@@ -82,6 +82,12 @@ export const commands = {
 	 *  afterwards use them for pages without text. Returns at once, poll `ocr_status` for progress.
 	 */
 	downloadOcrModel: () => __TAURI_INVOKE<ModelState>("download_ocr_model"),
+	layoutStatus: () => __TAURI_INVOKE<ModelState>("layout_status"),
+	/**
+	 *  Downloads the page layout model (about 130 MB), if it isn't there yet. When it is ready, documents
+	 *  already in the library get their layout in the background. Returns at once, poll `layout_status`.
+	 */
+	downloadLayoutModel: () => __TAURI_INVOKE<ModelState>("download_layout_model"),
 	embeddingStatus: () => __TAURI_INVOKE<EmbeddingStatus>("embedding_status"),
 	/**
 	 *  Starts (or resumes) the local model download, or retries loading the model if the files are

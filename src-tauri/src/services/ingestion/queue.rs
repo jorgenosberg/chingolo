@@ -13,6 +13,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use super::activity::Activity;
+use super::layout::{self, LayoutSlot};
 use super::ocr::OcrSlot;
 use super::pdf::PdfReader;
 use super::segment::segment;
@@ -43,6 +44,8 @@ pub type Emit = Arc<dyn Fn(DocumentChanged) + Send + Sync>;
 enum Job {
     Read(Document),
     Details(Document),
+    /// Page layout for a document that is already searchable. Rebuilds its passages from it.
+    Layout(Document),
 }
 
 struct Inner {
@@ -52,6 +55,10 @@ struct Inner {
     emit: Emit,
     /// Where the text recognition models are (or will be). None turns recognition off.
     ocr_dir: Mutex<Option<PathBuf>>,
+    /// Same for the layout model.
+    layout_dir: Mutex<Option<PathBuf>>,
+    /// Called with the document after layout changed its passages (new ones need vectors).
+    on_layout: Mutex<Option<Arc<dyn Fn(&Document) + Send + Sync>>>,
     activity: Mutex<Option<Activity>>,
 }
 
@@ -67,7 +74,7 @@ impl Ingestor {
     pub fn start(db_path: &Path, library_dir: PathBuf, emit: Emit) -> Result<Self> {
         let conn = Db::open_secondary(db_path)?;
         let (tx, rx) = mpsc::unbounded_channel();
-        let inner = Arc::new(Inner { tx, tokens: Mutex::new(HashMap::new()), library_dir, emit, ocr_dir: Mutex::new(None), activity: Mutex::new(None) });
+        let inner = Arc::new(Inner { tx, tokens: Mutex::new(HashMap::new()), library_dir, emit, ocr_dir: Mutex::new(None), layout_dir: Mutex::new(None), on_layout: Mutex::new(None), activity: Mutex::new(None) });
         let worker = inner.clone();
         std::thread::Builder::new()
             .name("ingest".into())
@@ -82,6 +89,33 @@ impl Ingestor {
         if let Ok(mut d) = self.0.ocr_dir.lock() {
             *d = dir;
         }
+    }
+
+    /// Page layout runs on ready documents once the model in `dir` is downloaded.
+    pub fn set_layout_dir(&self, dir: Option<PathBuf>) {
+        if let Ok(mut d) = self.0.layout_dir.lock() {
+            *d = dir;
+        }
+    }
+
+    pub fn set_on_layout(&self, f: Arc<dyn Fn(&Document) + Send + Sync>) {
+        if let Ok(mut h) = self.0.on_layout.lock() {
+            *h = Some(f);
+        }
+    }
+
+    /// Queues layout for every ready PDF that has pages without it. Call at start and after the
+    /// layout model finished downloading. Returns how many documents.
+    pub async fn enqueue_layouts(&self, db: &Db) -> Result<usize> {
+        let ready = self.0.layout_dir.lock().ok().and_then(|d| d.clone()).is_some_and(|d| layout::is_ready(&d));
+        if !ready {
+            return Ok(0);
+        }
+        let docs = db.call(|c| repo::documents_without_layout(c)).await?;
+        for d in &docs {
+            let _ = self.0.tx.send(Job::Layout(d.clone()));
+        }
+        Ok(docs.len())
     }
 
     /// Where details jobs are reported while they wait and run.
@@ -144,10 +178,12 @@ impl Ingestor {
 fn worker_loop(mut conn: Connection, mut rx: mpsc::UnboundedReceiver<Job>, inner: Arc<Inner>) {
     let mut pdf: Option<PdfReader> = None;
     let mut ocr = OcrSlot::default();
+    let mut layout = LayoutSlot::default();
     while let Some(job) = rx.blocking_recv() {
-        let (Job::Read(doc) | Job::Details(doc)) = &job;
+        let (Job::Read(doc) | Job::Details(doc) | Job::Layout(doc)) = &job;
         let doc = doc.clone();
         ocr.set_dir(inner.ocr_dir.lock().ok().and_then(|d| d.clone()));
+        layout.set_dir(inner.layout_dir.lock().ok().and_then(|d| d.clone()));
         let token = inner.tokens.lock().ok().and_then(|t| t.get(&doc.id).cloned()).unwrap_or_default();
         let path = library_path(&inner.library_dir, &doc.content_hash, doc.kind);
         let emit = |d: Document, p: Option<Progress>| (inner.emit)(DocumentChanged { document: d, progress: p });
@@ -155,9 +191,15 @@ fn worker_loop(mut conn: Connection, mut rx: mpsc::UnboundedReceiver<Job>, inner
         let ran = std::panic::catch_unwind(AssertUnwindSafe(|| match &job {
             Job::Read(_) => run_job(&mut conn, &mut pdf, &mut ocr, &path, &doc, &token, &emit),
             Job::Details(_) => run_details(&conn, &mut pdf, &mut ocr, &path, &doc, &emit),
+            Job::Layout(_) => {
+                let notify = |d: &Document| inner.on_layout.lock().ok().and_then(|h| h.clone()).iter().for_each(|f| f(d));
+                run_layout(&mut conn, &mut pdf, &mut ocr, &mut layout, &path, &doc, &token, &notify)
+            }
         }));
         if ran.is_err() && matches!(job, Job::Details(_)) {
             log::warn!("reading the details of {} crashed", doc.original_name);
+        } else if ran.is_err() && matches!(job, Job::Layout(_)) {
+            log::warn!("page layout of {} crashed, its passages are unchanged", doc.original_name);
         } else if ran.is_err() {
             if let Ok(d) = repo::set_status(&conn, &doc.id, DocStatus::Error, Some("Reading this file crashed. It may be damaged.")) {
                 emit(d, None);
@@ -168,10 +210,14 @@ fn worker_loop(mut conn: Connection, mut rx: mpsc::UnboundedReceiver<Job>, inner
         {
             a.finish(&doc.id);
         }
-        if matches!(job, Job::Read(_))
-            && let Ok(mut t) = inner.tokens.lock()
-        {
-            t.remove(&doc.id);
+        if matches!(job, Job::Read(_)) {
+            if let Ok(mut t) = inner.tokens.lock() {
+                t.remove(&doc.id);
+            }
+            // the document is searchable now, so layout can improve it in the background
+            if doc.kind == DocKind::Pdf && layout.get().is_some() && repo::get_document(&conn, &doc.id).is_ok_and(|d| d.status == DocStatus::Ready) {
+                let _ = inner.tx.send(Job::Layout(doc.clone()));
+            }
         }
     }
 }
@@ -208,6 +254,54 @@ pub fn run_details(
         }
         Err(AppError::NotFound) => {}
         Err(e) => log::warn!("couldn't refresh the details of {}: {e}", doc.original_name),
+    }
+}
+
+/// Runs layout on the pages that have text and rebuilds the passages from it. Problems only log:
+/// the passages stay as they are. Runs in the background, so a document is searchable long before.
+#[allow(clippy::too_many_arguments)]
+fn run_layout(
+    conn: &mut Connection,
+    pdf: &mut Option<PdfReader>,
+    ocr: &mut OcrSlot,
+    layout: &mut LayoutSlot,
+    path: &Path,
+    doc: &Document,
+    token: &CancellationToken,
+    notify: &dyn Fn(&Document),
+) {
+    let started = std::time::Instant::now();
+    let Some(model) = layout.get() else { return };
+    let cancelled = || token.is_cancelled();
+    let result = (|| -> Result<Option<Document>> {
+        let pages = repo::pages_without_layout(conn, &doc.id)?;
+        if pages.is_empty() {
+            return Ok(None);
+        }
+        let r = reader(pdf)?;
+        let found = r.detect_layout(path, &pages, model, &cancelled, &mut |_, _| {})?;
+        let ex = r.extract_with(path, ocr, &cancelled, &mut |_, _| {})?;
+        let (blocks, stats) = layout::apply(ex.blocks, &found);
+        let passages = segment(&blocks);
+        if passages.is_empty() {
+            return Ok(None);
+        }
+        let regions: Vec<_> = found
+            .iter()
+            .flat_map(|p| p.regions.iter().map(|g| repo::NewRegion { page_no: p.page, ordinal: g.order, label: g.label.clone(), score: g.score, rect: g.rect }))
+            .collect();
+        let done: Vec<u32> = found.iter().map(|p| p.page).collect();
+        let d = repo::store_layout(conn, &doc.id, &done, &regions, &passages)?;
+        log::info!(
+            "layout for {}: {} pages, {} lines, {} dropped (headers, footers, numbers), {} unplaced, {} pages kept as they were, {} passages, {} ms",
+            doc.original_name, done.len(), stats.lines, stats.dropped, stats.unplaced, stats.pages_kept, passages.len(), started.elapsed().as_millis()
+        );
+        Ok(Some(d))
+    })();
+    match result {
+        Ok(Some(d)) => notify(&d),
+        Ok(None) | Err(AppError::NotFound | AppError::Cancelled) => {}
+        Err(e) => log::warn!("page layout of {} failed: {e}", doc.original_name),
     }
 }
 

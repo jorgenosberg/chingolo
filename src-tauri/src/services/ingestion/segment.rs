@@ -20,6 +20,9 @@ pub enum Join {
     /// A word the layout broke across lines ("geo" + "engineering"): no space.
     Tight,
     Newline,
+    /// The layout puts a different kind of region here (table, figure, footnote): the open
+    /// passage ends before this block.
+    Break,
 }
 
 #[derive(Debug, Clone)]
@@ -58,6 +61,7 @@ impl Open {
                 Join::Space => self.text.push(' '),
                 Join::Newline => self.text.push('\n'),
                 Join::Tight => {}
+                Join::Break => {}
             }
         }
         self.text.push_str(text);
@@ -115,6 +119,9 @@ pub fn segment(blocks: &[Block]) -> Vec<NewPassage> {
         let text = b.text.trim();
         if text.is_empty() {
             continue;
+        }
+        if b.join == Join::Break {
+            out.extend(cur.take().and_then(Open::finish));
         }
         // A page break ends the passage unless it is still very short.
         if let Some(o) = &cur

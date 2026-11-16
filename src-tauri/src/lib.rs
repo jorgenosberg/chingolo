@@ -70,6 +70,8 @@ fn specta_builder() -> Builder<tauri::Wry> {
         commands::library::get_source,
         commands::ocr::ocr_status,
         commands::ocr::download_ocr_model,
+        commands::ocr::layout_status,
+        commands::ocr::download_layout_model,
         commands::embedding::embedding_status,
         commands::embedding::download_embedding_model,
         commands::embedding::allow_cloud_embedding,
@@ -195,6 +197,7 @@ pub fn run() {
                 let _ = e.emit(&activity_handle);
             });
             let enricher = crate::services::ingestion::enrich::Enricher::start(db.clone(), emit.clone(), providers.clone(), activity.clone());
+            let after_layout = (embedder.clone(), emit.clone());
             let (wake, raw_emit, queue) = (embedder.clone(), emit, enricher.clone());
             let ingest_emit: Emit = Arc::new(move |e| {
                 let ready = e.document.status == DocStatus::Ready;
@@ -209,10 +212,17 @@ pub fn run() {
             ingest.set_activity(activity);
             let ocr = crate::services::ingestion::ocr::OcrModel::new(&dir);
             ingest.set_ocr_dir(Some(ocr.dir().to_path_buf()));
+            let layout = crate::services::ingestion::layout::model(&dir);
+            ingest.set_layout_dir(Some(layout.dir().to_path_buf()));
+            ingest.set_on_layout(Arc::new(move |d| {
+                after_layout.1(crate::services::ingestion::queue::DocumentChanged { document: d.clone(), progress: None });
+                after_layout.0.wake();
+            }));
             // Documents that were still being read when the app last stopped.
             let (resume_db, resume_ingest) = (db.clone(), ingest.clone());
             tauri::async_runtime::spawn(async move {
                 let _ = resume_ingest.resume(&resume_db).await;
+                let _ = resume_ingest.enqueue_layouts(&resume_db).await;
             });
             // If the user agreed to the local model download earlier, finish it.
             if backend == Backend::Local {
@@ -239,6 +249,7 @@ pub fn run() {
                 ingest,
                 embedder,
                 ocr,
+                layout,
                 enricher,
                 import_target: Arc::new(Mutex::new(None)),
             });

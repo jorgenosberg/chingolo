@@ -8,6 +8,7 @@ use pdfium_render::prelude::*;
 use regex::Regex;
 
 use super::detect::{Info, detect};
+use super::layout::{Layout, PageRegions, Region};
 use super::ocr::{self, Ocr, OcrSlot};
 use super::segment::{Block, Join};
 use super::Extraction;
@@ -149,6 +150,37 @@ impl PdfReader {
         progress: &mut dyn FnMut(u32, u32),
     ) -> Result<Extraction> {
         self.read(path, ocr, cancelled, progress, usize::MAX)
+    }
+
+    /// Runs layout detection on pages that have text, and returns the regions in PDF user space.
+    /// `pages` are the page numbers to look at. `progress` gets (pages done, pages to do).
+    pub fn detect_layout(
+        &self,
+        path: &Path,
+        pages: &[u32],
+        layout: &Layout,
+        cancelled: &dyn Fn() -> bool,
+        progress: &mut dyn FnMut(u32, u32),
+    ) -> Result<Vec<PageRegions>> {
+        let doc = self.pdfium.load_pdf_from_file(path, None).map_err(open_error)?;
+        let mut out = Vec::with_capacity(pages.len());
+        for (done, &no) in pages.iter().enumerate() {
+            if cancelled() {
+                return Err(AppError::Cancelled);
+            }
+            let page = doc.pages().get(no as i32 - 1).map_err(|e| AppError::Internal(e.to_string()))?;
+            let Rendered { img, scale, crop, rotation } = render(&page)?;
+            match layout.detect(img) {
+                Ok(regions) => out.push(PageRegions {
+                    page: no,
+                    regions: regions.into_iter().map(|r| Region { rect: ocr::to_user_space(r.rect, scale, crop, rotation), ..r }).collect(),
+                }),
+                // one page failing leaves that page as it was
+                Err(e) => log::warn!("layout failed on page {no}: {e}"),
+            }
+            progress(done as u32 + 1, pages.len() as u32);
+        }
+        Ok(out)
     }
 
     /// One page drawn for layout detection (1-based page number).

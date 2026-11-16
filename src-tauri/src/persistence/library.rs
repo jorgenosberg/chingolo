@@ -401,6 +401,7 @@ pub fn store_content(
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
     tx.execute("DELETE FROM passages WHERE document_id = ?1", [id])?;
     tx.execute("DELETE FROM pages WHERE document_id = ?1", [id])?;
+    tx.execute("DELETE FROM page_regions WHERE document_id = ?1", [id])?;
     for p in pages {
         tx.execute(
             "INSERT INTO pages (document_id, page_no, width, height, quality, ocr) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -421,6 +422,98 @@ pub fn store_content(
     apply_metadata(&tx, id, meta, "file", true)?;
     tx.commit()?;
     get_document(conn, id)
+}
+
+/// A region found by the layout model, in PDF user space.
+pub struct NewRegion {
+    pub page_no: u32,
+    pub ordinal: u32,
+    pub label: String,
+    pub score: f32,
+    pub rect: [f32; 4],
+}
+
+/// Stores the layout of a document and swaps its passages for ones built from it. A passage whose
+/// text is unchanged keeps its id (so its vector and any citation stay valid) and only gets its
+/// place and boxes updated. Passages with new text are inserted, the rest are removed.
+/// `layout_pages` are the pages layout ran on.
+pub fn store_layout(
+    conn: &mut Connection,
+    id: &str,
+    layout_pages: &[u32],
+    regions: &[NewRegion],
+    passages: &[NewPassage],
+) -> Result<Document> {
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    get_document(&tx, id)?;
+    tx.execute("DELETE FROM page_regions WHERE document_id = ?1", [id])?;
+    for r in regions {
+        tx.execute(
+            "INSERT INTO page_regions (document_id, page_no, ordinal, label, score, left, bottom, right, top)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![id, r.page_no, r.ordinal, r.label, r.score, r.rect[0], r.rect[1], r.rect[2], r.rect[3]],
+        )?;
+    }
+    let at = now_ms();
+    for p in layout_pages {
+        tx.execute("UPDATE pages SET layout_at = ?1 WHERE document_id = ?2 AND page_no = ?3", params![at, id, p])?;
+    }
+
+    let mut old: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    {
+        let mut stmt = tx.prepare("SELECT id, text FROM passages WHERE document_id = ?1 ORDER BY ordinal DESC")?;
+        for row in stmt.query_map([id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
+            let (pid, text) = row?;
+            old.entry(text).or_default().push(pid);
+        }
+    }
+    // clear the unique (document, ordinal) slots before renumbering
+    tx.execute("UPDATE passages SET ordinal = ordinal + 1000000 WHERE document_id = ?1", [id])?;
+    let mut kept = std::collections::HashSet::new();
+    for (i, p) in passages.iter().enumerate() {
+        match old.get_mut(&p.text).and_then(Vec::pop) {
+            Some(pid) => {
+                tx.execute(
+                    "UPDATE passages SET ordinal = ?1, page_start = ?2, page_end = ?3, boxes = ?4 WHERE id = ?5",
+                    params![-(i as i64) - 1, p.page_start, p.page_end, p.boxes, pid],
+                )?;
+                kept.insert(pid);
+            }
+            None => {
+                tx.execute(
+                    "INSERT INTO passages (id, document_id, ordinal, page_start, page_end, text, text_folded, boxes)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    params![new_id(), id, -(i as i64) - 1, p.page_start, p.page_end, p.text, fold(&p.text), p.boxes],
+                )?;
+            }
+        }
+    }
+    for pid in old.into_values().flatten() {
+        tx.execute("DELETE FROM passages WHERE id = ?1", [pid])?;
+    }
+    // final ordinals: the negative placeholders become 0, 1, 2...
+    tx.execute("UPDATE passages SET ordinal = -ordinal - 1 WHERE document_id = ?1 AND ordinal < 0", [id])?;
+    tx.execute("UPDATE documents SET updated_at = ?1 WHERE id = ?2", params![at, id])?;
+    tx.commit()?;
+    get_document(conn, id)
+}
+
+/// PDF documents that are ready and have pages without layout yet.
+pub fn documents_without_layout(conn: &Connection) -> Result<Vec<Document>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {DOC_COLS} FROM documents WHERE status = 'ready' AND kind = 'pdf'
+           AND EXISTS (SELECT 1 FROM pages p WHERE p.document_id = documents.id AND p.quality = 'ok' AND p.layout_at IS NULL)
+         ORDER BY created_at, id"
+    ))?;
+    let rows = stmt.query_map([], document_from_row)?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+/// Pages of a document that have text and no layout yet.
+pub fn pages_without_layout(conn: &Connection, id: &str) -> Result<Vec<u32>> {
+    let mut stmt = conn.prepare("SELECT page_no FROM pages WHERE document_id = ?1 AND quality = 'ok' AND layout_at IS NULL ORDER BY page_no")?;
+    let rows = stmt.query_map([id], |r| r.get(0))?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
 /// Words too common to help in a question, English and Norwegian (folded). Same list the
@@ -639,6 +732,28 @@ mod tests {
 
     fn opts() -> SearchOptions<'static> {
         SearchOptions { filter: &crate::domain::library::DocFilter::All, all_terms: true, prefix_last: false, limit: 10 }
+    }
+
+    #[test]
+    fn layout_keeps_ids_of_unchanged_passages_and_swaps_the_rest() {
+        let mut conn = test_conn();
+        let d = ready_doc(&mut conn, "h1", "a.pdf", &["Plankton blooms follow iron", "Running head 2025", "Diatoms dominate"]);
+        let ids = |c: &Connection| -> Vec<(String, String)> {
+            let mut s = c.prepare("SELECT id, text FROM passages WHERE document_id = ?1 ORDER BY ordinal").unwrap();
+            s.query_map([&d.id], |r| Ok((r.get(0)?, r.get(1)?))).unwrap().map(|r| r.unwrap()).collect()
+        };
+        let before = ids(&conn);
+        let new = [passage(1, "Diatoms dominate"), passage(1, "Plankton blooms follow iron"), passage(1, "A table of numbers")];
+        let region = NewRegion { page_no: 1, ordinal: 0, label: "text".into(), score: 0.9, rect: [0.0, 0.0, 1.0, 1.0] };
+        store_layout(&mut conn, &d.id, &[1], &[region], &new).unwrap();
+        let after = ids(&conn);
+        assert_eq!(after.iter().map(|p| p.1.as_str()).collect::<Vec<_>>(), ["Diatoms dominate", "Plankton blooms follow iron", "A table of numbers"]);
+        assert_eq!(after[0].0, before[2].0);
+        assert_eq!(after[1].0, before[0].0);
+        assert!(before.iter().all(|b| b.1 != "Running head 2025" || !after.iter().any(|a| a.0 == b.0)));
+        let n: i64 = conn.query_row("SELECT count(*) FROM passages_fts WHERE passages_fts MATCH 'running'", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 0, "the dropped passage left the search index");
+        assert_eq!(pages_without_layout(&conn, &d.id).unwrap(), Vec::<u32>::new());
     }
 
     #[test]

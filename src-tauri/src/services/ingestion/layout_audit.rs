@@ -156,3 +156,37 @@ fn layout_regions() {
         }
     }
 }
+
+/// Runs layout and the rebuild on whole files and prints what was dropped.
+/// CHINGUI_LAYOUT_FILES="nature02437.pdf,Fiskehelserapporten 2025.pdf"
+#[test]
+#[ignore]
+fn layout_apply() {
+    use super::layout::{Layout, apply};
+    use super::segment::segment;
+    let dir = std::env::var("CHINGUI_TEST_PAPERS").expect("set CHINGUI_TEST_PAPERS");
+    let model = std::env::var("CHINGUI_LAYOUT_DIR").expect("set CHINGUI_LAYOUT_DIR");
+    let files = std::env::var("CHINGUI_LAYOUT_FILES").expect("set CHINGUI_LAYOUT_FILES");
+    let reader = PdfReader::new().expect("libpdfium");
+    let layout = Layout::load(Path::new(&model)).unwrap();
+    for file in files.split(',') {
+        let path = Path::new(&dir).join(file);
+        let ex = reader.extract(&path, &|| false, &mut |_, _| {}).unwrap();
+        let pages: Vec<u32> = ex.pages.iter().filter(|p| p.quality == "ok").map(|p| p.page_no).collect();
+        let t = std::time::Instant::now();
+        let found = reader.detect_layout(&path, &pages, &layout, &|| false, &mut |_, _| {}).unwrap();
+        let secs = t.elapsed().as_secs_f32();
+        let before = segment(&ex.blocks);
+        let kept: std::collections::HashSet<String> = {
+            let (blocks, _) = apply(ex.blocks.clone(), &found);
+            blocks.iter().map(|b| format!("{}|{}", b.page, b.text)).collect()
+        };
+        let dropped: Vec<String> = ex.blocks.iter().filter(|b| !kept.contains(&format!("{}|{}", b.page, b.text))).map(|b| format!("p{} {}", b.page, b.text.chars().take(70).collect::<String>())).collect();
+        let (blocks, stats) = apply(ex.blocks, &found);
+        let after = segment(&blocks);
+        println!("== {file}: {} pages in {secs:.1}s ({:.2}s/page), passages {} -> {}, {stats:?}", pages.len(), secs / pages.len().max(1) as f32, before.len(), after.len());
+        for d in dropped.iter().take(25) {
+            println!("   dropped: {d}");
+        }
+    }
+}

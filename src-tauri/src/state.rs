@@ -50,6 +50,7 @@ pub struct AppState {
     pub ingest: Ingestor,
     pub embedder: Embedder,
     pub ocr: OcrModel,
+    pub layout: OcrModel,
     pub enricher: Enricher,
     /// Project that dropped files are added to, set by the UI.
     pub import_target: Arc<Mutex<Option<Id>>>,
