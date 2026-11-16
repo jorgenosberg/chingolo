@@ -47,14 +47,19 @@ pub fn is_ready(dir: &Path) -> bool {
 #[derive(Clone)]
 pub struct OcrModel {
     dir: PathBuf,
+    files: &'static [ManifestFile],
     state: Arc<Mutex<ModelState>>,
 }
 
 impl OcrModel {
     pub fn new(app_data: &Path) -> Self {
-        let dir = model_dir(app_data);
-        let state = if is_ready(&dir) { ModelState::Ready } else { ModelState::Missing };
-        OcrModel { dir, state: Arc::new(Mutex::new(state)) }
+        Self::with_files(model_dir(app_data), FILES)
+    }
+
+    /// Any pinned set of files in one folder (the layout model uses this too).
+    pub fn with_files(dir: PathBuf, files: &'static [ManifestFile]) -> Self {
+        let state = if model::is_complete(&dir, files) { ModelState::Ready } else { ModelState::Missing };
+        OcrModel { dir, files, state: Arc::new(Mutex::new(state)) }
     }
 
     pub fn dir(&self) -> &Path {
@@ -78,16 +83,16 @@ impl OcrModel {
             if matches!(*s, ModelState::Downloading { .. }) {
                 return;
             }
-            if is_ready(&self.dir) {
+            if model::is_complete(&self.dir, self.files) {
                 *s = ModelState::Ready;
                 return;
             }
-            *s = ModelState::Downloading { done: 0.0, total: model::total_bytes(FILES) as f64 };
+            *s = ModelState::Downloading { done: 0.0, total: model::total_bytes(self.files) as f64 };
         }
         let me = self.clone();
         tauri::async_runtime::spawn(async move {
             let progress = me.clone();
-            let result = model::download(&model::http_client(), "", FILES, &me.dir, &CancellationToken::new(), &mut |done, total| {
+            let result = model::download(&model::http_client(), "", me.files, &me.dir, &CancellationToken::new(), &mut |done, total| {
                 progress.set(ModelState::Downloading { done: done as f64, total: total as f64 });
             })
             .await;

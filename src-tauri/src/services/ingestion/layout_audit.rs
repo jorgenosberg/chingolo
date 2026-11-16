@@ -134,3 +134,25 @@ fn corpus_layout() {
         println!("{:<12} {:>7} {:>5} {:>8} | {} {}", id, t["checked"].as_bool().unwrap_or(false), page, total, missing.len(), missing.iter().take(12).cloned().collect::<Vec<_>>().join(" "));
     }
 }
+
+/// Prints the regions for a few pages. CHINGUI_LAYOUT_DIR=<folder with pp-doclayoutv3.onnx>
+/// CHINGUI_LAYOUT_PAGES="nature02437.pdf:2,Fiskehelserapporten 2025.pdf:12"
+#[test]
+#[ignore]
+fn layout_regions() {
+    let dir = std::env::var("CHINGUI_TEST_PAPERS").expect("set CHINGUI_TEST_PAPERS");
+    let model = std::env::var("CHINGUI_LAYOUT_DIR").expect("set CHINGUI_LAYOUT_DIR");
+    let pages = std::env::var("CHINGUI_LAYOUT_PAGES").expect("set CHINGUI_LAYOUT_PAGES");
+    let reader = PdfReader::new().expect("libpdfium");
+    let layout = super::layout::Layout::load(Path::new(&model)).unwrap();
+    for spec in pages.split(',') {
+        let (file, n) = spec.rsplit_once(':').unwrap();
+        let r = reader.render_page(&Path::new(&dir).join(file), n.parse().unwrap()).unwrap();
+        let t = std::time::Instant::now();
+        let regions = layout.detect(r.img).unwrap();
+        println!("{file} p{n}: {} regions in {:.1}s", regions.len(), t.elapsed().as_secs_f32());
+        for g in regions {
+            println!("  {:>2} {:<16} {:.2} [{:.0} {:.0} {:.0} {:.0}]", g.order, g.label, g.score, g.rect[0], g.rect[1], g.rect[2], g.rect[3]);
+        }
+    }
+}

@@ -151,6 +151,14 @@ impl PdfReader {
         self.read(path, ocr, cancelled, progress, usize::MAX)
     }
 
+    /// One page drawn for layout detection (1-based page number).
+    #[cfg(test)]
+    pub(super) fn render_page(&self, path: &Path, page: u32) -> Result<Rendered> {
+        let doc = self.pdfium.load_pdf_from_file(path, None).map_err(open_error)?;
+        let page = doc.pages().get((page - 1) as i32).map_err(|e| AppError::Internal(e.to_string()))?;
+        render(&page)
+    }
+
     /// Only the details: the file properties and the first pages, which is where titles,
     /// authors and citation lines are. Nothing is stored, so nothing needs indexing again.
     pub fn extract_meta(&self, path: &Path, ocr: &mut OcrSlot) -> Result<Extracted> {
@@ -252,14 +260,14 @@ fn open_error(e: PdfiumError) -> AppError {
 }
 
 /// A page drawn the way a viewer shows it, with what is needed to map pixels back to user space.
-struct Rendered {
-    img: image::RgbImage,
-    scale: (f32, f32),
-    crop: [f32; 4],
-    rotation: ocr::Rotation,
+pub(super) struct Rendered {
+    pub img: image::RgbImage,
+    pub scale: (f32, f32),
+    pub crop: [f32; 4],
+    pub rotation: ocr::Rotation,
 }
 
-fn render(page: &PdfPage) -> Result<Rendered> {
+pub(super) fn render(page: &PdfPage) -> Result<Rendered> {
     let (w, h) = (page.width().value, page.height().value);
     let scale = ocr::RENDER_SCALE.min(ocr::MAX_SIDE_PX / w.max(h));
     let draw = |e: PdfiumError| AppError::Internal(format!("couldn't draw the page: {e}"));
