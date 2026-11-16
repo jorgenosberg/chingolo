@@ -168,6 +168,13 @@
 	background: var(--c);
 	white-space: nowrap;
 }
+.layout-box.layout-swatch {
+	position: relative;
+	display: inline-block;
+	width: 20px;
+	height: 12px;
+	flex-shrink: 0;
+}
 .layout-body {
 	--c: oklch(0.55 0.17 250);
 }
