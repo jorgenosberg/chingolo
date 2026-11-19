@@ -218,7 +218,7 @@ impl PdfReader {
                     Ok((r, glyphs)) => read_table(r, glyphs, region, tables),
                     Err(e) => Err(e.clone()),
                 };
-                out.push(TableRead { page: no, region, filled });
+                out.push(TableRead { filled });
             }
             i = end;
             progress(i as u32, regions.len() as u32);
@@ -338,8 +338,6 @@ fn open_error(e: PdfiumError) -> AppError {
 /// A table region of a page and what reading it gave: the cells with their text, or why not.
 #[derive(Debug)]
 pub struct TableRead {
-    pub page: u32,
-    pub region: [f32; 4],
     pub filled: std::result::Result<Filled, String>,
 }
 
