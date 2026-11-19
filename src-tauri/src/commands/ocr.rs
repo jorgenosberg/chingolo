@@ -42,6 +42,30 @@ pub fn download_layout_model(state: State<'_, AppState>) -> ModelState {
     state.layout.status()
 }
 
+#[tauri::command]
+#[specta::specta]
+pub fn tables_status(state: State<'_, AppState>) -> ModelState {
+    state.tables.status()
+}
+
+/// Downloads the table structure model (about 8 MB), if it isn't there yet. When it is ready, tables in
+/// documents that already have layout are read in the background. Poll `tables_status`.
+#[tauri::command]
+#[specta::specta]
+pub fn download_tables_model(state: State<'_, AppState>) -> ModelState {
+    state.tables.ensure();
+    let (model, ingest, db) = (state.tables.clone(), state.ingest.clone(), state.db.clone());
+    tauri::async_runtime::spawn(async move {
+        while matches!(model.status(), ModelState::Downloading { .. }) {
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        }
+        if matches!(model.status(), ModelState::Ready) {
+            let _ = ingest.enqueue_layouts(&db).await;
+        }
+    });
+    state.tables.status()
+}
+
 /// How far page layout has got over the library. Poll while `done < total`.
 #[tauri::command]
 #[specta::specta]

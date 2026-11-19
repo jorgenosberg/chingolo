@@ -13,6 +13,7 @@ use oar_ocr::processors::parse_cell_grid_info;
 
 use super::ocr::OcrModel;
 use crate::error::{AppError, Result};
+use crate::persistence::library::NewPassage;
 use crate::services::embedding::model::ManifestFile;
 
 pub const FILES: &[ManifestFile] = &[
@@ -371,6 +372,22 @@ pub fn to_markdown(caption: Option<&str>, cells: &[Cell]) -> Vec<String> {
     }
     out.push(top(&cur));
     out
+}
+
+/// True when two cells claim the same row and column. The grid is then not trustworthy.
+pub fn has_duplicate_positions(cells: &[Cell]) -> bool {
+    let mut seen = std::collections::HashSet::new();
+    !cells.iter().all(|c| seen.insert((c.row, c.col)))
+}
+
+/// The passages of one table: Markdown chunks, each boxed by the table region. (Cell boxes per
+/// chunk would let the reader highlight single cells, later.)
+pub fn passages(page: u32, region: [f32; 4], cells: &[Cell]) -> Vec<NewPassage> {
+    let boxes = serde_json::json!([{ "page": page, "rects": [region] }]).to_string();
+    to_markdown(None, cells)
+        .into_iter()
+        .map(|text| NewPassage { page_start: page, page_end: page, text, boxes: Some(boxes.clone()) })
+        .collect()
 }
 
 #[cfg(test)]

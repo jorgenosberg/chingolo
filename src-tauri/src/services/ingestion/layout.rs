@@ -11,8 +11,9 @@ use oar_ocr::domain::adapters::{LayoutDetectionAdapter, LayoutDetectionAdapterBu
 use oar_ocr::domain::tasks::LayoutDetectionConfig;
 
 use super::ocr::OcrModel;
-use super::segment::{Block, Join};
+use super::segment::{Block, Join, segment};
 use crate::error::{AppError, Result};
+use crate::persistence::library::NewPassage;
 use crate::services::embedding::model::ManifestFile;
 
 pub const FILES: &[ManifestFile] = &[ManifestFile {
@@ -231,6 +232,31 @@ pub fn apply(blocks: Vec<Block>, pages: &[PageRegions]) -> (Vec<Block>, ApplySta
     (out, stats)
 }
 
+/// Passages from the lines `apply` kept, with each read table's grid passages put where its first
+/// line stood. The table's own lines are left out. `tables` are (page, region box, passages).
+pub fn weave(blocks: &[Block], pages: &[PageRegions], tables: &[(u32, [f32; 4], Vec<NewPassage>)]) -> Vec<NewPassage> {
+    let mut out = Vec::new();
+    let mut run: Vec<Block> = Vec::new();
+    let mut placed = vec![false; tables.len()];
+    for b in blocks {
+        let regions = pages.iter().find(|p| p.page == b.page).map(|p| p.regions.as_slice()).unwrap_or(&[]);
+        let hit = b.rect.and_then(|r| region_of(&r, regions)).map(|i| regions[i].rect).and_then(|rect| tables.iter().position(|(p, t, _)| *p == b.page && *t == rect));
+        match hit {
+            Some(t) => {
+                if !placed[t] {
+                    placed[t] = true;
+                    out.extend(segment(&run));
+                    run.clear();
+                    out.extend(tables[t].2.iter().cloned());
+                }
+            }
+            None => run.push(b.clone()),
+        }
+    }
+    out.extend(segment(&run));
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -283,6 +309,24 @@ mod tests {
         let (out, _) = apply(blocks, &regions);
         let joins: Vec<Join> = out.iter().map(|b| b.join).collect();
         assert_eq!(joins, [Join::Space, Join::Break, Join::Break]);
+    }
+
+    #[test]
+    fn a_read_table_replaces_its_lines_and_sits_in_reading_order() {
+        let regions = page(vec![
+            region("text", 0, [0.0, 200.0, 200.0, 290.0]),
+            region("table", 1, [0.0, 100.0, 200.0, 190.0]),
+            region("text", 2, [0.0, 10.0, 200.0, 90.0]),
+        ]);
+        let blocks = vec![
+            line("The text before the table.", [10.0, 250.0, 90.0, 260.0]),
+            line("cell one", [10.0, 150.0, 90.0, 160.0]),
+            line("cell two", [10.0, 130.0, 90.0, 140.0]),
+            line("The text after the table.", [10.0, 50.0, 90.0, 60.0]),
+        ];
+        let table = NewPassage { page_start: 1, page_end: 1, text: "| a | b |".into(), boxes: None };
+        let out = weave(&blocks, &regions, &[(1, [0.0, 100.0, 200.0, 190.0], vec![table])]);
+        assert_eq!(out.iter().map(|p| p.text.as_str()).collect::<Vec<_>>(), ["The text before the table.", "| a | b |", "The text after the table."]);
     }
 
     #[test]

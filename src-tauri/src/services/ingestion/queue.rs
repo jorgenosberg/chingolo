@@ -15,6 +15,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::activity::Activity;
 use super::layout::{self, LayoutSlot};
+use super::tables::{self, TableSlot};
 use super::ocr::OcrSlot;
 use super::pdf::PdfReader;
 use super::segment::segment;
@@ -69,6 +70,7 @@ struct Inner {
     ocr_dir: Mutex<Option<PathBuf>>,
     /// Same for the layout model.
     layout_dir: Mutex<Option<PathBuf>>,
+    tables_dir: Mutex<Option<PathBuf>>,
     /// Called with the document after layout changed its passages (new ones need vectors).
     on_layout: Mutex<Option<Arc<dyn Fn(&Document) + Send + Sync>>>,
     /// Pages the running layout job has done, which the database doesn't know until it ends.
@@ -88,7 +90,7 @@ impl Ingestor {
     pub fn start(db_path: &Path, library_dir: PathBuf, emit: Emit) -> Result<Self> {
         let conn = Db::open_secondary(db_path)?;
         let (tx, rx) = mpsc::unbounded_channel();
-        let inner = Arc::new(Inner { tx, tokens: Mutex::new(HashMap::new()), library_dir, emit, ocr_dir: Mutex::new(None), layout_dir: Mutex::new(None), on_layout: Mutex::new(None), layout_live: AtomicU32::new(0), activity: Mutex::new(None) });
+        let inner = Arc::new(Inner { tx, tokens: Mutex::new(HashMap::new()), library_dir, emit, ocr_dir: Mutex::new(None), layout_dir: Mutex::new(None), tables_dir: Mutex::new(None), on_layout: Mutex::new(None), layout_live: AtomicU32::new(0), activity: Mutex::new(None) });
         let worker = inner.clone();
         std::thread::Builder::new()
             .name("ingest".into())
@@ -108,6 +110,12 @@ impl Ingestor {
     /// Page layout runs on ready documents once the model in `dir` is downloaded.
     pub fn set_layout_dir(&self, dir: Option<PathBuf>) {
         if let Ok(mut d) = self.0.layout_dir.lock() {
+            *d = dir;
+        }
+    }
+
+    pub fn set_tables_dir(&self, dir: Option<PathBuf>) {
+        if let Ok(mut d) = self.0.tables_dir.lock() {
             *d = dir;
         }
     }
@@ -135,7 +143,14 @@ impl Ingestor {
         if !ready {
             return Ok(0);
         }
-        let docs = db.call(|c| repo::documents_without_layout(c)).await?;
+        let mut docs = db.call(|c| repo::documents_without_layout(c)).await?;
+        if self.0.tables_dir.lock().ok().and_then(|d| d.clone()).is_some_and(|d| tables::is_ready(&d)) {
+            for d in db.call(|c| repo::documents_without_tables(c)).await? {
+                if !docs.iter().any(|x| x.id == d.id) {
+                    docs.push(d);
+                }
+            }
+        }
         for d in &docs {
             let _ = self.0.tx.send(Job::Layout(d.clone()));
         }
@@ -203,11 +218,13 @@ fn worker_loop(mut conn: Connection, mut rx: mpsc::UnboundedReceiver<Job>, inner
     let mut pdf: Option<PdfReader> = None;
     let mut ocr = OcrSlot::default();
     let mut layout = LayoutSlot::default();
+    let mut tables = TableSlot::default();
     while let Some(job) = rx.blocking_recv() {
         let (Job::Read(doc) | Job::Details(doc) | Job::Layout(doc)) = &job;
         let doc = doc.clone();
         ocr.set_dir(inner.ocr_dir.lock().ok().and_then(|d| d.clone()));
         layout.set_dir(inner.layout_dir.lock().ok().and_then(|d| d.clone()));
+        tables.set_dir(inner.tables_dir.lock().ok().and_then(|d| d.clone()));
         let token = inner.tokens.lock().ok().and_then(|t| t.get(&doc.id).cloned()).unwrap_or_default();
         let path = library_path(&inner.library_dir, &doc.content_hash, doc.kind);
         let emit = |d: Document, p: Option<Progress>| (inner.emit)(DocumentChanged { document: d, progress: p });
@@ -218,7 +235,7 @@ fn worker_loop(mut conn: Connection, mut rx: mpsc::UnboundedReceiver<Job>, inner
             Job::Layout(_) => {
                 let live = &inner.layout_live;
                 let notify = |d: &Document| inner.on_layout.lock().ok().and_then(|h| h.clone()).iter().for_each(|f| f(d));
-                let out = run_layout(&mut conn, &mut pdf, &mut ocr, &mut layout, &path, &doc, &token, live, &notify);
+                let out = run_layout(&mut conn, &mut pdf, &mut ocr, &mut layout, &mut tables, &path, &doc, &token, live, &notify);
                 live.store(0, Ordering::Relaxed);
                 out
             }
@@ -284,14 +301,16 @@ pub fn run_details(
     }
 }
 
-/// Runs layout on the pages that have text and rebuilds the passages from it. Problems only log:
-/// the passages stay as they are. Runs in the background, so a document is searchable long before.
+/// Runs layout on the pages that have text, reads the tables in table regions, and rebuilds the
+/// passages from both. Problems only log: the passages stay as they are. Runs in the background,
+/// so a document is searchable long before.
 #[allow(clippy::too_many_arguments)]
 fn run_layout(
     conn: &mut Connection,
     pdf: &mut Option<PdfReader>,
     ocr: &mut OcrSlot,
     layout: &mut LayoutSlot,
+    tables: &mut TableSlot,
     path: &Path,
     doc: &Document,
     token: &CancellationToken,
@@ -300,14 +319,16 @@ fn run_layout(
 ) {
     let started = std::time::Instant::now();
     let Some(model) = layout.get() else { return };
+    let table_model = tables.get();
     let cancelled = || token.is_cancelled();
     let result = (|| -> Result<Option<Document>> {
         let pages = repo::pages_without_layout(conn, &doc.id)?;
-        if pages.is_empty() {
-            return Ok(None);
-        }
         let r = reader(pdf)?;
-        let new = r.detect_layout(path, &pages, model, &cancelled, &mut |done, _| live.store(done, Ordering::Relaxed))?;
+        let new = if pages.is_empty() {
+            vec![]
+        } else {
+            r.detect_layout(path, &pages, model, &cancelled, &mut |done, _| live.store(done, Ordering::Relaxed))?
+        };
         // pages done by an earlier run keep their regions, so the rebuilt passages don't lose them
         let mut found = repo::list_regions(conn, &doc.id)?.into_iter().fold(Vec::<layout::PageRegions>::new(), |mut acc, g| {
             if acc.last().is_none_or(|p| p.page != g.page) {
@@ -320,9 +341,43 @@ fn run_layout(
         });
         let done: Vec<u32> = new.iter().map(|p| p.page).collect();
         found.extend(new);
+        found.sort_by_key(|p| p.page);
+
+        // tables not read yet, in the regions just found or found by an earlier run
+        let mut read = repo::list_tables(conn, &doc.id)?;
+        let todo: Vec<(u32, u32, [f32; 4])> = match table_model {
+            Some(_) => found
+                .iter()
+                .flat_map(|p| p.regions.iter().filter(|g| g.label == "table").map(move |g| (p.page, g.order, g.rect)))
+                .filter(|(page, ordinal, _)| !read.iter().any(|t| t.page_no == *page && t.ordinal == *ordinal))
+                .collect(),
+            None => vec![],
+        };
+        if done.is_empty() && todo.is_empty() {
+            return Ok(None);
+        }
+        let mut fresh = Vec::new();
+        if let (Some(model), false) = (table_model, todo.is_empty()) {
+            let regions: Vec<(u32, [f32; 4])> = todo.iter().map(|(p, _, r)| (*p, *r)).collect();
+            for (t, (page, ordinal, rect)) in r.read_tables(path, &regions, model, &cancelled, &mut |_, _| {})?.into_iter().zip(&todo) {
+                let (status, note, cells) = match t.filled {
+                    Ok(f) if f.sound() && !tables::has_duplicate_positions(&f.cells) => ("ok", None, f.cells),
+                    Ok(f) => {
+                        let why = format!("{} of {} characters in cells, numbers {}", f.assigned, f.glyphs, if f.numbers_ok { "match" } else { "differ" });
+                        ("unsure", Some(why), f.cells)
+                    }
+                    Err(e) => ("failed", Some(e), vec![]),
+                };
+                fresh.push(repo::TableRow { page_no: *page, ordinal: *ordinal, rect: *rect, status: status.into(), note, cells });
+            }
+            repo::store_tables(conn, &doc.id, &fresh)?;
+            read.extend(fresh.iter().cloned());
+        }
+
         let ex = r.extract_with(path, ocr, &cancelled, &mut |_, _| {})?;
         let (blocks, stats) = layout::apply(ex.blocks, &found);
-        let passages = segment(&blocks);
+        let grids: Vec<_> = read.iter().filter(|t| t.status == "ok").map(|t| (t.page_no, t.rect, tables::passages(t.page_no, t.rect, &t.cells))).collect();
+        let passages = layout::weave(&blocks, &found, &grids);
         if passages.is_empty() {
             return Ok(None);
         }
@@ -331,9 +386,10 @@ fn run_layout(
             .flat_map(|p| p.regions.iter().map(|g| repo::NewRegion { page_no: p.page, ordinal: g.order, label: g.label.clone(), score: g.score, rect: g.rect }))
             .collect();
         let d = repo::store_layout(conn, &doc.id, &done, &regions, &passages)?;
+        let count = |s: &str| fresh.iter().filter(|t| t.status == s).count();
         log::info!(
-            "layout for {}: {} pages, {} lines, {} dropped (headers, footers, numbers), {} unplaced, {} pages kept as they were, {} passages, {} ms",
-            doc.original_name, done.len(), stats.lines, stats.dropped, stats.unplaced, stats.pages_kept, passages.len(), started.elapsed().as_millis()
+            "layout for {}: {} pages, {} lines, {} dropped (headers, footers, numbers), {} unplaced, {} pages kept as they were, {} tables read ({} ok, {} unsure, {} failed), {} passages, {} ms",
+            doc.original_name, done.len(), stats.lines, stats.dropped, stats.unplaced, stats.pages_kept, fresh.len(), count("ok"), count("unsure"), count("failed"), passages.len(), started.elapsed().as_millis()
         );
         Ok(Some(d))
     })();
@@ -558,7 +614,7 @@ mod tests {
         let mut slot = LayoutSlot::default();
         slot.set_dir(Some(model.into()));
         let seen = std::cell::Cell::new(0);
-        run_layout(&mut conn, &mut pdf, &mut ocr, &mut slot, &path, &doc, &CancellationToken::new(), &AtomicU32::new(0), &|_| seen.set(seen.get() + 1));
+        run_layout(&mut conn, &mut pdf, &mut ocr, &mut slot, &mut TableSlot::default(), &path, &doc, &CancellationToken::new(), &AtomicU32::new(0), &|_| seen.set(seen.get() + 1));
         let after = ids(&conn);
         let same = after.iter().filter(|a| before.contains(a)).count();
         println!("passages {} -> {}, {} kept their id", before.len(), after.len(), same);
@@ -567,8 +623,47 @@ mod tests {
         let regions: i64 = conn.query_row("SELECT count(*) FROM page_regions", [], |r| r.get(0)).unwrap();
         assert!(regions > 50);
         // a second run has nothing left to do
-        run_layout(&mut conn, &mut pdf, &mut ocr, &mut slot, &path, &doc, &CancellationToken::new(), &AtomicU32::new(0), &|_| seen.set(seen.get() + 1));
+        run_layout(&mut conn, &mut pdf, &mut ocr, &mut slot, &mut TableSlot::default(), &path, &doc, &CancellationToken::new(), &AtomicU32::new(0), &|_| seen.set(seen.get() + 1));
         assert_eq!(seen.get(), 1);
+    }
+
+    /// Layout and tables end to end: grids are stored, table passages carry them, a rerun does nothing.
+    /// CHINGUI_TEST_PAPERS=<folder> CHINGUI_LAYOUT_DIR=<model> CHINGUI_TABLES_DIR=<model> cargo test tables_job -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn tables_job_stores_grids_and_builds_table_passages() {
+        let papers = std::env::var("CHINGUI_TEST_PAPERS").expect("set CHINGUI_TEST_PAPERS");
+        let model = std::env::var("CHINGUI_LAYOUT_DIR").expect("set CHINGUI_LAYOUT_DIR");
+        let tables_dir = std::env::var("CHINGUI_TABLES_DIR").expect("set CHINGUI_TABLES_DIR");
+        let path = Path::new(&papers).join("nature02437.pdf");
+        let mut conn = test_conn();
+        let doc = repo::insert_document(&conn, "htab", "nature02437.pdf", DocKind::Pdf).unwrap();
+        let mut pdf = None;
+        let mut ocr = OcrSlot::default();
+        run_job(&mut conn, &mut pdf, &mut ocr, &path, &doc, &CancellationToken::new(), &|_, _| {});
+        let mut layout = LayoutSlot::default();
+        layout.set_dir(Some(model.into()));
+        let mut tables = TableSlot::default();
+        tables.set_dir(Some(tables_dir.into()));
+        let seen = std::cell::Cell::new(0);
+        let go = |conn: &mut Connection, pdf: &mut Option<PdfReader>, ocr: &mut OcrSlot, layout: &mut LayoutSlot, tables: &mut TableSlot| {
+            run_layout(conn, pdf, ocr, layout, tables, &path, &doc, &CancellationToken::new(), &AtomicU32::new(0), &|_| seen.set(seen.get() + 1));
+        };
+        go(&mut conn, &mut pdf, &mut ocr, &mut layout, &mut tables);
+        let stored = repo::list_tables(&conn, &doc.id).unwrap();
+        let table_regions: i64 = conn.query_row("SELECT count(*) FROM page_regions WHERE label = 'table'", [], |r| r.get(0)).unwrap();
+        println!("{table_regions} table regions, table model ready: {}", tables.get().is_some());
+        for t in &stored {
+            println!("page {} table {}: {} ({} cells) {:?}", t.page_no, t.ordinal, t.status, t.cells.len(), t.note);
+        }
+        assert!(stored.iter().any(|t| t.status == "ok"), "no table was read");
+        let grids: i64 = conn.query_row("SELECT count(*) FROM passages WHERE text LIKE '| %'", [], |r| r.get(0)).unwrap();
+        println!("{grids} table passages");
+        assert!(grids > 0);
+        assert_eq!(seen.get(), 1);
+        go(&mut conn, &mut pdf, &mut ocr, &mut layout, &mut tables);
+        assert_eq!(seen.get(), 1, "a second run should find nothing to do");
+        assert!(repo::documents_without_tables(&conn).unwrap().is_empty());
     }
 
     /// Imports a folder into a database file for the retrieval bench (keyword search only, no vectors).

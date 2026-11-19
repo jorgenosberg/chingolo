@@ -74,6 +74,8 @@ fn specta_builder() -> Builder<tauri::Wry> {
         commands::ocr::layout_status,
         commands::ocr::layout_progress,
         commands::ocr::download_layout_model,
+        commands::ocr::tables_status,
+        commands::ocr::download_tables_model,
         commands::embedding::embedding_status,
         commands::embedding::download_embedding_model,
         commands::embedding::allow_cloud_embedding,
@@ -216,6 +218,8 @@ pub fn run() {
             ingest.set_ocr_dir(Some(ocr.dir().to_path_buf()));
             let layout = crate::services::ingestion::layout::model(&dir);
             ingest.set_layout_dir(Some(layout.dir().to_path_buf()));
+            let tables = crate::services::ingestion::tables::model(&dir);
+            ingest.set_tables_dir(Some(tables.dir().to_path_buf()));
             ingest.set_on_layout(Arc::new(move |d| {
                 after_layout.1(crate::services::ingestion::queue::DocumentChanged { document: d.clone(), progress: None });
                 after_layout.0.wake();
@@ -252,6 +256,7 @@ pub fn run() {
                 embedder,
                 ocr,
                 layout,
+                tables,
                 enricher,
                 import_target: Arc::new(Mutex::new(None)),
             });

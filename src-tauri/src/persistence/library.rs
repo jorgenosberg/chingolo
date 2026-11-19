@@ -291,6 +291,7 @@ pub struct NewPage {
     pub ocr: bool,
 }
 
+#[derive(Clone)]
 pub struct NewPassage {
     pub page_start: u32,
     pub page_end: u32,
@@ -540,6 +541,90 @@ pub fn layout_counts(conn: &Connection) -> Result<(u32, u32, u32)> {
 pub fn pages_without_layout(conn: &Connection, id: &str) -> Result<Vec<u32>> {
     let mut stmt = conn.prepare("SELECT page_no FROM pages WHERE document_id = ?1 AND layout_at IS NULL ORDER BY page_no")?;
     let rows = stmt.query_map([id], |r| r.get(0))?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+/// A table region after reading: the outcome and, if the model gave a grid, its cells.
+#[derive(Debug, Clone)]
+pub struct TableRow {
+    pub page_no: u32,
+    pub ordinal: u32,
+    pub rect: [f32; 4],
+    /// `ok`, `unsure` or `failed`, see migration 0014.
+    pub status: String,
+    pub note: Option<String>,
+    pub cells: Vec<crate::services::ingestion::tables::Cell>,
+}
+
+/// Stores table reads, replacing any earlier read of the same region.
+pub fn store_tables(conn: &mut Connection, id: &str, tables: &[TableRow]) -> Result<()> {
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    get_document(&tx, id)?;
+    for t in tables {
+        tx.execute("DELETE FROM tables WHERE document_id = ?1 AND page_no = ?2 AND ordinal = ?3", params![id, t.page_no, t.ordinal])?;
+        let rows = t.cells.iter().map(|c| c.row + c.row_span).max().unwrap_or(0);
+        let cols = t.cells.iter().map(|c| c.col + c.col_span).max().unwrap_or(0);
+        tx.execute(
+            "INSERT INTO tables (document_id, page_no, ordinal, status, note, rows, cols, left, bottom, right, top)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![id, t.page_no, t.ordinal, t.status, t.note, rows as u32, cols as u32, t.rect[0], t.rect[1], t.rect[2], t.rect[3]],
+        )?;
+        for c in &t.cells {
+            tx.execute(
+                "INSERT INTO table_cells (document_id, page_no, table_ordinal, row, col, row_span, col_span, text, left, bottom, right, top)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                params![id, t.page_no, t.ordinal, c.row as u32, c.col as u32, c.row_span as u32, c.col_span as u32, c.text, c.rect[0], c.rect[1], c.rect[2], c.rect[3]],
+            )?;
+        }
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+/// The stored table reads of a document with their cells, in page and region order.
+pub fn list_tables(conn: &Connection, id: &str) -> Result<Vec<TableRow>> {
+    let mut stmt = conn.prepare("SELECT page_no, ordinal, status, note, left, bottom, right, top FROM tables WHERE document_id = ?1 ORDER BY page_no, ordinal")?;
+    let mut out: Vec<TableRow> = stmt
+        .query_map([id], |r| {
+            Ok(TableRow { page_no: r.get(0)?, ordinal: r.get(1)?, status: r.get(2)?, note: r.get(3)?, rect: [r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?], cells: vec![] })
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    let mut stmt = conn.prepare(
+        "SELECT page_no, table_ordinal, row, col, row_span, col_span, text, left, bottom, right, top
+         FROM table_cells WHERE document_id = ?1 ORDER BY page_no, table_ordinal, row, col",
+    )?;
+    let cells = stmt.query_map([id], |r| {
+        Ok((
+            r.get::<_, u32>(0)?,
+            r.get::<_, u32>(1)?,
+            crate::services::ingestion::tables::Cell {
+                row: r.get::<_, u32>(2)? as usize,
+                col: r.get::<_, u32>(3)? as usize,
+                row_span: r.get::<_, u32>(4)? as usize,
+                col_span: r.get::<_, u32>(5)? as usize,
+                text: r.get(6)?,
+                rect: [r.get(7)?, r.get(8)?, r.get(9)?, r.get(10)?],
+            },
+        ))
+    })?;
+    for c in cells {
+        let (page, ordinal, cell) = c?;
+        if let Some(t) = out.iter_mut().find(|t| t.page_no == page && t.ordinal == ordinal) {
+            t.cells.push(cell);
+        }
+    }
+    Ok(out)
+}
+
+/// Ready PDFs that have a `table` region without a read.
+pub fn documents_without_tables(conn: &Connection) -> Result<Vec<Document>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {DOC_COLS} FROM documents WHERE status = 'ready' AND kind = 'pdf'
+           AND EXISTS (SELECT 1 FROM page_regions r WHERE r.document_id = documents.id AND r.label = 'table'
+             AND NOT EXISTS (SELECT 1 FROM tables t WHERE t.document_id = r.document_id AND t.page_no = r.page_no AND t.ordinal = r.ordinal))
+         ORDER BY created_at, id"
+    ))?;
+    let rows = stmt.query_map([], document_from_row)?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 

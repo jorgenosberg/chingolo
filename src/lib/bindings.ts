@@ -92,6 +92,12 @@ export const commands = {
 	 *  already in the library get their layout in the background. Returns at once, poll `layout_status`.
 	 */
 	downloadLayoutModel: () => __TAURI_INVOKE<ModelState>("download_layout_model"),
+	tablesStatus: () => __TAURI_INVOKE<ModelState>("tables_status"),
+	/**
+	 *  Downloads the table structure model (about 8 MB), if it isn't there yet. When it is ready, tables in
+	 *  documents that already have layout are read in the background. Poll `tables_status`.
+	 */
+	downloadTablesModel: () => __TAURI_INVOKE<ModelState>("download_tables_model"),
 	embeddingStatus: () => __TAURI_INVOKE<EmbeddingStatus>("embedding_status"),
 	/**
 	 *  Starts (or resumes) the local model download, or retries loading the model if the files are

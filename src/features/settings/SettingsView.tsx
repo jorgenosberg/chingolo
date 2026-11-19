@@ -238,6 +238,20 @@ function PageLayout() {
 	);
 }
 
+/** Reads table cells from the PDF's own text. Needs page layout to find the tables. Runs on this Mac. */
+function TableReading() {
+	return (
+		<LocalModel
+			title="Tables"
+			size="8 MB"
+			status={api.tablesStatus}
+			download={api.downloadTablesModel}
+			ready="Tables are read as rows and columns, with the numbers taken from the PDF's text. A table that doesn't add up stays as plain lines. Papers already in the library are processed in the background."
+			missing="Finds the rows and columns of tables, so search and answers can tell which number belongs to which row. It runs on this Mac and nothing is sent anywhere. Needs page layout, and a one-time 8 MB download from GitHub."
+		/>
+	);
+}
+
 /** Lets the chat model put the best of the top search results first. Sends those passages to its provider. */
 function SharpenResults() {
 	const { data: settings } = useSettings();
@@ -859,6 +873,7 @@ export function SettingsView() {
 							<Section title="Scanned pages">
 								<ScannedPages />
 								<PageLayout />
+								<TableReading />
 							</Section>
 							<Section title="Paper details">
 								<div className="flex flex-col gap-6">
