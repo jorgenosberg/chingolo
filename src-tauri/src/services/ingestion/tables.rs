@@ -374,6 +374,13 @@ pub fn to_markdown(caption: Option<&str>, cells: &[Cell]) -> Vec<String> {
     out
 }
 
+/// A passage made by `to_markdown`: a header row, then the `---` row.
+pub fn is_grid(text: &str) -> bool {
+    let mut lines = text.lines().skip_while(|l| l.trim().is_empty());
+    let first = lines.next().is_some_and(|l| l.starts_with("| "));
+    first && lines.next().is_some_and(|l| l.starts_with("| ---"))
+}
+
 /// True when two cells claim the same row and column. The grid is then not trustworthy.
 pub fn has_duplicate_positions(cells: &[Cell]) -> bool {
     let mut seen = std::collections::HashSet::new();
@@ -414,6 +421,14 @@ mod tests {
     }
 
     const REGION: [f32; 4] = [0.0, 0.0, 100.0, 70.0];
+
+    #[test]
+    fn grid_passages_are_told_from_prose() {
+        let cells = [(0, 0, "a"), (0, 1, "b"), (1, 0, "1"), (1, 1, "2")]
+            .map(|(row, col, t)| Cell { row, col, row_span: 1, col_span: 1, rect: [0.0; 4], text: t.into() });
+        assert!(is_grid(&to_markdown(None, &cells)[0]));
+        assert!(!is_grid("Plain text | with a pipe\nand more"));
+    }
 
     #[test]
     fn characters_go_to_the_cell_that_holds_their_centre() {

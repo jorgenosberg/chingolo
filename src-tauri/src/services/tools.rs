@@ -14,6 +14,7 @@ use crate::persistence::usage::{self, NewUsage};
 use crate::persistence::Db;
 use crate::services::ai::ToolSpec;
 use crate::services::embedding::engine::Embedder;
+use crate::services::ingestion::tables;
 use crate::services::rerank::{self, RerankCtx};
 use crate::services::retrieval;
 
@@ -325,6 +326,10 @@ fn known_source(conn: &Connection, conversation_id: &str, handle: u32) -> Result
         .ok_or_else(|| AppError::Invalid(format!("S{handle} is not a handle you were given.")))
 }
 
+/// Said to the model next to every table passage. Row and column association is a model's reading
+/// of the layout, so it is never presented as certain.
+const TABLE_NOTE: &str = "A table. The numbers were read from the PDF's text. Which row and column each belongs to was worked out by a model from the page layout, so say so if the answer depends on it, and don't total or compare cells yourself.";
+
 /// Accepts `S12`, `[S12]`, `s12` or 12.
 fn parse_handle(v: &Value) -> Result<u32> {
     let parsed = match v {
@@ -369,7 +374,12 @@ fn results_json(conn: &mut Connection, conversation_id: &str, hits: &[SearchHit]
                 text: &h.text,
             },
         )?;
-        results.push(json!({ "handle": format!("S{handle}"), "source": source_label(h, label), "text": h.text }));
+        let mut result = json!({ "handle": format!("S{handle}"), "source": source_label(h, label), "text": h.text });
+        if tables::is_grid(&h.text) {
+            result["kind"] = json!("table");
+            result["note"] = json!(TABLE_NOTE);
+        }
+        results.push(result);
     }
     tx.commit()?;
     Ok(json!({ "results": results }))
@@ -430,6 +440,22 @@ mod tests {
         let again = results_json(&mut conn, &conv.id, &all[1..]).unwrap();
         assert_eq!(again["results"][0]["handle"], "S2", "a passage keeps its handle");
         assert_eq!(again["results"][1]["handle"], "S3");
+    }
+
+    #[test]
+    fn a_table_passage_is_marked_as_a_table_read_by_a_model() {
+        let mut conn = test_conn();
+        let conv = chat::create_conversation(&conn, None, None, "gemini", Some("m")).unwrap();
+        let d = repo::insert_document(&conn, "ht", "Beta", crate::domain::library::DocKind::Pdf).unwrap();
+        let grid = "| Site | Chl a |\n| --- | --- |\n| A | 12.5 |";
+        let passages = [grid, "Plain text about the sites in the study."].map(|t| NewPassage { page_start: 1, page_end: 1, text: t.into(), boxes: None });
+        let pages = vec![NewPage { page_no: 1, width: 600.0, height: 800.0, quality: "ok", ocr: false }];
+        repo::store_content(&mut conn, &d.id, &pages, &passages, &Default::default(), crate::domain::library::DocStatus::Ready, None).unwrap();
+        let all = hits(&conn, &d.id);
+        let out = results_json(&mut conn, &conv.id, &all).unwrap();
+        assert_eq!(out["results"][0]["kind"], "table");
+        assert!(out["results"][0]["note"].as_str().unwrap().contains("worked out by a model"));
+        assert!(out["results"][1].get("kind").is_none());
     }
 
     #[test]
