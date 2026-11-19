@@ -280,10 +280,11 @@ fn unsure_tables() {
         let reads = reader.read_tables(&path, &[(page, rect)], &tables, &|| false, &mut |_, _| {}).unwrap();
         match &reads[0].filled {
             Ok(f) => println!(
-                "== {} p{page} #{ordinal}: {} {}+{}/{} chars, numbers: missing {:?} extra {:?}\n   left out: {}",
+                "== {} p{page} #{ordinal}: {} {}+{}+{}/{} chars, numbers: missing {:?} extra {:?}\n   left out: {}",
                 name.chars().take(30).collect::<String>(),
                 if f.sound() && !super::tables::has_duplicate_positions(&f.cells) { "NOW-OK" } else { "still unsure" },
                 f.assigned,
+                f.placed,
                 f.noted,
                 f.glyphs,
                 f.number_diff.0,

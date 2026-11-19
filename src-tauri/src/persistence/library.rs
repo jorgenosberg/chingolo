@@ -584,9 +584,9 @@ pub fn store_tables(conn: &mut Connection, id: &str, tables: &[TableRow]) -> Res
         )?;
         for c in &t.cells {
             tx.execute(
-                "INSERT INTO table_cells (document_id, page_no, table_ordinal, row, col, row_span, col_span, text, left, bottom, right, top, verified)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
-                params![id, t.page_no, t.ordinal, c.row as u32, c.col as u32, c.row_span as u32, c.col_span as u32, c.text, c.rect[0], c.rect[1], c.rect[2], c.rect[3], c.verified],
+                "INSERT INTO table_cells (document_id, page_no, table_ordinal, row, col, row_span, col_span, text, left, bottom, right, top, verified, guessed)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                params![id, t.page_no, t.ordinal, c.row as u32, c.col as u32, c.row_span as u32, c.col_span as u32, c.text, c.rect[0], c.rect[1], c.rect[2], c.rect[3], c.verified, c.guessed],
             )?;
         }
     }
@@ -603,7 +603,7 @@ pub fn list_tables(conn: &Connection, id: &str) -> Result<Vec<TableRow>> {
         })?
         .collect::<rusqlite::Result<_>>()?;
     let mut stmt = conn.prepare(
-        "SELECT page_no, table_ordinal, row, col, row_span, col_span, text, left, bottom, right, top, verified
+        "SELECT page_no, table_ordinal, row, col, row_span, col_span, text, left, bottom, right, top, verified, guessed
          FROM table_cells WHERE document_id = ?1 ORDER BY page_no, table_ordinal, row, col",
     )?;
     let cells = stmt.query_map([id], |r| {
@@ -618,6 +618,7 @@ pub fn list_tables(conn: &Connection, id: &str) -> Result<Vec<TableRow>> {
                 text: r.get(6)?,
                 rect: [r.get(7)?, r.get(8)?, r.get(9)?, r.get(10)?],
                 verified: r.get(11)?,
+                guessed: r.get(12)?,
             },
         ))
     })?;

@@ -198,6 +198,8 @@ pub struct Cell {
     /// A second reader (Apple Vision) read the cell's pixels and agreed (`Some(true)`) or not
     /// (`Some(false)`) on its digits and symbols. `None` when it wasn't compared.
     pub verified: Option<bool>,
+    /// Some of the text sits outside the cell's box and was put here as the nearest cell.
+    pub guessed: bool,
 }
 
 fn contains(r: &[f32; 4], (x, y): (f32, f32)) -> bool {
@@ -250,6 +252,8 @@ pub struct Filled {
     /// inside the region). Read, and kept as `notes`, so none is lost.
     pub noted: usize,
     pub notes: String,
+    /// Characters put in the nearest cell by position (their cells are marked `guessed`).
+    pub placed: usize,
     /// The characters no cell took that sit among the cells (rotated headers, clipped text), for the log.
     pub left_out: String,
 }
@@ -258,7 +262,7 @@ impl Filled {
     /// Every character is in exactly one cell and no number was cut. Anything else keeps the
     /// plain lines.
     pub fn sound(&self) -> bool {
-        self.glyphs > 0 && self.assigned + self.noted == self.glyphs && self.numbers_ok
+        self.glyphs > 0 && self.assigned + self.placed + self.noted == self.glyphs && self.numbers_ok
     }
 }
 
@@ -320,17 +324,43 @@ pub fn fill(grid: &[(GridCell, [f32; 4])], region: [f32; 4], glyphs: &[Glyph]) -
         }
         i = end;
     }
+    // Left-over characters clear of the grid are notes. Those among the cells go to the nearest
+    // cell, marked as guessed, unless there are many (rotated headers, a broken grid).
+    let union = grid.iter().fold([f32::MAX, f32::MAX, f32::MIN, f32::MIN], |u, (_, r)| [u[0].min(r[0]), u[1].min(r[1]), u[2].max(r[2]), u[3].max(r[3])]);
+    let (noted, among): (Vec<Glyph>, Vec<Glyph>) = left.into_iter().partition(|g| !grid.is_empty() && distance(&union, g.centre()) > SLACK * g.height());
+    let mut guessed = vec![false; grid.len()];
+    let mut unplaced = among.clone();
+    if !among.is_empty() && among.len() * 10 <= inside.len() {
+        unplaced.clear();
+        let mut i = 0;
+        while i < among.len() {
+            let mut end = i + 1;
+            while end < among.len() && continues_word(&among[end - 1], &among[end]) {
+                end += 1;
+            }
+            let mut votes = vec![0usize; grid.len()];
+            for g in &among[i..end] {
+                let c = g.centre();
+                if let Some(best) = grid.iter().enumerate().min_by(|a, b| distance(&a.1 .1, c).total_cmp(&distance(&b.1 .1, c)).then(area(&a.1 .1).total_cmp(&area(&b.1 .1)))) {
+                    votes[best.0] += 1;
+                }
+            }
+            if let Some((c, _)) = votes.iter().enumerate().max_by(|a, b| a.1.cmp(b.1).then(b.0.cmp(&a.0))) {
+                per_cell[c].extend(among[i..end].iter().copied());
+                guessed[c] = true;
+            }
+            i = end;
+        }
+    }
     let cells: Vec<Cell> = grid
         .iter()
         .zip(&per_cell)
-        .map(|((g, rect), gl)| Cell { row: g.row, col: g.col, row_span: g.row_span, col_span: g.col_span, rect: *rect, text: text_of(gl), verified: None })
+        .zip(&guessed)
+        .map(|(((g, rect), gl), guess)| Cell { row: g.row, col: g.col, row_span: g.row_span, col_span: g.col_span, rect: *rect, text: text_of(gl), verified: None, guessed: *guess })
         .collect();
     // Signs are left out: whether a minus belongs to a number depends on the space before it,
     // which the region text loses where cells meet. No character changes cell by mistake here
     // without the digits showing it.
-    // Left-over characters clear of the grid are notes. Those among the cells stay unplaced.
-    let union = grid.iter().fold([f32::MAX, f32::MAX, f32::MIN, f32::MIN], |u, (_, r)| [u[0].min(r[0]), u[1].min(r[1]), u[2].max(r[2]), u[3].max(r[3])]);
-    let (noted, among): (Vec<Glyph>, Vec<Glyph>) = left.into_iter().partition(|g| !grid.is_empty() && distance(&union, g.centre()) > SLACK * g.height());
     let notes = text_of(&noted);
     let unsigned = |t: String| t.trim_start_matches('−').to_string();
     let mut want: Vec<String> = numeric_tokens(&text_of(&inside.iter().map(|g| **g).collect::<Vec<_>>())).into_iter().map(unsigned).collect();
@@ -338,7 +368,7 @@ pub fn fill(grid: &[(GridCell, [f32; 4])], region: [f32; 4], glyphs: &[Glyph]) -
     want.sort();
     got.sort();
     let number_diff = (minus(&want, &got), minus(&got, &want));
-    Filled { cells, glyphs: inside.len(), assigned, numbers_ok: number_diff.0.is_empty() && number_diff.1.is_empty(), number_diff, noted: noted.len(), notes, left_out: text_of(&among) }
+    Filled { cells, glyphs: inside.len(), assigned, numbers_ok: number_diff.0.is_empty() && number_diff.1.is_empty(), number_diff, noted: noted.len(), notes, placed: among.len() - unplaced.len(), left_out: text_of(&unplaced) }
 }
 
 /// `a` without the items of `b`, both sorted, counting repeats.
@@ -373,6 +403,7 @@ pub fn to_markdown(caption: Option<&str>, cells: &[Cell]) -> Vec<String> {
     let head = format!("{}\n| {} |", line(&grid[0]), vec!["---"; cols].join(" | "));
     // cells the second reader did not confirm, by (row, column) of the grid
     let unconfirmed: Vec<(usize, usize)> = cells.iter().filter(|c| c.verified == Some(false)).map(|c| (c.row, c.col)).collect();
+    let placed: Vec<(usize, usize)> = cells.iter().filter(|c| c.guessed).map(|c| (c.row, c.col)).collect();
     let top = |chunk: &str, rows: &[usize]| {
         let mut text = match caption {
             Some(c) if !c.trim().is_empty() => format!("{}\n\n{chunk}", c.trim()),
@@ -386,6 +417,12 @@ pub fn to_markdown(caption: Option<&str>, cells: &[Cell]) -> Vec<String> {
         bad.dedup();
         if !bad.is_empty() {
             text.push_str(&format!("\n\nNot confirmed by a second reading (treat these numbers and signs as uncertain): {}.", bad.join("; ")));
+        }
+        let mut moved: Vec<String> =
+            placed.iter().filter(|(r, _)| *r == 0 || rows.contains(r)).map(|(r, c)| format!("row {}, column {}", r + 1, c + 1)).collect();
+        moved.dedup();
+        if !moved.is_empty() {
+            text.push_str(&format!("\n\nWords placed by position only, they sit outside their cell's box and may belong to a neighbouring cell: {}.", moved.join("; ")));
         }
         text
     };
@@ -536,7 +573,7 @@ mod tests {
     #[test]
     fn unconfirmed_cells_are_listed_under_the_chunk_that_holds_them() {
         let mut cells: Vec<Cell> = (0..30)
-            .flat_map(|r| (0..2).map(move |c| Cell { row: r, col: c, row_span: 1, col_span: 1, rect: [0.0; 4], text: if r == 0 { format!("H{c}") } else { "y".repeat(60) + &r.to_string() }, verified: None }))
+            .flat_map(|r| (0..2).map(move |c| Cell { row: r, col: c, row_span: 1, col_span: 1, rect: [0.0; 4], text: if r == 0 { format!("H{c}") } else { "y".repeat(60) + &r.to_string() }, verified: None, guessed: false }))
             .collect();
         cells[2 * 25 + 1].verified = Some(false); // row 25, column 1
         cells[2 * 3].verified = Some(true);
@@ -551,7 +588,7 @@ mod tests {
     #[test]
     fn grid_passages_are_told_from_prose() {
         let cells = [(0, 0, "a"), (0, 1, "b"), (1, 0, "1"), (1, 1, "2")]
-            .map(|(row, col, t)| Cell { row, col, row_span: 1, col_span: 1, rect: [0.0; 4], text: t.into(), verified: None });
+            .map(|(row, col, t)| Cell { row, col, row_span: 1, col_span: 1, rect: [0.0; 4], text: t.into(), verified: None, guessed: false });
         assert!(is_grid(&to_markdown(None, &cells)[0]));
         assert!(!is_grid("Plain text | with a pipe\nand more"));
     }
@@ -627,6 +664,18 @@ mod tests {
     }
 
     #[test]
+    fn a_word_between_cells_goes_to_the_nearest_cell_marked_as_guessed() {
+        let cells = vec![(gc(0, 0), [0.0, 60.0, 100.0, 90.0]), (gc(1, 0), [0.0, 0.0, 100.0, 30.0])];
+        let mut g = word("abcdefghi", 2.0, 70.0);
+        g.extend(word("x", 2.0, 40.0)); // centre 15 from both cells, over the slack of 7.5
+        let f = fill(&cells, [0.0, 0.0, 100.0, 90.0], &g);
+        assert!(f.sound(), "{f:?}");
+        assert_eq!((f.placed, f.cells[0].guessed, f.cells[1].guessed), (1, true, false));
+        assert!(f.cells[0].text.contains('x'));
+        assert!(to_markdown(None, &f.cells)[0].contains("placed by position only"));
+    }
+
+    #[test]
     fn a_footnote_below_the_grid_is_kept_as_a_note_and_the_table_stays_sound() {
         let cells = vec![(gc(0, 0), [0.0, 60.0, 100.0, 90.0]), (gc(1, 0), [0.0, 30.0, 100.0, 60.0])];
         let mut g = word("a", 2.0, 70.0);
@@ -662,7 +711,7 @@ mod tests {
     fn markdown_has_a_header_and_splits_on_rows_with_the_header_repeated() {
         let cells: Vec<Cell> = (0..40)
             .flat_map(|r| {
-                (0..2).map(move |c| Cell { row: r, col: c, row_span: 1, col_span: 1, rect: [0.0; 4], text: if r == 0 { format!("H{c}") } else { format!("{}", "x".repeat(60)) + &r.to_string() }, verified: None })
+                (0..2).map(move |c| Cell { row: r, col: c, row_span: 1, col_span: 1, rect: [0.0; 4], text: if r == 0 { format!("H{c}") } else { format!("{}", "x".repeat(60)) + &r.to_string() }, verified: None, guessed: false })
             })
             .collect();
         let md = to_markdown(Some("Table 1. Things"), &cells);
@@ -677,9 +726,9 @@ mod tests {
     #[test]
     fn markdown_escapes_pipes_and_leaves_spanned_positions_empty() {
         let cells = vec![
-            Cell { row: 0, col: 0, row_span: 1, col_span: 2, rect: [0.0; 4], text: "Wide".into(), verified: None },
-            Cell { row: 1, col: 0, row_span: 1, col_span: 1, rect: [0.0; 4], text: "a|b".into(), verified: None },
-            Cell { row: 1, col: 1, row_span: 1, col_span: 1, rect: [0.0; 4], text: "2".into(), verified: None },
+            Cell { row: 0, col: 0, row_span: 1, col_span: 2, rect: [0.0; 4], text: "Wide".into(), verified: None, guessed: false },
+            Cell { row: 1, col: 0, row_span: 1, col_span: 1, rect: [0.0; 4], text: "a|b".into(), verified: None, guessed: false },
+            Cell { row: 1, col: 1, row_span: 1, col_span: 1, rect: [0.0; 4], text: "2".into(), verified: None, guessed: false },
         ];
         assert_eq!(to_markdown(None, &cells), ["| Wide |  |\n| --- | --- |\n| a\\|b | 2 |"]);
     }
