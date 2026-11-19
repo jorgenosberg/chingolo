@@ -659,6 +659,11 @@ mod tests {
         assert!(stored.iter().any(|t| t.status == "ok"), "no table was read");
         let grids: i64 = conn.query_row("SELECT count(*) FROM passages WHERE text LIKE '| %'", [], |r| r.get(0)).unwrap();
         println!("{grids} table passages");
+        let unconfirmed: Vec<String> = conn.prepare("SELECT text FROM passages WHERE text LIKE '%Not confirmed by a second reading%'").unwrap().query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect();
+        println!("{} passages list unconfirmed cells", unconfirmed.len());
+        if let Some(t) = unconfirmed.first() {
+            println!("{t}");
+        }
         assert!(grids > 0);
         assert_eq!(seen.get(), 1);
         go(&mut conn, &mut pdf, &mut ocr, &mut layout, &mut tables);

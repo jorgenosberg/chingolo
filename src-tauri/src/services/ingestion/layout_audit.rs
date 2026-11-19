@@ -223,18 +223,26 @@ fn table_grids() {
             }
             if let Ok(f) = &reads[i].filled {
                 let mut got = vec![vec![String::new(); want.first().map_or(0, Vec::len)]; want.len()];
+                let mut ver = vec![vec![None; want.first().map_or(0, Vec::len)]; want.len()];
                 for c in &f.cells {
                     if let Some(slot) = got.get_mut(c.row).and_then(|r| r.get_mut(c.col)) {
                         *slot = c.text.clone();
+                        ver[c.row][c.col] = c.verified;
                     }
                 }
+                let (mut wrong, mut wrong_flagged) = (0, 0);
                 for (r, row) in want.iter().enumerate() {
                     for (c, w) in row.iter().enumerate() {
                         if norm(&got[r][c]) != norm(w) {
-                            println!("   differs r{r} c{c}: want {:?} got {:?}", norm(w), norm(&got[r][c]));
+                            wrong += 1;
+                            wrong_flagged += (ver[r][c] == Some(false)) as usize;
+                            println!("   differs r{r} c{c}: want {:?} got {:?}, second reader: {:?}", norm(w), norm(&got[r][c]), ver[r][c]);
                         }
                     }
                 }
+                let flagged = f.cells.iter().filter(|c| c.verified == Some(false)).count();
+                let checked = f.cells.iter().filter(|c| c.verified.is_some()).count();
+                println!("   second reader: {checked} cells compared, {flagged} unverified; {wrong} cells differ from the truth, {wrong_flagged} of them flagged");
             }
         }
     }

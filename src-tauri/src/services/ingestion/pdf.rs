@@ -12,6 +12,7 @@ use super::layout::{Layout, PageRegions, Region};
 use super::ocr::{self, Ocr, OcrSlot};
 use super::segment::{Block, Join};
 use super::tables::{self, Filled, Glyph, Tables};
+use super::vision;
 use super::Extraction;
 use crate::error::{AppError, Result};
 use crate::persistence::library::{Extracted, NewPage};
@@ -355,14 +356,53 @@ fn read_table(r: &Rendered, glyphs: &[Glyph], region: [f32; 4], tables: &Tables)
     }
     let crop = image::imageops::crop_imm(&r.img, x0 as u32, y0 as u32, w, h).to_image();
     let grid = tables.grid(crop).map_err(|e| e.to_string())?;
-    let cells: Vec<_> = grid
-        .into_iter()
-        .map(|c| {
-            let px = [c.rect[0] + x0, c.rect[1] + y0, c.rect[2] + x0, c.rect[3] + y0];
-            (c, ocr::to_user_space(px, r.scale, r.crop, r.rotation))
-        })
-        .collect();
-    Ok(tables::fill(&cells, region, glyphs))
+    let pixels: Vec<[f32; 4]> = grid.iter().map(|c| [c.rect[0] + x0, c.rect[1] + y0, c.rect[2] + x0, c.rect[3] + y0]).collect();
+    let cells: Vec<_> = grid.into_iter().zip(&pixels).map(|(c, px)| (c, ocr::to_user_space(*px, r.scale, r.crop, r.rotation))).collect();
+    let mut filled = tables::fill(&cells, region, glyphs);
+    verify_cells(&r.img, &pixels, &mut filled.cells);
+    Ok(filled)
+}
+
+/// Room around a cell when Vision reads it, in pixels, and the white border added so text at the
+/// edge of the crop is not cut off.
+const CELL_PAD_PX: i64 = 3;
+const CELL_BORDER_PX: u32 = 10;
+const CELL_MIN_HEIGHT_PX: u32 = 96;
+
+/// Asks Apple Vision to read each cell that has digits or symbols and marks the cell by whether the
+/// two readers agree. Nothing in the cell changes. A cell Vision fails on stays unmarked.
+fn verify_cells(img: &image::RgbImage, pixels: &[[f32; 4]], cells: &mut [tables::Cell]) {
+    if !vision::AVAILABLE {
+        return;
+    }
+    for (cell, px) in cells.iter_mut().zip(pixels) {
+        if !tables::worth_checking(&cell.text) {
+            continue;
+        }
+        let (x0, y0) = ((px[0] as i64 - CELL_PAD_PX).max(0), (px[1] as i64 - CELL_PAD_PX).max(0));
+        let (x1, y1) = ((px[2] as i64 + CELL_PAD_PX).min(img.width() as i64), (px[3] as i64 + CELL_PAD_PX).min(img.height() as i64));
+        if x1 - x0 < 4 || y1 - y0 < 4 {
+            continue;
+        }
+        let part = image::imageops::crop_imm(img, x0 as u32, y0 as u32, (x1 - x0) as u32, (y1 - y0) as u32).to_image();
+        // Vision skips very small text, so short crops are enlarged first
+        let part = if part.height() < CELL_MIN_HEIGHT_PX {
+            let k = (CELL_MIN_HEIGHT_PX as f32 / part.height() as f32).min(4.0);
+            image::imageops::resize(&part, (part.width() as f32 * k) as u32, (part.height() as f32 * k) as u32, image::imageops::FilterType::Lanczos3)
+        } else {
+            part
+        };
+        let mut framed = image::RgbImage::from_pixel(part.width() + 2 * CELL_BORDER_PX, part.height() + 2 * CELL_BORDER_PX, image::Rgb([255, 255, 255]));
+        image::imageops::overlay(&mut framed, &part, CELL_BORDER_PX as i64, CELL_BORDER_PX as i64);
+        // a reading with nothing in it says nothing, it is not a disagreement
+        let lines: Vec<String> = vision::read_lines(&framed).unwrap_or_default().into_iter().filter(|l| l.chars().any(char::is_alphanumeric)).collect();
+        if !lines.is_empty() {
+            cell.verified = Some(tables::readers_agree(&cell.text, &lines.join(" ")));
+            if cell.verified == Some(false) && std::env::var("CHINGUI_VISION_DEBUG").is_ok() {
+                println!("      vision r{}c{}: layer {:?} vision {:?}", cell.row, cell.col, cell.text, lines);
+            }
+        }
+    }
 }
 
 /// Every character of the page with a box, in PDF user space. Spaces have no box: the character

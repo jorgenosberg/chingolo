@@ -328,7 +328,7 @@ fn known_source(conn: &Connection, conversation_id: &str, handle: u32) -> Result
 
 /// Said to the model next to every table passage. Row and column association is a model's reading
 /// of the layout, so it is never presented as certain.
-const TABLE_NOTE: &str = "A table. The numbers were read from the PDF's text. Which row and column each belongs to was worked out by a model from the page layout, so say so if the answer depends on it, and don't total or compare cells yourself.";
+const TABLE_NOTE: &str = "A table. The numbers were read from the PDF's text. Which row and column each belongs to was worked out by a model from the page layout, so say so if the answer depends on it, and don't total or compare cells yourself. Cells listed as not confirmed by a second reading are uncertain: don't quote their numbers or signs without saying so.";
 
 /// Accepts `S12`, `[S12]`, `s12` or 12.
 fn parse_handle(v: &Value) -> Result<u32> {

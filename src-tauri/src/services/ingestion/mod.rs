@@ -20,6 +20,7 @@ pub mod pdf;
 pub mod queue;
 pub mod segment;
 pub mod tables;
+pub mod vision;
 
 use crate::persistence::library::{Extracted, NewPage};
 use segment::Block;

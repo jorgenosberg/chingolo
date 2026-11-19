@@ -195,6 +195,9 @@ pub struct Cell {
     pub col_span: usize,
     pub rect: [f32; 4],
     pub text: String,
+    /// A second reader (Apple Vision) read the cell's pixels and agreed (`Some(true)`) or not
+    /// (`Some(false)`) on its digits and symbols. `None` when it wasn't compared.
+    pub verified: Option<bool>,
 }
 
 fn contains(r: &[f32; 4], (x, y): (f32, f32)) -> bool {
@@ -311,7 +314,7 @@ pub fn fill(grid: &[(GridCell, [f32; 4])], region: [f32; 4], glyphs: &[Glyph]) -
     let cells: Vec<Cell> = grid
         .iter()
         .zip(&per_cell)
-        .map(|((g, rect), gl)| Cell { row: g.row, col: g.col, row_span: g.row_span, col_span: g.col_span, rect: *rect, text: text_of(gl) })
+        .map(|((g, rect), gl)| Cell { row: g.row, col: g.col, row_span: g.row_span, col_span: g.col_span, rect: *rect, text: text_of(gl), verified: None })
         .collect();
     // Signs are left out: whether a minus belongs to a number depends on the space before it,
     // which the region text loses where cells meet. No character changes cell by mistake here
@@ -355,23 +358,90 @@ pub fn to_markdown(caption: Option<&str>, cells: &[Cell]) -> Vec<String> {
     }
     let line = |r: &[String]| format!("| {} |", r.join(" | "));
     let head = format!("{}\n| {} |", line(&grid[0]), vec!["---"; cols].join(" | "));
-    let top = |chunk: &str| match caption {
-        Some(c) if !c.trim().is_empty() => format!("{}\n\n{chunk}", c.trim()),
-        _ => chunk.to_string(),
+    // cells the second reader did not confirm, by (row, column) of the grid
+    let unconfirmed: Vec<(usize, usize)> = cells.iter().filter(|c| c.verified == Some(false)).map(|c| (c.row, c.col)).collect();
+    let top = |chunk: &str, rows: &[usize]| {
+        let mut text = match caption {
+            Some(c) if !c.trim().is_empty() => format!("{}\n\n{chunk}", c.trim()),
+            _ => chunk.to_string(),
+        };
+        let mut bad: Vec<String> = unconfirmed
+            .iter()
+            .filter(|(r, _)| *r == 0 || rows.contains(r))
+            .map(|(r, c)| format!("row {}, column {}", r + 1, c + 1))
+            .collect();
+        bad.dedup();
+        if !bad.is_empty() {
+            text.push_str(&format!("\n\nNot confirmed by a second reading (treat these numbers and signs as uncertain): {}.", bad.join("; ")));
+        }
+        text
     };
     let mut out = Vec::new();
     let mut cur = head.clone();
-    for r in &grid[1..] {
+    let mut rows_in: Vec<usize> = vec![];
+    for (i, r) in grid.iter().enumerate().skip(1) {
         let l = line(r);
         if cur.len() > head.len() && cur.len() + l.len() + 1 > CHUNK_CHARS {
-            out.push(top(&cur));
+            out.push(top(&cur, &rows_in));
             cur = head.clone();
+            rows_in.clear();
         }
         cur.push('\n');
         cur.push_str(&l);
+        rows_in.push(i);
     }
-    out.push(top(&cur));
+    out.push(top(&cur, &rows_in));
     out
+}
+
+/// What the two readers must agree on in a cell: its digits, a decimal or thousands mark between
+/// digits, a minus or dash touching a digit, the percent, comparison and degree signs, Greek letters,
+/// and the prefix of a unit after a number (`mm` against `µm`). Vision reads µ as `u` (and the text
+/// layer may store it as `m`), so `u`, µ and Greek mu count as one prefix, `m` as another. Everything
+/// else is left out: spaces, plain letters (the readers differ on them often enough to be noise), and
+/// the lines, dots and bullets Vision reads in cell borders. Dashes and minus signs count as one.
+fn signature(text: &str) -> String {
+    let chars: Vec<char> = text
+        .chars()
+        .map(|c| match c {
+            '-' | '\u{2010}' | '\u{2011}' | '\u{2012}' | '\u{2013}' | '\u{2212}' => '\u{2212}',
+            '\u{3bc}' | 'u' => '\u{b5}',
+            c => c,
+        })
+        .collect();
+    let digit = |i: Option<usize>| i.and_then(|i| chars.get(i)).is_some_and(char::is_ascii_digit);
+    let at = |i: usize| chars.get(i).copied().unwrap_or(' ');
+    let mut out = String::new();
+    for (i, &c) in chars.iter().enumerate() {
+        let keep = c.is_ascii_digit()
+            || matches!(c, '%' | '<' | '>' | '\u{b1}' | '\u{b0}' | '\u{2264}' | '\u{2265}' | 'α' | 'β' | 'γ' | 'δ' | 'Δ' | 'σ' | 'Σ' | 'ε')
+            || (matches!(c, '.' | ',') && digit(i.checked_sub(1)) && digit(Some(i + 1)))
+            || (c == '\u{2212}' && digit(Some(i + 1)));
+        if keep {
+            out.push(c);
+        }
+        // a unit prefix after a number: "2 mm", "5 µg", "3 um" (a space may sit between)
+        if c.is_ascii_digit() {
+            let mut j = i + 1;
+            while j < chars.len() && chars[j] == ' ' {
+                j += 1;
+            }
+            if matches!(at(j), 'm' | '\u{b5}') && matches!(at(j + 1), 'm' | 'g' | 'l' | 'L' | 'M') {
+                out.push(if at(j) == 'm' { 'm' } else { '\u{b5}' });
+            }
+        }
+    }
+    out
+}
+
+/// True when the cell has digits or symbols the second reader should be asked about.
+pub fn worth_checking(text: &str) -> bool {
+    !signature(text).is_empty()
+}
+
+/// The text layer's reading of a cell and Vision's agree on its digits and symbols.
+pub fn readers_agree(layer: &str, vision: &str) -> bool {
+    signature(layer) == signature(vision)
 }
 
 /// A passage made by `to_markdown`: a header row, then the `---` row.
@@ -423,9 +493,48 @@ mod tests {
     const REGION: [f32; 4] = [0.0, 0.0, 100.0, 70.0];
 
     #[test]
+    fn readers_disagree_on_a_lost_minus_and_a_lost_micro_sign() {
+        // the text layer stores a minus as a 2, and a µ as an m
+        assert!(!readers_agree("2258", "\u{2212}258"));
+        assert!(!readers_agree("12 mm", "12 \u{b5}m"));
+        assert!(!readers_agree("0.2\u{2013}2 mm", "0.2-2 um"));
+        assert!(!readers_agree(">20 mm", ">20 \u{b5}m"));
+        assert!(readers_agree("2\u{2013}20 \u{b5}m", "2-20 um"));
+        assert!(readers_agree("4 mm", "4 mm"));
+        // dashes, the two mu characters, spaces and letters do not count
+        assert!(readers_agree("\u{2212}258", "-258"));
+        assert!(readers_agree("5 \u{3bc}mol", "5 \u{b5}mol"));
+        assert!(readers_agree("12.5", "12.5 "));
+        assert!(readers_agree("Site A", "Site A"));
+        assert!(readers_agree("Temperature", "Temperatuur"));
+        assert!(!readers_agree("12.5", "12,5"));
+        // lines and dots Vision reads in a cell border, and a bullet, are not text
+        assert!(readers_agree("7,44", "- 7,44 ..."));
+        assert!(readers_agree("5 mg", "5 mg"));
+        assert!(readers_agree("2022-07-29", "\u{2022} 2022-07-29 ---"));
+        assert!(!readers_agree("258", "\u{2212}258"));
+        assert!(worth_checking("n = 5") && !worth_checking("Temperature"));
+    }
+
+    #[test]
+    fn unconfirmed_cells_are_listed_under_the_chunk_that_holds_them() {
+        let mut cells: Vec<Cell> = (0..30)
+            .flat_map(|r| (0..2).map(move |c| Cell { row: r, col: c, row_span: 1, col_span: 1, rect: [0.0; 4], text: if r == 0 { format!("H{c}") } else { "y".repeat(60) + &r.to_string() }, verified: None }))
+            .collect();
+        cells[2 * 25 + 1].verified = Some(false); // row 25, column 1
+        cells[2 * 3].verified = Some(true);
+        let md = to_markdown(None, &cells);
+        assert!(md.len() > 1);
+        let with: Vec<_> = md.iter().filter(|c| c.contains("Not confirmed by a second reading")).collect();
+        assert_eq!(with.len(), 1);
+        assert!(with[0].ends_with("row 26, column 2."));
+        assert!(with[0].contains(&format!("{}25", "y".repeat(60))));
+    }
+
+    #[test]
     fn grid_passages_are_told_from_prose() {
         let cells = [(0, 0, "a"), (0, 1, "b"), (1, 0, "1"), (1, 1, "2")]
-            .map(|(row, col, t)| Cell { row, col, row_span: 1, col_span: 1, rect: [0.0; 4], text: t.into() });
+            .map(|(row, col, t)| Cell { row, col, row_span: 1, col_span: 1, rect: [0.0; 4], text: t.into(), verified: None });
         assert!(is_grid(&to_markdown(None, &cells)[0]));
         assert!(!is_grid("Plain text | with a pipe\nand more"));
     }
@@ -522,7 +631,7 @@ mod tests {
     fn markdown_has_a_header_and_splits_on_rows_with_the_header_repeated() {
         let cells: Vec<Cell> = (0..40)
             .flat_map(|r| {
-                (0..2).map(move |c| Cell { row: r, col: c, row_span: 1, col_span: 1, rect: [0.0; 4], text: if r == 0 { format!("H{c}") } else { format!("{}", "x".repeat(60)) + &r.to_string() } })
+                (0..2).map(move |c| Cell { row: r, col: c, row_span: 1, col_span: 1, rect: [0.0; 4], text: if r == 0 { format!("H{c}") } else { format!("{}", "x".repeat(60)) + &r.to_string() }, verified: None })
             })
             .collect();
         let md = to_markdown(Some("Table 1. Things"), &cells);
@@ -537,9 +646,9 @@ mod tests {
     #[test]
     fn markdown_escapes_pipes_and_leaves_spanned_positions_empty() {
         let cells = vec![
-            Cell { row: 0, col: 0, row_span: 1, col_span: 2, rect: [0.0; 4], text: "Wide".into() },
-            Cell { row: 1, col: 0, row_span: 1, col_span: 1, rect: [0.0; 4], text: "a|b".into() },
-            Cell { row: 1, col: 1, row_span: 1, col_span: 1, rect: [0.0; 4], text: "2".into() },
+            Cell { row: 0, col: 0, row_span: 1, col_span: 2, rect: [0.0; 4], text: "Wide".into(), verified: None },
+            Cell { row: 1, col: 0, row_span: 1, col_span: 1, rect: [0.0; 4], text: "a|b".into(), verified: None },
+            Cell { row: 1, col: 1, row_span: 1, col_span: 1, rect: [0.0; 4], text: "2".into(), verified: None },
         ];
         assert_eq!(to_markdown(None, &cells), ["| Wide |  |\n| --- | --- |\n| a\\|b | 2 |"]);
     }
