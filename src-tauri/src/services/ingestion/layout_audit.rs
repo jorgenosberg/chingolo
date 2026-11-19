@@ -247,3 +247,48 @@ fn table_grids() {
         }
     }
 }
+
+/// Why tables came out `unsure` in a real library: re-reads every unsure table of a copy of the
+/// app database and prints the text no cell took and the numbers that differ.
+/// CHINGUI_DB=<copy of chingui.sqlite> CHINGUI_LIBRARY=<app library folder> CHINGUI_LAYOUT_DIR=.. CHINGUI_TABLES_DIR=..
+#[test]
+#[ignore]
+fn unsure_tables() {
+    use super::tables::Tables;
+    let db = rusqlite::Connection::open(std::env::var("CHINGUI_DB").expect("set CHINGUI_DB")).unwrap();
+    let lib = std::env::var("CHINGUI_LIBRARY").expect("set CHINGUI_LIBRARY");
+    let tables = Tables::load(Path::new(&std::env::var("CHINGUI_TABLES_DIR").expect("set CHINGUI_TABLES_DIR"))).unwrap();
+    let reader = PdfReader::new().expect("libpdfium");
+    let mut stmt = db
+        .prepare(
+            "SELECT d.original_name, d.content_hash, t.page_no, t.ordinal, t.left, t.bottom, t.right, t.top
+               FROM tables t JOIN documents d ON d.id = t.document_id
+              WHERE t.status = 'unsure' AND t.note NOT LIKE '0 of 0%' ORDER BY d.original_name, t.page_no, t.ordinal",
+        )
+        .unwrap();
+    let rows: Vec<(String, String, u32, u32, [f32; 4])> = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, [r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?])))
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect();
+    let only = std::env::var("CHINGUI_ONLY").ok();
+    for (name, hash, page, ordinal, rect) in rows {
+        if only.as_ref().is_some_and(|o| !name.contains(o.as_str())) {
+            continue;
+        }
+        let path = Path::new(&lib).join(&hash[..2]).join(format!("{hash}.pdf"));
+        let reads = reader.read_tables(&path, &[(page, rect)], &tables, &|| false, &mut |_, _| {}).unwrap();
+        match &reads[0].filled {
+            Ok(f) => println!(
+                "== {} p{page} #{ordinal}: {}/{} chars, numbers: missing {:?} extra {:?}\n   left out: {}",
+                name.chars().take(30).collect::<String>(),
+                f.assigned,
+                f.glyphs,
+                f.number_diff.0,
+                f.number_diff.1,
+                f.left_out.chars().take(160).collect::<String>().replace('\n', " | ")
+            ),
+            Err(e) => println!("== {name} p{page} #{ordinal}: failed {e}"),
+        }
+    }
+}

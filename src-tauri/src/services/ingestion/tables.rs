@@ -246,6 +246,8 @@ pub struct Filled {
     pub numbers_ok: bool,
     /// Numbers the region reads that the cells don't, and the other way round (for the log).
     pub number_diff: (Vec<String>, Vec<String>),
+    /// The characters no cell took, in reading order (for the log).
+    pub left_out: String,
 }
 
 impl Filled {
@@ -292,6 +294,7 @@ pub fn fill(grid: &[(GridCell, [f32; 4])], region: [f32; 4], glyphs: &[Glyph]) -
     // to, so a box that clips the start of a word doesn't split it.
     let mut per_cell: Vec<Vec<Glyph>> = vec![Vec::new(); grid.len()];
     let mut assigned = 0;
+    let mut left: Vec<Glyph> = Vec::new();
     let mut i = 0;
     while i < inside.len() {
         let mut end = i + 1;
@@ -308,6 +311,8 @@ pub fn fill(grid: &[(GridCell, [f32; 4])], region: [f32; 4], glyphs: &[Glyph]) -
         if let Some(c) = best {
             per_cell[c].extend(inside[i..end].iter().map(|g| **g));
             assigned += end - i;
+        } else {
+            left.extend(inside[i..end].iter().map(|g| **g));
         }
         i = end;
     }
@@ -325,7 +330,7 @@ pub fn fill(grid: &[(GridCell, [f32; 4])], region: [f32; 4], glyphs: &[Glyph]) -
     want.sort();
     got.sort();
     let number_diff = (minus(&want, &got), minus(&got, &want));
-    Filled { cells, glyphs: inside.len(), assigned, numbers_ok: number_diff.0.is_empty() && number_diff.1.is_empty(), number_diff }
+    Filled { cells, glyphs: inside.len(), assigned, numbers_ok: number_diff.0.is_empty() && number_diff.1.is_empty(), number_diff, left_out: text_of(&left) }
 }
 
 /// `a` without the items of `b`, both sorted, counting repeats.
