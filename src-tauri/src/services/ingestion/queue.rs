@@ -49,6 +49,9 @@ pub struct LayoutProgress {
     pub done: u32,
     pub total: u32,
     pub docs_left: u32,
+    /// Table regions read and in all. Zero until the table model is downloaded.
+    pub tables_done: u32,
+    pub tables_total: u32,
 }
 
 pub type Emit = Arc<dyn Fn(DocumentChanged) + Send + Sync>;
@@ -75,6 +78,8 @@ struct Inner {
     on_layout: Mutex<Option<Arc<dyn Fn(&Document) + Send + Sync>>>,
     /// Pages the running layout job has done, which the database doesn't know until it ends.
     layout_live: AtomicU32,
+    /// Same for tables read by the running job.
+    tables_live: AtomicU32,
     activity: Mutex<Option<Activity>>,
 }
 
@@ -90,7 +95,7 @@ impl Ingestor {
     pub fn start(db_path: &Path, library_dir: PathBuf, emit: Emit) -> Result<Self> {
         let conn = Db::open_secondary(db_path)?;
         let (tx, rx) = mpsc::unbounded_channel();
-        let inner = Arc::new(Inner { tx, tokens: Mutex::new(HashMap::new()), library_dir, emit, ocr_dir: Mutex::new(None), layout_dir: Mutex::new(None), tables_dir: Mutex::new(None), on_layout: Mutex::new(None), layout_live: AtomicU32::new(0), activity: Mutex::new(None) });
+        let inner = Arc::new(Inner { tx, tokens: Mutex::new(HashMap::new()), library_dir, emit, ocr_dir: Mutex::new(None), layout_dir: Mutex::new(None), tables_dir: Mutex::new(None), on_layout: Mutex::new(None), layout_live: AtomicU32::new(0), tables_live: AtomicU32::new(0), activity: Mutex::new(None) });
         let worker = inner.clone();
         std::thread::Builder::new()
             .name("ingest".into())
@@ -133,7 +138,16 @@ impl Ingestor {
             return Ok(LayoutProgress::default());
         }
         let (done, total, docs_left) = db.call(|c| repo::layout_counts(c)).await?;
-        Ok(LayoutProgress { available: true, done: (done + self.0.layout_live.load(Ordering::Relaxed)).min(total), total, docs_left })
+        let tables_ready = self.0.tables_dir.lock().ok().and_then(|d| d.clone()).is_some_and(|d| tables::is_ready(&d));
+        let (tables_done, tables_total) = if tables_ready { db.call(|c| repo::table_counts(c)).await? } else { (0, 0) };
+        Ok(LayoutProgress {
+            available: true,
+            done: (done + self.0.layout_live.load(Ordering::Relaxed)).min(total),
+            total,
+            docs_left,
+            tables_done: (tables_done + self.0.tables_live.load(Ordering::Relaxed)).min(tables_total),
+            tables_total,
+        })
     }
 
     /// Queues layout for every ready PDF that has pages without it. Call at start and after the
@@ -233,10 +247,11 @@ fn worker_loop(mut conn: Connection, mut rx: mpsc::UnboundedReceiver<Job>, inner
             Job::Read(_) => run_job(&mut conn, &mut pdf, &mut ocr, &path, &doc, &token, &emit),
             Job::Details(_) => run_details(&conn, &mut pdf, &mut ocr, &path, &doc, &emit),
             Job::Layout(_) => {
-                let live = &inner.layout_live;
+                let live = (&inner.layout_live, &inner.tables_live);
                 let notify = |d: &Document| inner.on_layout.lock().ok().and_then(|h| h.clone()).iter().for_each(|f| f(d));
                 let out = run_layout(&mut conn, &mut pdf, &mut ocr, &mut layout, &mut tables, &path, &doc, &token, live, &notify);
-                live.store(0, Ordering::Relaxed);
+                live.0.store(0, Ordering::Relaxed);
+                live.1.store(0, Ordering::Relaxed);
                 out
             }
         }));
@@ -314,7 +329,7 @@ fn run_layout(
     path: &Path,
     doc: &Document,
     token: &CancellationToken,
-    live: &AtomicU32,
+    live: (&AtomicU32, &AtomicU32),
     notify: &dyn Fn(&Document),
 ) {
     let started = std::time::Instant::now();
@@ -327,7 +342,7 @@ fn run_layout(
         let new = if pages.is_empty() {
             vec![]
         } else {
-            r.detect_layout(path, &pages, model, &cancelled, &mut |done, _| live.store(done, Ordering::Relaxed))?
+            r.detect_layout(path, &pages, model, &cancelled, &mut |done, _| live.0.store(done, Ordering::Relaxed))?
         };
         // pages done by an earlier run keep their regions, so the rebuilt passages don't lose them
         let mut found = repo::list_regions(conn, &doc.id)?.into_iter().fold(Vec::<layout::PageRegions>::new(), |mut acc, g| {
@@ -359,7 +374,7 @@ fn run_layout(
         let mut fresh = Vec::new();
         if let (Some(model), false) = (table_model, todo.is_empty()) {
             let regions: Vec<(u32, [f32; 4])> = todo.iter().map(|(p, _, r)| (*p, *r)).collect();
-            for (t, (page, ordinal, rect)) in r.read_tables(path, &regions, model, &cancelled, &mut |_, _| {})?.into_iter().zip(&todo) {
+            for (t, (page, ordinal, rect)) in r.read_tables(path, &regions, model, &cancelled, &mut |done, _| live.1.store(done, Ordering::Relaxed))?.into_iter().zip(&todo) {
                 let (status, note, cells) = match t.filled {
                     Ok(f) if f.sound() && !tables::has_duplicate_positions(&f.cells) => ("ok", None, f.cells),
                     Ok(f) => {

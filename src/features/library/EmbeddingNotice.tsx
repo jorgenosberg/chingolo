@@ -48,7 +48,9 @@ export function EmbeddingNotice() {
 }
 
 const layoutBusy = (l?: LayoutProgress) =>
-	Boolean(l?.available && l.done < l.total);
+	Boolean(
+		l?.available && (l.done < l.total || l.tablesDone < l.tablesTotal),
+	);
 
 function ProgressLine({
 	label,
@@ -77,7 +79,9 @@ function ProgressLine({
 }
 
 const layoutText = (l: LayoutProgress) =>
-	`Cleaning up page layout (headers, footers, columns): ${l.done.toLocaleString()} of ${l.total.toLocaleString()} pages. Search works meanwhile.`;
+	l.done < l.total
+		? `Cleaning up page layout (headers, footers, columns): ${l.done.toLocaleString()} of ${l.total.toLocaleString()} pages. Search works meanwhile.`
+		: `Reading tables: ${l.tablesDone.toLocaleString()} of ${l.tablesTotal.toLocaleString()}. Search works meanwhile.`;
 
 function LayoutBanner({ layout }: { layout?: LayoutProgress }) {
 	if (!layout || !layoutBusy(layout)) return null;
@@ -85,9 +89,9 @@ function LayoutBanner({ layout }: { layout?: LayoutProgress }) {
 		<Banner>
 			<p>{layoutText(layout)}</p>
 			<ProgressLine
-				label="Page layout"
-				value={layout.done}
-				max={layout.total}
+				label={layout.done < layout.total ? "Page layout" : "Tables"}
+				value={layout.done < layout.total ? layout.done : layout.tablesDone}
+				max={layout.done < layout.total ? layout.total : layout.tablesTotal}
 			/>
 		</Banner>
 	);
@@ -233,7 +237,7 @@ function EmbeddingBanner({ layout }: { layout?: LayoutProgress }) {
 				<p>
 					Getting your library ready:{" "}
 					{paused ? "indexing is paused" : "indexing for meaning search"} and
-					cleaning up page layout. Search works meanwhile.
+					cleaning up page layout and tables. Search works meanwhile.
 				</p>
 			</Banner>
 		);

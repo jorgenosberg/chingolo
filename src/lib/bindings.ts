@@ -356,6 +356,9 @@ export type LayoutProgress = {
 	done: number,
 	total: number,
 	docsLeft: number,
+	/**  Table regions read and in all. Zero until the table model is downloaded. */
+	tablesDone: number,
+	tablesTotal: number,
 };
 
 /**  Why a passage is in the results. */

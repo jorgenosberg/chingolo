@@ -537,6 +537,17 @@ pub fn layout_counts(conn: &Connection) -> Result<(u32, u32, u32)> {
     )?)
 }
 
+/// (table regions with a read, all table regions) over ready PDFs.
+pub fn table_counts(conn: &Connection) -> Result<(u32, u32)> {
+    Ok(conn.query_row(
+        "SELECT COALESCE(SUM(EXISTS (SELECT 1 FROM tables t WHERE t.document_id = r.document_id AND t.page_no = r.page_no AND t.ordinal = r.ordinal)), 0), COUNT(*)
+           FROM page_regions r JOIN documents d ON d.id = r.document_id
+          WHERE r.label = 'table' AND d.kind = 'pdf' AND d.status = 'ready'",
+        [],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?)
+}
+
 /// Pages of a document without layout yet, text or not (figure pages have none).
 pub fn pages_without_layout(conn: &Connection, id: &str) -> Result<Vec<u32>> {
     let mut stmt = conn.prepare("SELECT page_no FROM pages WHERE document_id = ?1 AND layout_at IS NULL ORDER BY page_no")?;

@@ -196,7 +196,10 @@ export function useLayoutProgress() {
 		queryFn: api.layoutProgress,
 		refetchInterval: (q) => {
 			const d = q.state.data;
-			return d?.available && d.done < d.total ? 3000 : 30000;
+			return d?.available &&
+				(d.done < d.total || d.tablesDone < d.tablesTotal)
+				? 3000
+				: 30000;
 		},
 	});
 }
