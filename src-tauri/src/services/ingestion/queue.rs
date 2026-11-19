@@ -629,7 +629,7 @@ mod tests {
         let mut slot = LayoutSlot::default();
         slot.set_dir(Some(model.into()));
         let seen = std::cell::Cell::new(0);
-        run_layout(&mut conn, &mut pdf, &mut ocr, &mut slot, &mut TableSlot::default(), &path, &doc, &CancellationToken::new(), &AtomicU32::new(0), &|_| seen.set(seen.get() + 1));
+        run_layout(&mut conn, &mut pdf, &mut ocr, &mut slot, &mut TableSlot::default(), &path, &doc, &CancellationToken::new(), (&AtomicU32::new(0), &AtomicU32::new(0)), &|_| seen.set(seen.get() + 1));
         let after = ids(&conn);
         let same = after.iter().filter(|a| before.contains(a)).count();
         println!("passages {} -> {}, {} kept their id", before.len(), after.len(), same);
@@ -638,7 +638,7 @@ mod tests {
         let regions: i64 = conn.query_row("SELECT count(*) FROM page_regions", [], |r| r.get(0)).unwrap();
         assert!(regions > 50);
         // a second run has nothing left to do
-        run_layout(&mut conn, &mut pdf, &mut ocr, &mut slot, &mut TableSlot::default(), &path, &doc, &CancellationToken::new(), &AtomicU32::new(0), &|_| seen.set(seen.get() + 1));
+        run_layout(&mut conn, &mut pdf, &mut ocr, &mut slot, &mut TableSlot::default(), &path, &doc, &CancellationToken::new(), (&AtomicU32::new(0), &AtomicU32::new(0)), &|_| seen.set(seen.get() + 1));
         assert_eq!(seen.get(), 1);
     }
 
@@ -662,7 +662,7 @@ mod tests {
         tables.set_dir(Some(tables_dir.into()));
         let seen = std::cell::Cell::new(0);
         let go = |conn: &mut Connection, pdf: &mut Option<PdfReader>, ocr: &mut OcrSlot, layout: &mut LayoutSlot, tables: &mut TableSlot| {
-            run_layout(conn, pdf, ocr, layout, tables, &path, &doc, &CancellationToken::new(), &AtomicU32::new(0), &|_| seen.set(seen.get() + 1));
+            run_layout(conn, pdf, ocr, layout, tables, &path, &doc, &CancellationToken::new(), (&AtomicU32::new(0), &AtomicU32::new(0)), &|_| seen.set(seen.get() + 1));
         };
         go(&mut conn, &mut pdf, &mut ocr, &mut layout, &mut tables);
         let stored = repo::list_tables(&conn, &doc.id).unwrap();
