@@ -246,7 +246,11 @@ pub struct Filled {
     pub numbers_ok: bool,
     /// Numbers the region reads that the cells don't, and the other way round (for the log).
     pub number_diff: (Vec<String>, Vec<String>),
-    /// The characters no cell took, in reading order (for the log).
+    /// Characters outside every cell and beside the grid (a footnote, a source line, a caption
+    /// inside the region). Read, and kept as `notes`, so none is lost.
+    pub noted: usize,
+    pub notes: String,
+    /// The characters no cell took that sit among the cells (rotated headers, clipped text), for the log.
     pub left_out: String,
 }
 
@@ -254,7 +258,7 @@ impl Filled {
     /// Every character is in exactly one cell and no number was cut. Anything else keeps the
     /// plain lines.
     pub fn sound(&self) -> bool {
-        self.glyphs > 0 && self.assigned == self.glyphs && self.numbers_ok
+        self.glyphs > 0 && self.assigned + self.noted == self.glyphs && self.numbers_ok
     }
 }
 
@@ -324,13 +328,17 @@ pub fn fill(grid: &[(GridCell, [f32; 4])], region: [f32; 4], glyphs: &[Glyph]) -
     // Signs are left out: whether a minus belongs to a number depends on the space before it,
     // which the region text loses where cells meet. No character changes cell by mistake here
     // without the digits showing it.
+    // Left-over characters clear of the grid are notes. Those among the cells stay unplaced.
+    let union = grid.iter().fold([f32::MAX, f32::MAX, f32::MIN, f32::MIN], |u, (_, r)| [u[0].min(r[0]), u[1].min(r[1]), u[2].max(r[2]), u[3].max(r[3])]);
+    let (noted, among): (Vec<Glyph>, Vec<Glyph>) = left.into_iter().partition(|g| !grid.is_empty() && distance(&union, g.centre()) > SLACK * g.height());
+    let notes = text_of(&noted);
     let unsigned = |t: String| t.trim_start_matches('−').to_string();
     let mut want: Vec<String> = numeric_tokens(&text_of(&inside.iter().map(|g| **g).collect::<Vec<_>>())).into_iter().map(unsigned).collect();
-    let mut got: Vec<String> = cells.iter().flat_map(|c| numeric_tokens(&c.text)).map(unsigned).collect();
+    let mut got: Vec<String> = cells.iter().flat_map(|c| numeric_tokens(&c.text)).chain(numeric_tokens(&notes)).map(unsigned).collect();
     want.sort();
     got.sort();
     let number_diff = (minus(&want, &got), minus(&got, &want));
-    Filled { cells, glyphs: inside.len(), assigned, numbers_ok: number_diff.0.is_empty() && number_diff.1.is_empty(), number_diff, left_out: text_of(&left) }
+    Filled { cells, glyphs: inside.len(), assigned, numbers_ok: number_diff.0.is_empty() && number_diff.1.is_empty(), number_diff, noted: noted.len(), notes, left_out: text_of(&among) }
 }
 
 /// `a` without the items of `b`, both sorted, counting repeats.
@@ -464,9 +472,13 @@ pub fn has_duplicate_positions(cells: &[Cell]) -> bool {
 
 /// The passages of one table: Markdown chunks, each boxed by the table region. (Cell boxes per
 /// chunk would let the reader highlight single cells, later.)
-pub fn passages(page: u32, region: [f32; 4], cells: &[Cell]) -> Vec<NewPassage> {
+pub fn passages(page: u32, region: [f32; 4], cells: &[Cell], notes: Option<&str>) -> Vec<NewPassage> {
     let boxes = serde_json::json!([{ "page": page, "rects": [region] }]).to_string();
-    to_markdown(None, cells)
+    let mut texts = to_markdown(None, cells);
+    if let (Some(n), Some(last)) = (notes.map(str::trim).filter(|n| !n.is_empty()), texts.last_mut()) {
+        last.push_str(&format!("\n\nText beside the table: {n}"));
+    }
+    texts
         .into_iter()
         .map(|text| NewPassage { page_start: page, page_end: page, text, boxes: Some(boxes.clone()) })
         .collect()
@@ -612,6 +624,20 @@ mod tests {
         let f = fill(&cells, [0.0, 0.0, 100.0, 90.0], &g);
         assert_eq!((f.glyphs, f.assigned), (2, 1));
         assert!(!f.sound());
+    }
+
+    #[test]
+    fn a_footnote_below_the_grid_is_kept_as_a_note_and_the_table_stays_sound() {
+        let cells = vec![(gc(0, 0), [0.0, 60.0, 100.0, 90.0]), (gc(1, 0), [0.0, 30.0, 100.0, 60.0])];
+        let mut g = word("a", 2.0, 70.0);
+        g.extend(word("b", 2.0, 40.0));
+        g.extend(word("See 1955", 2.0, 5.0));
+        let f = fill(&cells, [0.0, 0.0, 100.0, 90.0], &g);
+        assert!(f.sound(), "{f:?}");
+        assert_eq!((f.assigned, f.noted, f.notes.as_str()), (2, 7, "See 1955"));
+        let texts = passages(1, [0.0, 0.0, 100.0, 90.0], &f.cells, Some(&f.notes));
+        assert!(texts[0].text.ends_with("Text beside the table: See 1955"));
+        assert!(is_grid(&texts[0].text));
     }
 
     #[test]

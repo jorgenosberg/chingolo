@@ -564,6 +564,8 @@ pub struct TableRow {
     /// `ok`, `unsure` or `failed`, see migration 0014.
     pub status: String,
     pub note: Option<String>,
+    /// Text in the region but outside the grid (footnotes, sources).
+    pub footer: Option<String>,
     pub cells: Vec<crate::services::ingestion::tables::Cell>,
 }
 
@@ -576,9 +578,9 @@ pub fn store_tables(conn: &mut Connection, id: &str, tables: &[TableRow]) -> Res
         let rows = t.cells.iter().map(|c| c.row + c.row_span).max().unwrap_or(0);
         let cols = t.cells.iter().map(|c| c.col + c.col_span).max().unwrap_or(0);
         tx.execute(
-            "INSERT INTO tables (document_id, page_no, ordinal, status, note, rows, cols, left, bottom, right, top)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-            params![id, t.page_no, t.ordinal, t.status, t.note, rows as u32, cols as u32, t.rect[0], t.rect[1], t.rect[2], t.rect[3]],
+            "INSERT INTO tables (document_id, page_no, ordinal, status, note, footer, rows, cols, left, bottom, right, top)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            params![id, t.page_no, t.ordinal, t.status, t.note, t.footer, rows as u32, cols as u32, t.rect[0], t.rect[1], t.rect[2], t.rect[3]],
         )?;
         for c in &t.cells {
             tx.execute(
@@ -594,10 +596,10 @@ pub fn store_tables(conn: &mut Connection, id: &str, tables: &[TableRow]) -> Res
 
 /// The stored table reads of a document with their cells, in page and region order.
 pub fn list_tables(conn: &Connection, id: &str) -> Result<Vec<TableRow>> {
-    let mut stmt = conn.prepare("SELECT page_no, ordinal, status, note, left, bottom, right, top FROM tables WHERE document_id = ?1 ORDER BY page_no, ordinal")?;
+    let mut stmt = conn.prepare("SELECT page_no, ordinal, status, note, left, bottom, right, top, footer FROM tables WHERE document_id = ?1 ORDER BY page_no, ordinal")?;
     let mut out: Vec<TableRow> = stmt
         .query_map([id], |r| {
-            Ok(TableRow { page_no: r.get(0)?, ordinal: r.get(1)?, status: r.get(2)?, note: r.get(3)?, rect: [r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?], cells: vec![] })
+            Ok(TableRow { page_no: r.get(0)?, ordinal: r.get(1)?, status: r.get(2)?, note: r.get(3)?, rect: [r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?], footer: r.get(8)?, cells: vec![] })
         })?
         .collect::<rusqlite::Result<_>>()?;
     let mut stmt = conn.prepare(

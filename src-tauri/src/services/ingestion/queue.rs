@@ -375,15 +375,15 @@ fn run_layout(
         if let (Some(model), false) = (table_model, todo.is_empty()) {
             let regions: Vec<(u32, [f32; 4])> = todo.iter().map(|(p, _, r)| (*p, *r)).collect();
             for (t, (page, ordinal, rect)) in r.read_tables(path, &regions, model, &cancelled, &mut |done, _| live.1.store(done, Ordering::Relaxed))?.into_iter().zip(&todo) {
-                let (status, note, cells) = match t.filled {
-                    Ok(f) if f.sound() && !tables::has_duplicate_positions(&f.cells) => ("ok", None, f.cells),
+                let (status, note, footer, cells) = match t.filled {
+                    Ok(f) if f.sound() && !tables::has_duplicate_positions(&f.cells) => ("ok", None, Some(f.notes).filter(|n| !n.is_empty()), f.cells),
                     Ok(f) => {
-                        let why = format!("{} of {} characters in cells, numbers {}", f.assigned, f.glyphs, if f.numbers_ok { "match" } else { "differ" });
-                        ("unsure", Some(why), f.cells)
+                        let why = format!("{} of {} characters in cells, {} beside, numbers {}", f.assigned, f.glyphs, f.noted, if f.numbers_ok { "match" } else { "differ" });
+                        ("unsure", Some(why), None, f.cells)
                     }
-                    Err(e) => ("failed", Some(e), vec![]),
+                    Err(e) => ("failed", Some(e), None, vec![]),
                 };
-                fresh.push(repo::TableRow { page_no: *page, ordinal: *ordinal, rect: *rect, status: status.into(), note, cells });
+                fresh.push(repo::TableRow { page_no: *page, ordinal: *ordinal, rect: *rect, status: status.into(), note, footer, cells });
             }
             repo::store_tables(conn, &doc.id, &fresh)?;
             read.extend(fresh.iter().cloned());
@@ -391,7 +391,7 @@ fn run_layout(
 
         let ex = r.extract_with(path, ocr, &cancelled, &mut |_, _| {})?;
         let (blocks, stats) = layout::apply(ex.blocks, &found);
-        let grids: Vec<_> = read.iter().filter(|t| t.status == "ok").map(|t| (t.page_no, t.rect, tables::passages(t.page_no, t.rect, &t.cells))).collect();
+        let grids: Vec<_> = read.iter().filter(|t| t.status == "ok").map(|t| (t.page_no, t.rect, tables::passages(t.page_no, t.rect, &t.cells, t.footer.as_deref()))).collect();
         let passages = layout::weave(&blocks, &found, &grids);
         if passages.is_empty() {
             return Ok(None);
