@@ -1,7 +1,6 @@
 //! Page layout with PP-DocLayoutV3 through oar-ocr (ONNX Runtime): which parts of a page are body
 //! text, headers, footers, tables, figures, and in what order they read. Regions only say where
 //! things are. The characters in them still come from the PDF's own text layer (or OCR on scans).
-//! See docs/STATUS.md ("Next batch") for the rules.
 
 use std::path::{Path, PathBuf};
 

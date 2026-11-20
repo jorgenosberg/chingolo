@@ -1,5 +1,5 @@
-//! PDF text with line boxes, read with pdfium. See docs/STATUS.md (spike result) for why lines
-//! are split by position and why text outside the crop box is dropped.
+//! PDF text with line boxes, read with pdfium. Lines are split by position, and text outside the
+//! crop box is dropped.
 
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;

@@ -2,7 +2,6 @@
 //! characters in each cell are the PDF's own: a character goes to the cell that holds its centre.
 //! The checks here flag, they never repair: a character that lands in no cell, or a number that is
 //! cut in two, marks the table "structure unsure" and the caller keeps today's plain lines.
-//! See docs/STATUS.md ("Next batch") for the rules.
 
 use std::path::{Path, PathBuf};
 

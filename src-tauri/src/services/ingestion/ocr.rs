@@ -1,6 +1,5 @@
 //! Text recognition for pages that have no text layer, with PP-OCRv6 small through oar-ocr
-//! (ONNX Runtime). The models are downloaded on first use like the search model. See
-//! docs/STATUS.md (Slice 9 baseline and tool bake-off) for why this engine.
+//! (ONNX Runtime). The models are downloaded on first use like the search model.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};

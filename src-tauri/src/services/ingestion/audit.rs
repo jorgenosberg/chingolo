@@ -2,7 +2,7 @@
 //! Run: CHINGOLO_TEST_PAPERS=<folder> cargo test corpus_audit -- --ignored --nocapture
 //! With CHINGOLO_OCR_DIR=<model folder> the metadata of scanned pages is read through text recognition.
 //! With CHINGOLO_AUDIT_CROSSREF=1 each DOI (and file name candidate) is also looked up in Crossref.
-//! The folder must hold `expected-meta.json` (see docs/STATUS.md, "Slice 9 baseline").
+//! The folder must hold `expected-meta.json`.
 
 use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
