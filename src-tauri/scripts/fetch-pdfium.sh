@@ -16,4 +16,6 @@ echo "$SHA256  $tmp/$ASSET" | shasum -a 256 -c -
 mkdir -p "$dest" "$tmp/x"
 tar -xzf "$tmp/$ASSET" -C "$tmp/x"
 cp "$tmp/x/lib/libpdfium.dylib" "$tmp/x/LICENSE" "$dest/"
+rm -rf "$dest/licenses"
+cp -R "$tmp/x/licenses" "$dest/licenses"
 echo "pdfium installed in $dest"

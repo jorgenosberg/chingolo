@@ -42,7 +42,12 @@
 			"icons/icon.icns",
 			"icons/icon.ico"
 		],
-		"createUpdaterArtifacts": true
+		"createUpdaterArtifacts": true,
+		"resources": {
+			"vendor/pdfium/LICENSE": "licenses/pdfium/LICENSE",
+			"vendor/pdfium/licenses/": "licenses/pdfium/third-party/",
+			"../NOTICE.md": "licenses/NOTICE.md"
+		}
 	},
 	"plugins": {
 		"updater": {
