@@ -48,9 +48,7 @@ export function EmbeddingNotice() {
 }
 
 const layoutBusy = (l?: LayoutProgress) =>
-	Boolean(
-		l?.available && (l.done < l.total || l.tablesDone < l.tablesTotal),
-	);
+	Boolean(l?.available && (l.done < l.total || l.tablesDone < l.tablesTotal));
 
 function ProgressLine({
 	label,
