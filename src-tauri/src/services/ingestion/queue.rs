@@ -609,12 +609,12 @@ mod tests {
         assert!(n.contains("1 pages could not be read") && n.contains("1 of 4 pages have no text") && n.contains("1 pages have unreliable"), "{n}");
     }
 
-    /// CHINGUI_TEST_PAPERS=<folder> CHINGUI_LAYOUT_DIR=<model folder> cargo test layout_job -- --ignored --nocapture
+    /// CHINGOLO_TEST_PAPERS=<folder> CHINGOLO_LAYOUT_DIR=<model folder> cargo test layout_job -- --ignored --nocapture
     #[test]
     #[ignore]
     fn layout_job_rebuilds_passages_and_keeps_unchanged_ones() {
-        let papers = std::env::var("CHINGUI_TEST_PAPERS").expect("set CHINGUI_TEST_PAPERS");
-        let model = std::env::var("CHINGUI_LAYOUT_DIR").expect("set CHINGUI_LAYOUT_DIR");
+        let papers = std::env::var("CHINGOLO_TEST_PAPERS").expect("set CHINGOLO_TEST_PAPERS");
+        let model = std::env::var("CHINGOLO_LAYOUT_DIR").expect("set CHINGOLO_LAYOUT_DIR");
         let path = Path::new(&papers).join("nature02437.pdf");
         let mut conn = test_conn();
         let doc = repo::insert_document(&conn, "hnat", "nature02437.pdf", DocKind::Pdf).unwrap();
@@ -643,13 +643,13 @@ mod tests {
     }
 
     /// Layout and tables end to end: grids are stored, table passages carry them, a rerun does nothing.
-    /// CHINGUI_TEST_PAPERS=<folder> CHINGUI_LAYOUT_DIR=<model> CHINGUI_TABLES_DIR=<model> cargo test tables_job -- --ignored --nocapture
+    /// CHINGOLO_TEST_PAPERS=<folder> CHINGOLO_LAYOUT_DIR=<model> CHINGOLO_TABLES_DIR=<model> cargo test tables_job -- --ignored --nocapture
     #[test]
     #[ignore]
     fn tables_job_stores_grids_and_builds_table_passages() {
-        let papers = std::env::var("CHINGUI_TEST_PAPERS").expect("set CHINGUI_TEST_PAPERS");
-        let model = std::env::var("CHINGUI_LAYOUT_DIR").expect("set CHINGUI_LAYOUT_DIR");
-        let tables_dir = std::env::var("CHINGUI_TABLES_DIR").expect("set CHINGUI_TABLES_DIR");
+        let papers = std::env::var("CHINGOLO_TEST_PAPERS").expect("set CHINGOLO_TEST_PAPERS");
+        let model = std::env::var("CHINGOLO_LAYOUT_DIR").expect("set CHINGOLO_LAYOUT_DIR");
+        let tables_dir = std::env::var("CHINGOLO_TABLES_DIR").expect("set CHINGOLO_TABLES_DIR");
         let path = Path::new(&papers).join("nature02437.pdf");
         let mut conn = test_conn();
         let doc = repo::insert_document(&conn, "htab", "nature02437.pdf", DocKind::Pdf).unwrap();
@@ -687,20 +687,20 @@ mod tests {
     }
 
     /// Imports a folder into a database file for the retrieval bench (keyword search only, no vectors).
-    /// CHINGUI_TEST_PAPERS=<folder> CHINGUI_KEEP_DB=<file> [CHINGUI_LAYOUT_DIR=<model folder>] cargo test corpus_db -- --ignored --nocapture
+    /// CHINGOLO_TEST_PAPERS=<folder> CHINGOLO_KEEP_DB=<file> [CHINGOLO_LAYOUT_DIR=<model folder>] cargo test corpus_db -- --ignored --nocapture
     #[tokio::test]
     #[ignore]
     async fn corpus_db() {
         use super::super::import::import_paths;
-        let papers = PathBuf::from(std::env::var("CHINGUI_TEST_PAPERS").expect("set CHINGUI_TEST_PAPERS"));
-        let db_path = PathBuf::from(std::env::var("CHINGUI_KEEP_DB").expect("set CHINGUI_KEEP_DB"));
+        let papers = PathBuf::from(std::env::var("CHINGOLO_TEST_PAPERS").expect("set CHINGOLO_TEST_PAPERS"));
+        let db_path = PathBuf::from(std::env::var("CHINGOLO_KEEP_DB").expect("set CHINGOLO_KEEP_DB"));
         for ext in ["", "-wal", "-shm"] {
             let _ = std::fs::remove_file(format!("{}{ext}", db_path.display()));
         }
         let tmp = tempfile::tempdir().unwrap();
         let db = Db::open(&db_path).unwrap();
         let ingest = Ingestor::start(&db_path, tmp.path().join("library"), Arc::new(|_| {})).unwrap();
-        let layout = std::env::var("CHINGUI_LAYOUT_DIR").ok().map(PathBuf::from);
+        let layout = std::env::var("CHINGOLO_LAYOUT_DIR").ok().map(PathBuf::from);
         ingest.set_layout_dir(layout.clone());
         let t = std::time::Instant::now();
         import_paths(&db, &ingest, vec![papers], None).await.unwrap();

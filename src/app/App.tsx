@@ -19,7 +19,7 @@ function Gate() {
 		return (
 			<div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
 				<p role="alert" className="max-w-md text-sm text-problem">
-					Chingui couldn't load its settings: {settings.error.message}
+					Chingolo couldn't load its settings: {settings.error.message}
 				</p>
 				<Button onPress={() => settings.refetch()}>Try again</Button>
 			</div>

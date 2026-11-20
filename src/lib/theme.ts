@@ -2,7 +2,7 @@ import { useSyncExternalStore } from "react";
 
 export type ThemePref = "system" | "light" | "dark";
 
-const KEY = "chingui.theme";
+const KEY = "chingolo.theme";
 const media = window.matchMedia("(prefers-color-scheme: dark)");
 const listeners = new Set<() => void>();
 

@@ -3,7 +3,7 @@
 
 use crate::error::{AppError, Result};
 
-const SERVICE: &str = "app.chingui.desktop";
+const SERVICE: &str = "app.chingolo.desktop";
 
 fn entry(provider: &str) -> Result<keyring::Entry> {
     keyring::Entry::new(SERVICE, &format!("{provider}-api-key"))

@@ -357,12 +357,12 @@ mod tests {
         assert_eq!(docs.iter().find(|d| d.original_name == "gamma.docx").unwrap().status, DocStatus::Ready);
     }
 
-    /// Imports every paper in $CHINGUI_TEST_PAPERS through the real queue and prints the result.
-    /// Run: CHINGUI_TEST_PAPERS=~/papers cargo test corpus_import -- --ignored --nocapture
+    /// Imports every paper in $CHINGOLO_TEST_PAPERS through the real queue and prints the result.
+    /// Run: CHINGOLO_TEST_PAPERS=~/papers cargo test corpus_import -- --ignored --nocapture
     #[tokio::test]
     #[ignore]
     async fn corpus_import() {
-        let papers = PathBuf::from(std::env::var("CHINGUI_TEST_PAPERS").expect("set CHINGUI_TEST_PAPERS"));
+        let papers = PathBuf::from(std::env::var("CHINGOLO_TEST_PAPERS").expect("set CHINGOLO_TEST_PAPERS"));
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("t.sqlite");
         let db = Db::open(&db_path).unwrap();

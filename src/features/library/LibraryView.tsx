@@ -295,8 +295,8 @@ function DocumentRow({
 				)}
 				{doc.status === "no_text" && (
 					<p className="mt-1 text-xs text-muted-foreground">
-						This looks like a scanned document. Chingui can't read scans yet, so
-						it can't search or cite it.
+						This looks like a scanned document. Chingolo can't read scans yet,
+						so it can't search or cite it.
 					</p>
 				)}
 				{doc.error && (
@@ -584,7 +584,7 @@ export function LibraryView() {
 			run: async () => {
 				const ok = await confirm({
 					title: "Delete document?",
-					message: `"${name}" is removed from the library, along with Chingui's copy and its search index. Your original file is not touched.`,
+					message: `"${name}" is removed from the library, along with Chingolo's copy and its search index. Your original file is not touched.`,
 					confirmLabel: "Delete",
 					danger: true,
 				});

@@ -128,7 +128,7 @@ fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-/// Logs go to the console and to a file in `~/Library/Logs/app.chingui.desktop/`. They hold
+/// Logs go to the console and to a file in `~/Library/Logs/app.chingolo.desktop/`. They hold
 /// timings, counts and errors, never document text, messages or API keys.
 fn logging() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     use tauri_plugin_log::{RotationStrategy, Target, TargetKind};
@@ -137,11 +137,11 @@ fn logging() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     tauri_plugin_log::Builder::new()
         .targets([
             Target::new(TargetKind::Stdout),
-            Target::new(TargetKind::LogDir { file_name: Some("chingui".into()) }),
+            Target::new(TargetKind::LogDir { file_name: Some("chingolo".into()) }),
         ])
         .level(log::LevelFilter::Info)
-        .level_for("chingui_lib", ours)
-        .level_for("chingui", ours)
+        .level_for("chingolo_lib", ours)
+        .level_for("chingolo", ours)
         .max_file_size(2_000_000)
         .rotation_strategy(RotationStrategy::KeepSome(5))
         .build()
@@ -169,10 +169,10 @@ pub fn run() {
         .setup(move |app| {
             builder.mount_events(app);
             std::panic::set_hook(Box::new(|info| log::error!("panic: {info}")));
-            log::info!("Chingui {} starting", env!("CARGO_PKG_VERSION"));
+            log::info!("Chingolo {} starting", env!("CARGO_PKG_VERSION"));
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
-            let db_path = dir.join("chingui.sqlite");
+            let db_path = dir.join("chingolo.sqlite");
             let db = Db::open(&db_path)?;
             crate::services::pricing::load_saved(&dir);
             tauri::async_runtime::spawn(crate::services::pricing::keep_fresh(db.clone(), dir.clone()));
@@ -263,5 +263,5 @@ pub fn run() {
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("error while running Chingui");
+        .expect("error while running Chingolo");
 }

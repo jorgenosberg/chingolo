@@ -1,7 +1,7 @@
-//! Fusion and query experiments over the app's own passages (`CHINGUI_BENCH_VARIANTS=1 retrieval-bench app`).
+//! Fusion and query experiments over the app's own passages (`CHINGOLO_BENCH_VARIANTS=1 retrieval-bench app`).
 //!
 //! Every Gemini call (query vectors, rewrites, reranks) is cached by its text in `<out_dir>/cache.json`,
-//! so a second run needs no key and costs nothing. LLM variants need CHINGUI_BENCH_LLM (a model id
+//! so a second run needs no key and costs nothing. LLM variants need CHINGOLO_BENCH_LLM (a model id
 //! that supports generateContent). Run once with GEMINI_API_KEY, then iterate on the cache.
 
 use std::collections::HashMap;
@@ -216,8 +216,8 @@ pub fn run(passages: &[Passage], qs: &[Value], queries: &[String], out_dir: &str
         }
     }
 
-    let Ok(model) = std::env::var("CHINGUI_BENCH_LLM") else {
-        println!("set CHINGUI_BENCH_LLM=<model id> to run the rewrite and rerank variants");
+    let Ok(model) = std::env::var("CHINGOLO_BENCH_LLM") else {
+        println!("set CHINGOLO_BENCH_LLM=<model id> to run the rewrite and rerank variants");
         return;
     };
 

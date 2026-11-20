@@ -1,4 +1,4 @@
-//! Serves stored document files to the reader through the `chingui-doc` URI scheme.
+//! Serves stored document files to the reader through the `chingolo-doc` URI scheme.
 //! A file is addressed by document id only. The webview never supplies a path, and the path
 //! comes from the database row.
 
@@ -13,7 +13,7 @@ use crate::persistence::library as repo;
 use crate::services::ingestion::queue::library_path;
 use crate::state::AppState;
 
-pub const SCHEME: &str = "chingui-doc";
+pub const SCHEME: &str = "chingolo-doc";
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ByteRange {
@@ -104,7 +104,7 @@ pub fn read_response(path: &Path, kind: DocKind, range: Option<&str>) -> Respons
     reply.body(body).unwrap_or_default()
 }
 
-/// Handles one request for `chingui-doc://localhost/<document id>`.
+/// Handles one request for `chingolo-doc://localhost/<document id>`.
 pub async fn handle(app: &AppHandle, request: Request<Vec<u8>>) -> Response<Vec<u8>> {
     if request.method() == Method::OPTIONS {
         return empty(StatusCode::NO_CONTENT);

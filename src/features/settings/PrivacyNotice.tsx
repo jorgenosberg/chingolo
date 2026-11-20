@@ -14,7 +14,7 @@ export function PrivacyNotice({
 					<strong className="font-medium text-foreground">
 						Stored on your Mac.
 					</strong>{" "}
-					Your projects, chats and settings stay on this computer. Chingui has
+					Your projects, chats and settings stay on this computer. Chingolo has
 					no account and no server.
 				</li>
 				<li>
@@ -34,17 +34,17 @@ export function PrivacyNotice({
 				</li>
 				<li>
 					<strong className="font-medium text-foreground">One download.</strong>{" "}
-					Meaning search uses a 200 MB model that Chingui downloads once from
+					Meaning search uses a 200 MB model that Chingolo downloads once from
 					Hugging Face, after you agree. Your documents are not sent for it.
 				</li>
 				<li>
 					<strong className="font-medium text-foreground">Price list.</strong>{" "}
-					About once a week Chingui downloads a public price list from
+					About once a week Chingolo downloads a public price list from
 					models.dev to estimate costs. The request carries nothing of yours.
 				</li>
 				<li>
 					<strong className="font-medium text-foreground">No tracking.</strong>{" "}
-					Chingui doesn't send usage data or your text anywhere else.
+					Chingolo doesn't send usage data or your text anywhere else.
 				</li>
 			</ul>
 			<div className="flex justify-end">

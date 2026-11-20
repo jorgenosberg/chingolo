@@ -1,6 +1,6 @@
 //! Ignored audit of table extraction against `expected-tables.json` (owner-checked ground truth, kept
 //! outside the repo next to `bench.json`).
-//! Run: CHINGUI_TEST_PAPERS=<folder> cargo test corpus_layout -- --ignored --nocapture
+//! Run: CHINGOLO_TEST_PAPERS=<folder> cargo test corpus_layout -- --ignored --nocapture
 //! Until the table code exists this prints a baseline: which numbers of each table are already missing
 //! or changed in today's page text. Tables with `checked: false` are reported but marked.
 
@@ -83,7 +83,7 @@ fn grid_score_counts_numeric_cells() {
 #[test]
 #[ignore]
 fn corpus_layout() {
-    let dir = std::env::var("CHINGUI_TEST_PAPERS").expect("set CHINGUI_TEST_PAPERS");
+    let dir = std::env::var("CHINGOLO_TEST_PAPERS").expect("set CHINGOLO_TEST_PAPERS");
     let Ok(reader) = PdfReader::new() else {
         eprintln!("skipped: libpdfium not found");
         return;
@@ -105,14 +105,14 @@ fn corpus_layout() {
     }
 }
 
-/// Prints the regions for a few pages. CHINGUI_LAYOUT_DIR=<folder with pp-doclayoutv3.onnx>
-/// CHINGUI_LAYOUT_PAGES="nature02437.pdf:2,Fiskehelserapporten 2025.pdf:12"
+/// Prints the regions for a few pages. CHINGOLO_LAYOUT_DIR=<folder with pp-doclayoutv3.onnx>
+/// CHINGOLO_LAYOUT_PAGES="nature02437.pdf:2,Fiskehelserapporten 2025.pdf:12"
 #[test]
 #[ignore]
 fn layout_regions() {
-    let dir = std::env::var("CHINGUI_TEST_PAPERS").expect("set CHINGUI_TEST_PAPERS");
-    let model = std::env::var("CHINGUI_LAYOUT_DIR").expect("set CHINGUI_LAYOUT_DIR");
-    let pages = std::env::var("CHINGUI_LAYOUT_PAGES").expect("set CHINGUI_LAYOUT_PAGES");
+    let dir = std::env::var("CHINGOLO_TEST_PAPERS").expect("set CHINGOLO_TEST_PAPERS");
+    let model = std::env::var("CHINGOLO_LAYOUT_DIR").expect("set CHINGOLO_LAYOUT_DIR");
+    let pages = std::env::var("CHINGOLO_LAYOUT_PAGES").expect("set CHINGOLO_LAYOUT_PAGES");
     let reader = PdfReader::new().expect("libpdfium");
     let layout = super::layout::Layout::load(Path::new(&model)).unwrap();
     for spec in pages.split(',') {
@@ -128,15 +128,15 @@ fn layout_regions() {
 }
 
 /// Runs layout and the rebuild on whole files and prints what was dropped.
-/// CHINGUI_LAYOUT_FILES="nature02437.pdf,Fiskehelserapporten 2025.pdf"
+/// CHINGOLO_LAYOUT_FILES="nature02437.pdf,Fiskehelserapporten 2025.pdf"
 #[test]
 #[ignore]
 fn layout_apply() {
     use super::layout::{Layout, apply};
     use super::segment::segment;
-    let dir = std::env::var("CHINGUI_TEST_PAPERS").expect("set CHINGUI_TEST_PAPERS");
-    let model = std::env::var("CHINGUI_LAYOUT_DIR").expect("set CHINGUI_LAYOUT_DIR");
-    let files = std::env::var("CHINGUI_LAYOUT_FILES").expect("set CHINGUI_LAYOUT_FILES");
+    let dir = std::env::var("CHINGOLO_TEST_PAPERS").expect("set CHINGOLO_TEST_PAPERS");
+    let model = std::env::var("CHINGOLO_LAYOUT_DIR").expect("set CHINGOLO_LAYOUT_DIR");
+    let files = std::env::var("CHINGOLO_LAYOUT_FILES").expect("set CHINGOLO_LAYOUT_FILES");
     let reader = PdfReader::new().expect("libpdfium");
     let layout = Layout::load(Path::new(&model)).unwrap();
     for file in files.split(',') {
@@ -163,17 +163,17 @@ fn layout_apply() {
 
 /// The table pipeline on the ground-truth tables: layout finds the regions, the table model the
 /// cells, the text layer the characters. Prints, per truth table, the best matching region.
-/// CHINGUI_LAYOUT_DIR=<pp-doclayoutv3 folder> CHINGUI_TABLES_DIR=<slanet_plus folder>
-/// CHINGUI_TABLE_IDS=nature-t1,sci-t1 (optional, default every table that is not a scan)
+/// CHINGOLO_LAYOUT_DIR=<pp-doclayoutv3 folder> CHINGOLO_TABLES_DIR=<slanet_plus folder>
+/// CHINGOLO_TABLE_IDS=nature-t1,sci-t1 (optional, default every table that is not a scan)
 #[test]
 #[ignore]
 fn table_grids() {
     use super::layout::Layout;
     use super::tables::Tables;
-    let dir = std::env::var("CHINGUI_TEST_PAPERS").expect("set CHINGUI_TEST_PAPERS");
-    let layout = Layout::load(Path::new(&std::env::var("CHINGUI_LAYOUT_DIR").expect("set CHINGUI_LAYOUT_DIR"))).unwrap();
-    let tables = Tables::load(Path::new(&std::env::var("CHINGUI_TABLES_DIR").expect("set CHINGUI_TABLES_DIR"))).unwrap();
-    let only: Option<Vec<String>> = std::env::var("CHINGUI_TABLE_IDS").ok().map(|s| s.split(',').map(str::to_string).collect());
+    let dir = std::env::var("CHINGOLO_TEST_PAPERS").expect("set CHINGOLO_TEST_PAPERS");
+    let layout = Layout::load(Path::new(&std::env::var("CHINGOLO_LAYOUT_DIR").expect("set CHINGOLO_LAYOUT_DIR"))).unwrap();
+    let tables = Tables::load(Path::new(&std::env::var("CHINGOLO_TABLES_DIR").expect("set CHINGOLO_TABLES_DIR"))).unwrap();
+    let only: Option<Vec<String>> = std::env::var("CHINGOLO_TABLE_IDS").ok().map(|s| s.split(',').map(str::to_string).collect());
     let reader = PdfReader::new().expect("libpdfium");
     let truth: Value = serde_json::from_slice(&std::fs::read(Path::new(&dir).join("expected-tables.json")).expect("expected-tables.json")).unwrap();
     for t in truth["tables"].as_array().unwrap() {
@@ -218,7 +218,7 @@ fn table_grids() {
             }
         }
         if let Some((i, _, text)) = best {
-            if std::env::var("CHINGUI_TABLE_TEXT").is_ok() {
+            if std::env::var("CHINGOLO_TABLE_TEXT").is_ok() {
                 println!("   best region {i}:\n      {text}");
             }
             if let Ok(f) = &reads[i].filled {
@@ -250,14 +250,14 @@ fn table_grids() {
 
 /// Why tables came out `unsure` in a real library: re-reads every unsure table of a copy of the
 /// app database and prints the text no cell took and the numbers that differ.
-/// CHINGUI_DB=<copy of chingui.sqlite> CHINGUI_LIBRARY=<app library folder> CHINGUI_LAYOUT_DIR=.. CHINGUI_TABLES_DIR=..
+/// CHINGOLO_DB=<copy of chingolo.sqlite> CHINGOLO_LIBRARY=<app library folder> CHINGOLO_LAYOUT_DIR=.. CHINGOLO_TABLES_DIR=..
 #[test]
 #[ignore]
 fn unsure_tables() {
     use super::tables::Tables;
-    let db = rusqlite::Connection::open(std::env::var("CHINGUI_DB").expect("set CHINGUI_DB")).unwrap();
-    let lib = std::env::var("CHINGUI_LIBRARY").expect("set CHINGUI_LIBRARY");
-    let tables = Tables::load(Path::new(&std::env::var("CHINGUI_TABLES_DIR").expect("set CHINGUI_TABLES_DIR"))).unwrap();
+    let db = rusqlite::Connection::open(std::env::var("CHINGOLO_DB").expect("set CHINGOLO_DB")).unwrap();
+    let lib = std::env::var("CHINGOLO_LIBRARY").expect("set CHINGOLO_LIBRARY");
+    let tables = Tables::load(Path::new(&std::env::var("CHINGOLO_TABLES_DIR").expect("set CHINGOLO_TABLES_DIR"))).unwrap();
     let reader = PdfReader::new().expect("libpdfium");
     let mut stmt = db
         .prepare(
@@ -271,7 +271,7 @@ fn unsure_tables() {
         .unwrap()
         .map(|r| r.unwrap())
         .collect();
-    let only = std::env::var("CHINGUI_ONLY").ok();
+    let only = std::env::var("CHINGOLO_ONLY").ok();
     for (name, hash, page, ordinal, rect) in rows {
         if only.as_ref().is_some_and(|o| !name.contains(o.as_str())) {
             continue;

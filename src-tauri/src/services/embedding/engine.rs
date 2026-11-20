@@ -694,10 +694,10 @@ mod tests {
     }
 
     /// Imports a folder of papers through the real import worker, embeds them with the real
-    /// model, and prints the timings. `CHINGUI_KEEP_DB` keeps the database for
+    /// model, and prints the timings. `CHINGOLO_KEEP_DB` keeps the database for
     /// `tools/retrieval-bench app`.
-    /// Run: CHINGUI_TEST_PAPERS=<folder> CHINGUI_EMBED_MODEL_DIR=<model folder> \
-    ///      CHINGUI_KEEP_DB=<file> cargo test corpus_embed -- --ignored --nocapture
+    /// Run: CHINGOLO_TEST_PAPERS=<folder> CHINGOLO_EMBED_MODEL_DIR=<model folder> \
+    ///      CHINGOLO_KEEP_DB=<file> cargo test corpus_embed -- --ignored --nocapture
     #[tokio::test]
     #[ignore]
     async fn corpus_embed() {
@@ -705,10 +705,10 @@ mod tests {
         use crate::services::ingestion::queue::Ingestor;
         use std::time::Instant;
 
-        let papers = std::path::PathBuf::from(std::env::var("CHINGUI_TEST_PAPERS").expect("set CHINGUI_TEST_PAPERS"));
-        let model_dir = std::path::PathBuf::from(std::env::var("CHINGUI_EMBED_MODEL_DIR").expect("set CHINGUI_EMBED_MODEL_DIR"));
+        let papers = std::path::PathBuf::from(std::env::var("CHINGOLO_TEST_PAPERS").expect("set CHINGOLO_TEST_PAPERS"));
+        let model_dir = std::path::PathBuf::from(std::env::var("CHINGOLO_EMBED_MODEL_DIR").expect("set CHINGOLO_EMBED_MODEL_DIR"));
         let tmp = tempfile::tempdir().unwrap();
-        let db_path = match std::env::var("CHINGUI_KEEP_DB") {
+        let db_path = match std::env::var("CHINGOLO_KEEP_DB") {
             Ok(p) => {
                 let p = std::path::PathBuf::from(p);
                 for ext in ["", "-wal", "-shm"] {

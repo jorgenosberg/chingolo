@@ -45,7 +45,7 @@ const THEMES: { id: ThemePref; label: string }[] = [
 	{ id: "dark", label: "Dark" },
 ];
 
-const TAB_KEY = "chingui.settingsTab";
+const TAB_KEY = "chingolo.settingsTab";
 const TABS = ["general", "models", "search", "usage", "privacy"];
 
 function savedTab(): string {
@@ -355,12 +355,12 @@ function DetailsLookup() {
 			{box(
 				"crossrefEnabled",
 				"Look up papers online",
-				"For a paper with a DOI, arXiv number, PubMed ID or ISBN, Chingui asks Crossref and doi.org (DOIs and arXiv), NCBI (PubMed), the National Library of Norway or Open Library (ISBN) for the exact title, authors, year and journal. A result is used only if its title is found in the paper itself. Only the identifier is sent, never your text or your keys. Papers you already added are updated with Refresh all details in the library. Details you edited are kept.",
+				"For a paper with a DOI, arXiv number, PubMed ID or ISBN, Chingolo asks Crossref and doi.org (DOIs and arXiv), NCBI (PubMed), the National Library of Norway or Open Library (ISBN) for the exact title, authors, year and journal. A result is used only if its title is found in the paper itself. Only the identifier is sent, never your text or your keys. Papers you already added are updated with Refresh all details in the library. Details you edited are kept.",
 			)}
 			{box(
 				"titleSearchEnabled",
 				"Search Crossref and DataCite by title",
-				"For a paper that has no identifier, Chingui searches Crossref (api.crossref.org) with the title it read from the paper and the first author's surname, and if that finds nothing, DataCite (api.datacite.org, which holds reports and repository records) with the title. This text leaves your computer. A result is used only if title, year and author closely match and the title is found in the paper.",
+				"For a paper that has no identifier, Chingolo searches Crossref (api.crossref.org) with the title it read from the paper and the first author's surname, and if that finds nothing, DataCite (api.datacite.org, which holds reports and repository records) with the title. This text leaves your computer. A result is used only if title, year and author closely match and the title is found in the paper.",
 			)}
 		</div>
 	);

@@ -38,8 +38,8 @@ function fitWidth(viewer: Viewer) {
 	if (viewer.currentScale > MAX_FIT_SCALE) viewer.currentScale = MAX_FIT_SCALE;
 }
 
-/** `chingui-doc` is registered in Rust. A document is addressed by id, never by path. */
-const docUrl = (id: string) => `chingui-doc://localhost/${id}`;
+/** `chingolo-doc` is registered in Rust. A document is addressed by id, never by path. */
+const docUrl = (id: string) => `chingolo-doc://localhost/${id}`;
 
 function assetUrl(dir: string) {
 	return new URL(`/pdfjs/${dir}/`, window.location.origin).href;

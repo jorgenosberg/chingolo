@@ -153,7 +153,7 @@ pub fn http_client() -> reqwest::Client {
     reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
         // A generic name and no contact details: only the DOI leaves the machine.
-        .user_agent(format!("Chingui/{}", env!("CARGO_PKG_VERSION")))
+        .user_agent(format!("Chingolo/{}", env!("CARGO_PKG_VERSION")))
         .build()
         .expect("http client")
 }
@@ -413,7 +413,7 @@ mod tests {
         assert!(fetch(&client, &base, "10.1000/down").await.is_err());
         let head = seen.lock().unwrap()[0].0.to_lowercase();
         assert!(head.starts_with("get /works/10.1038/171737a0 "), "{head}");
-        assert!(head.contains("user-agent: chingui/") && !head.contains('@'), "{head}");
+        assert!(head.contains("user-agent: chingolo/") && !head.contains('@'), "{head}");
     }
 
     #[tokio::test]

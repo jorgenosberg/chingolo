@@ -106,7 +106,7 @@ pub struct PdfReader {
 /// fetched by `scripts/fetch-pdfium.sh`.
 fn library_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
-    if let Ok(d) = std::env::var("CHINGUI_PDFIUM_DIR") {
+    if let Ok(d) = std::env::var("CHINGOLO_PDFIUM_DIR") {
         dirs.push(PathBuf::from(d));
     }
     if let Ok(exe) = std::env::current_exe()
@@ -396,7 +396,7 @@ fn verify_cells(img: &image::RgbImage, pixels: &[[f32; 4]], cells: &mut [tables:
         let lines: Vec<String> = vision::read_lines(&framed).unwrap_or_default().into_iter().filter(|l| l.chars().any(char::is_alphanumeric)).collect();
         if !lines.is_empty() {
             cell.verified = Some(tables::readers_agree(&cell.text, &lines.join(" ")));
-            if cell.verified == Some(false) && std::env::var("CHINGUI_VISION_DEBUG").is_ok() {
+            if cell.verified == Some(false) && std::env::var("CHINGOLO_VISION_DEBUG").is_ok() {
                 println!("      vision r{}c{}: layer {:?} vision {:?}", cell.row, cell.col, cell.text, lines);
             }
         }
@@ -619,7 +619,7 @@ mod tests {
 
     /// One page, two lines of 18 pt Helvetica. No xref table: pdfium rebuilds it.
     fn tiny_pdf() -> Vec<u8> {
-        let content = "BT /F1 18 Tf 20 150 Td (Hello Chingui world) Tj 0 -30 Td (Second line here) Tj ET";
+        let content = "BT /F1 18 Tf 20 150 Td (Hello Chingolo world) Tj 0 -30 Td (Second line here) Tj ET";
         format!(
             "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n\
              2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n\
@@ -634,7 +634,7 @@ mod tests {
 
     /// The tiny page with its box starting at (ox, oy) and turned by `rotate` degrees.
     fn placed_pdf(ox: i32, oy: i32, rotate: u16) -> Vec<u8> {
-        let content = format!("BT /F1 18 Tf {} {} Td (Hello Chingui world) Tj 0 -30 Td (Second line here) Tj ET", 20 + ox, 150 + oy);
+        let content = format!("BT /F1 18 Tf {} {} Td (Hello Chingolo world) Tj 0 -30 Td (Second line here) Tj ET", 20 + ox, 150 + oy);
         format!(
             "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n\
              2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n\
@@ -706,7 +706,7 @@ mod tests {
         assert_eq!((out.pages.len(), out.pages[0].quality), (1, "ok"));
         assert_eq!((out.pages[0].width, out.pages[0].height), (300.0, 200.0));
         let texts: Vec<_> = out.blocks.iter().map(|b| b.text.as_str()).collect();
-        assert_eq!(texts, ["Hello Chingui world", "Second line here"]);
+        assert_eq!(texts, ["Hello Chingolo world", "Second line here"]);
         let r = out.blocks[0].rect.unwrap();
         assert!(r[0] >= 19.0 && r[2] <= 300.0 && r[1] > 140.0 && r[3] < 180.0, "{r:?}");
         assert!((out.blocks[0].font_size - 18.0).abs() < 1.0);
@@ -717,20 +717,20 @@ mod tests {
         let Some(reader) = reader() else { return };
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("blank.pdf");
-        let blank = String::from_utf8(tiny_pdf()).unwrap().replace("Hello Chingui world", "").replace("Second line here", "");
+        let blank = String::from_utf8(tiny_pdf()).unwrap().replace("Hello Chingolo world", "").replace("Second line here", "");
         std::fs::write(&path, blank).unwrap();
         let out = reader.extract(&path, &|| false, &mut |_, _| {}).unwrap();
         assert_eq!(out.pages[0].quality, "none");
         assert!(out.blocks.is_empty());
     }
 
-    /// Reads every PDF in $CHINGUI_TEST_PAPERS and prints what came out.
-    /// Run: CHINGUI_TEST_PAPERS=~/papers cargo test corpus_smoke -- --ignored --nocapture
+    /// Reads every PDF in $CHINGOLO_TEST_PAPERS and prints what came out.
+    /// Run: CHINGOLO_TEST_PAPERS=~/papers cargo test corpus_smoke -- --ignored --nocapture
     #[test]
     #[ignore]
     fn corpus_smoke() {
         let Some(reader) = reader() else { return };
-        let dir = std::env::var("CHINGUI_TEST_PAPERS").expect("set CHINGUI_TEST_PAPERS");
+        let dir = std::env::var("CHINGOLO_TEST_PAPERS").expect("set CHINGOLO_TEST_PAPERS");
         let mut files: Vec<_> = std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().path()).filter(|p| p.extension().is_some_and(|e| e == "pdf")).collect();
         files.sort();
         for f in files {
@@ -748,14 +748,14 @@ mod tests {
         }
     }
 
-    /// Reads the scans in $CHINGUI_TEST_PAPERS with the models in $CHINGUI_OCR_DIR and prints what came out.
-    /// Run: CHINGUI_TEST_PAPERS=~/papers CHINGUI_OCR_DIR=~/models cargo test ocr_scans -- --ignored --nocapture
+    /// Reads the scans in $CHINGOLO_TEST_PAPERS with the models in $CHINGOLO_OCR_DIR and prints what came out.
+    /// Run: CHINGOLO_TEST_PAPERS=~/papers CHINGOLO_OCR_DIR=~/models cargo test ocr_scans -- --ignored --nocapture
     #[test]
     #[ignore]
     fn ocr_scans() {
         let Some(reader) = reader() else { return };
-        let papers = std::env::var("CHINGUI_TEST_PAPERS").expect("set CHINGUI_TEST_PAPERS");
-        let models = std::env::var("CHINGUI_OCR_DIR").expect("set CHINGUI_OCR_DIR");
+        let papers = std::env::var("CHINGOLO_TEST_PAPERS").expect("set CHINGOLO_TEST_PAPERS");
+        let models = std::env::var("CHINGOLO_OCR_DIR").expect("set CHINGOLO_OCR_DIR");
         let mut slot = OcrSlot::new(Some(PathBuf::from(models)));
         for name in ["383495a0.pdf", "Fs97-18-135-eng.pdf"] {
             let t = std::time::Instant::now();

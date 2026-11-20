@@ -46,7 +46,7 @@ function EmptyWorkspace() {
 			<div data-tauri-drag-region className="h-12 shrink-0" />
 			<div className="flex flex-1 flex-col items-center justify-center gap-4 px-8 text-center">
 				<div>
-					<h1 className="text-xl font-semibold tracking-tight">Chingui</h1>
+					<h1 className="text-xl font-semibold tracking-tight">Chingolo</h1>
 					<p className="mt-1 text-muted-foreground">
 						A little help for big ideas.
 					</p>
@@ -111,7 +111,7 @@ export function AppShell() {
 	const conversations = useConversations();
 	const projects = useProjects();
 	const layout = useDefaultLayout({
-		id: "chingui-main",
+		id: "chingolo-main",
 		storage: layoutStorage(),
 	});
 

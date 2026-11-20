@@ -214,7 +214,7 @@ fn trim_provider(provider: &Value) -> Value {
     Value::Object(out)
 }
 
-/// Keeps what Chingui needs from the models.dev feed. Refuses data that looks broken, so a
+/// Keeps what Chingolo needs from the models.dev feed. Refuses data that looks broken, so a
 /// changed format can't replace good prices with nothing.
 pub fn trim(feed: &Value, date: &str) -> std::result::Result<(String, Table), String> {
     let doc = json!({

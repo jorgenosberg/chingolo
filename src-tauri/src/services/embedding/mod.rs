@@ -108,7 +108,7 @@ mod tests {
     use fastembed::{EmbeddingModel, TextInitOptions};
 
     fn model_dir() -> Option<std::path::PathBuf> {
-        std::env::var_os("CHINGUI_EMBED_MODEL_DIR").map(Into::into)
+        std::env::var_os("CHINGOLO_EMBED_MODEL_DIR").map(Into::into)
     }
 
     fn normalized(mut v: Vec<f32>) -> Vec<f32> {
@@ -117,12 +117,12 @@ mod tests {
         v
     }
 
-    /// Needs `CHINGUI_EMBED_MODEL_DIR` (the six model files in one folder) and network
+    /// Needs `CHINGOLO_EMBED_MODEL_DIR` (the six model files in one folder) and network
     /// access for the built-in copy it is compared with.
     #[test]
     #[ignore]
     fn own_files_match_the_built_in_model() {
-        let dir = model_dir().expect("set CHINGUI_EMBED_MODEL_DIR");
+        let dir = model_dir().expect("set CHINGOLO_EMBED_MODEL_DIR");
         let mut ours = load_model(&dir).expect("load from our files");
         let cache = tempfile::tempdir().unwrap();
         let mut builtin = TextEmbedding::try_new(

@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "chingui",
+      "name": "chingolo",
       "dependencies": {
         "@phosphor-icons/react": "2.1.10",
         "@streamdown/math": "^1.0.3",

@@ -87,7 +87,7 @@ pub fn migrate(conn: &mut Connection) -> Result<()> {
     let applied = conn.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))? as usize;
     if applied > MIGRATIONS.len() {
         return Err(AppError::Invalid(
-            "This data was created by a newer version of Chingui. Update the app to open it."
+            "This data was created by a newer version of Chingolo. Update the app to open it."
                 .into(),
         ));
     }

@@ -16,7 +16,7 @@ import {
 import { api } from "../lib/api";
 import { keys } from "../lib/queries";
 
-const STORAGE_KEY = "chingui.conversation";
+const STORAGE_KEY = "chingolo.conversation";
 
 /** What the reader shows: a document, a page, and optionally a passage to highlight. */
 type View = "chat" | "library" | "reader" | "settings";

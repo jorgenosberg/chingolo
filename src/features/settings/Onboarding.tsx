@@ -74,7 +74,9 @@ export function Onboarding() {
 				{step === "welcome" && (
 					<div className="flex flex-col gap-5">
 						<div>
-							<h1 className="text-2xl font-semibold tracking-tight">Chingui</h1>
+							<h1 className="text-2xl font-semibold tracking-tight">
+								Chingolo
+							</h1>
 							<p className="mt-1 text-muted-foreground">
 								A little help for big ideas.
 							</p>
@@ -135,7 +137,7 @@ export function Onboarding() {
 							onChange={setKey}
 							autoFocus
 							isInvalid={!!error}
-							description={`Create a key at ${providerInfo(provider)?.keyUrl}. Chingui stores it in the macOS Keychain.`}
+							description={`Create a key at ${providerInfo(provider)?.keyUrl}. Chingolo stores it in the macOS Keychain.`}
 						/>
 						{error && (
 							<p role="alert" className="text-sm text-problem">

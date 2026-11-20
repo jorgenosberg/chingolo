@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 
 /** Switches for the Developer tab in Settings. Kept on this Mac, per browser profile. */
-const KEY = "chingui.dev.layoutOverlay";
+const KEY = "chingolo.dev.layoutOverlay";
 const listeners = new Set<() => void>();
 
 function read(): boolean {

@@ -1,7 +1,7 @@
 //! Ignored audit of metadata extraction and page quality on a folder of real papers.
-//! Run: CHINGUI_TEST_PAPERS=<folder> cargo test corpus_audit -- --ignored --nocapture
-//! With CHINGUI_OCR_DIR=<model folder> the metadata of scanned pages is read through text recognition.
-//! With CHINGUI_AUDIT_CROSSREF=1 each DOI (and file name candidate) is also looked up in Crossref.
+//! Run: CHINGOLO_TEST_PAPERS=<folder> cargo test corpus_audit -- --ignored --nocapture
+//! With CHINGOLO_OCR_DIR=<model folder> the metadata of scanned pages is read through text recognition.
+//! With CHINGOLO_AUDIT_CROSSREF=1 each DOI (and file name candidate) is also looked up in Crossref.
 //! The folder must hold `expected-meta.json` (see docs/STATUS.md, "Slice 9 baseline").
 
 use std::collections::{BTreeMap, HashSet};
@@ -147,14 +147,14 @@ fn verdicts_distinguish_hit_blank_and_wrong() {
 #[test]
 #[ignore]
 fn corpus_audit() {
-    let dir = std::env::var("CHINGUI_TEST_PAPERS").expect("set CHINGUI_TEST_PAPERS");
+    let dir = std::env::var("CHINGOLO_TEST_PAPERS").expect("set CHINGOLO_TEST_PAPERS");
     let Ok(reader) = PdfReader::new() else {
         eprintln!("skipped: libpdfium not found");
         return;
     };
     let expected: Value = serde_json::from_slice(&std::fs::read(Path::new(&dir).join("expected-meta.json")).expect("expected-meta.json")).unwrap();
     let files = expected["files"].as_object().unwrap();
-    let mut slot = std::env::var("CHINGUI_OCR_DIR").ok().map(|d| OcrSlot::new(Some(d.into())));
+    let mut slot = std::env::var("CHINGOLO_OCR_DIR").ok().map(|d| OcrSlot::new(Some(d.into())));
 
     let mut totals: BTreeMap<&str, BTreeMap<Verdict, u32>> = BTreeMap::new();
     let (mut pages_total, mut pages_none, mut pages_low) = (0usize, 0usize, 0usize);
@@ -180,7 +180,7 @@ fn corpus_audit() {
             Some(slot) => reader.extract_meta(&path, slot).unwrap_or_default(),
             None => reader.extract_meta(&path, &mut OcrSlot::default()).unwrap_or_default(),
         };
-        let meta = if std::env::var("CHINGUI_AUDIT_CROSSREF").is_ok() {
+        let meta = if std::env::var("CHINGOLO_AUDIT_CROSSREF").is_ok() {
             let head = out.blocks.iter().filter(|b| b.page <= 4).map(|b| b.text.as_str()).collect::<Vec<_>>().join(" ");
             with_lookups(meta, name, &head)
         } else {

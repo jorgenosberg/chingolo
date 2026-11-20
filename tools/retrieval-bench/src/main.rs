@@ -1,19 +1,19 @@
 //! Retrieval benchmark: embedding models and BM25 over passages built from the pdf_spike output.
 //!
-//! Env: CHINGUI_BENCH_DIR  folder holding the question set (bench.json, or set CHINGUI_BENCH_FILE=bench-no.json)
-//!      CHINGUI_BENCH_WORK scratch folder with spike-out/ (from `cargo run --example pdf_spike`),
+//! Env: CHINGOLO_BENCH_DIR  folder holding the question set (bench.json, or set CHINGOLO_BENCH_FILE=bench-no.json)
+//!      CHINGOLO_BENCH_WORK scratch folder with spike-out/ (from `cargo run --example pdf_spike`),
 //!                         models/ (model cache, models/granite97 for Granite) and bench-out/
 //! Usage: retrieval-bench <bm25|e5s|e5b|gemma|gemma4|granite|hybrid:<model>|app> [out_dir]
 //! Dense runs save rankings, so run `bm25` and the model before `hybrid:<model>`.
 //!
 //! `app` measures what the app built: passages and stored vectors come from its own database
-//! (CHINGUI_BENCH_DB=<path to chingui.sqlite>, read only), so the real segmenter is used.
+//! (CHINGOLO_BENCH_DB=<path to chingolo.sqlite>, read only), so the real segmenter is used.
 //! Queries are embedded with the same model. It reports BM25, vectors and hybrid. The papers
 //! must have been imported and fully indexed in the app, and the file names must match the
-//! ones in the question file. CHINGUI_BENCH_WORK still names the model cache and output folder.
+//! ones in the question file. CHINGOLO_BENCH_WORK still names the model cache and output folder.
 //! Query vectors follow the model stored with the vectors: Gemini needs GEMINI_API_KEY (without it
-//! only BM25 is reported), anything else loads EmbeddingGemma. CHINGUI_BENCH_STOP=more adds a
-//! larger Norwegian stop word list to the BM25 side. CHINGUI_BENCH_VARIANTS=1 runs the fusion and
+//! only BM25 is reported), anything else loads EmbeddingGemma. CHINGOLO_BENCH_STOP=more adds a
+//! larger Norwegian stop word list to the BM25 side. CHINGOLO_BENCH_VARIANTS=1 runs the fusion and
 //! query experiments in experiments.rs instead (cached in <out_dir>/cache.json).
 
 mod experiments;
@@ -30,7 +30,7 @@ use fastembed::{
 use serde_json::{json, Value};
 
 fn base() -> String {
-    std::env::var("CHINGUI_BENCH_WORK").expect("set CHINGUI_BENCH_WORK")
+    std::env::var("CHINGOLO_BENCH_WORK").expect("set CHINGOLO_BENCH_WORK")
 }
 const DISTRACTOR: &str = "science.1082000.pdf";
 const PASSAGE_CHARS: usize = 1200;
@@ -82,7 +82,7 @@ fn load_passages() -> Vec<Passage> {
 
 /// Passages of ready documents from the app database, in reading order, with their vectors.
 fn load_passages_db() -> Vec<Passage> {
-    let path = std::env::var("CHINGUI_BENCH_DB").expect("set CHINGUI_BENCH_DB");
+    let path = std::env::var("CHINGOLO_BENCH_DB").expect("set CHINGOLO_BENCH_DB");
     let conn = rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
     let mut st = conn
         .prepare(
@@ -110,7 +110,7 @@ fn load_passages_db() -> Vec<Passage> {
 
 type Ranking = Vec<(usize, f32)>;
 
-/// Same as `COMMON` in src-tauri/src/persistence/library.rs. Keep in sync. CHINGUI_BENCH_STOP=more
+/// Same as `COMMON` in src-tauri/src/persistence/library.rs. Keep in sync. CHINGOLO_BENCH_STOP=more
 /// adds Norwegian question words and common function words, to measure what a bigger list changes.
 const APP_COMMON: &[&str] = &[
     "the", "and", "for", "are", "was", "were", "what", "how", "when", "why", "which", "who", "does", "did", "has",
@@ -139,7 +139,7 @@ fn fold(s: &str) -> String {
 
 /// BM25 as the app does it: folded text and queries, any term matches, common words dropped.
 fn bm25_app(passages: &[Passage], queries: &[String]) -> Vec<Ranking> {
-    let more = std::env::var("CHINGUI_BENCH_STOP").is_ok_and(|v| v == "more");
+    let more = std::env::var("CHINGOLO_BENCH_STOP").is_ok_and(|v| v == "more");
     let conn = rusqlite::Connection::open_in_memory().unwrap();
     conn.execute_batch("CREATE VIRTUAL TABLE fts USING fts5(text, tokenize='unicode61 remove_diacritics 2')").unwrap();
     {
@@ -314,8 +314,8 @@ fn dense(name: &str, passages: &[Passage], queries: &[String]) -> (Vec<Ranking>,
 
 fn main() {
     let base = base();
-    let bench_file = std::env::var("CHINGUI_BENCH_FILE").unwrap_or_else(|_| "bench.json".into());
-    let bench_path = format!("{}/{bench_file}", std::env::var("CHINGUI_BENCH_DIR").expect("set CHINGUI_BENCH_DIR"));
+    let bench_file = std::env::var("CHINGOLO_BENCH_FILE").unwrap_or_else(|_| "bench.json".into());
+    let bench_path = format!("{}/{bench_file}", std::env::var("CHINGOLO_BENCH_DIR").expect("set CHINGOLO_BENCH_DIR"));
     let mut args = std::env::args().skip(1);
     let name = args.next().expect("model");
     let out_dir = args.next().unwrap_or_else(|| format!("{base}/bench-out"));
@@ -348,7 +348,7 @@ fn main() {
 
 /// Model name stored with the vectors in the app database.
 fn stored_model() -> String {
-    let path = std::env::var("CHINGUI_BENCH_DB").expect("set CHINGUI_BENCH_DB");
+    let path = std::env::var("CHINGOLO_BENCH_DB").expect("set CHINGOLO_BENCH_DB");
     let conn = rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
     conn.query_row("SELECT model FROM passage_vectors GROUP BY model ORDER BY COUNT(*) DESC LIMIT 1", [], |r| r.get(0)).unwrap_or_default()
 }
@@ -359,7 +359,7 @@ fn run_app(qs: &[Value], queries: &[String], out_dir: &str) {
     let embedded = passages.iter().filter(|p| p.vec.is_some()).count();
     println!("app: {} passages ({embedded} with a vector), {} questions", passages.len(), qs.len());
     if embedded == 0 {
-        // a database made without the embedder (CHINGUI_BENCH_DB from `cargo test corpus_db`): keyword search only
+        // a database made without the embedder (CHINGOLO_BENCH_DB from `cargo test corpus_db`): keyword search only
         println!("app-bm25 (no vectors in the database)");
         return report("app-bm25", &passages, qs, bm25_app(&passages, queries), out_dir, None);
     }
@@ -367,8 +367,8 @@ fn run_app(qs: &[Value], queries: &[String], out_dir: &str) {
         println!("  warning: {} passages have no vector yet, the vector ranking ignores them", passages.len() - embedded);
     }
 
-    if std::env::var("CHINGUI_BENCH_VARIANTS").is_ok() {
-        let file = std::env::var("CHINGUI_BENCH_FILE").unwrap_or_else(|_| "bench.json".into());
+    if std::env::var("CHINGOLO_BENCH_VARIANTS").is_ok() {
+        let file = std::env::var("CHINGOLO_BENCH_FILE").unwrap_or_else(|_| "bench.json".into());
         return experiments::run(&passages, qs, queries, out_dir, &file);
     }
     let keyword = bm25_app(&passages, queries);

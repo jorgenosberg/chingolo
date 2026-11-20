@@ -17,7 +17,7 @@ src-tauri/
     domain/              plain types and validation, no IO
     services/ai/         Provider trait, SSE parser, gemini.rs (+ openai.rs in M2)
     services/chat.rs     send, stream and persist a reply; handoff summary
-    services/docfile.rs  chingui-doc:// scheme that serves stored files to the reader
+    services/docfile.rs  chingolo-doc:// scheme that serves stored files to the reader
     services/tools.rs    library tools for the model (search_library, read_section, get_page, list_documents)
     services/citations.rs  checks [S<n>] handles in a finished reply
     services/{ingestion,retrieval,references,export}/   (M2+)
@@ -61,7 +61,7 @@ src-tauri/
 
 ## Dev signing
 
-macOS Keychain "Always Allow" is tied to the app's code signature. Ad-hoc dev builds get a new signature on every rebuild, so macOS asks again. `src-tauri/.cargo/config.toml` sets `scripts/dev-run.sh` as the cargo runner, which signs the debug binary with a local Apple Development certificate (if one is installed) using the identifier `app.chingui.desktop`. Release builds use a proper identity (M4).
+macOS Keychain "Always Allow" is tied to the app's code signature. Ad-hoc dev builds get a new signature on every rebuild, so macOS asks again. `src-tauri/.cargo/config.toml` sets `scripts/dev-run.sh` as the cargo runner, which signs the debug binary with a local Apple Development certificate (if one is installed) using the identifier `app.chingolo.desktop`. Release builds use a proper identity (M4).
 
 ## Retrieval (M2)
 
@@ -104,15 +104,15 @@ Details (title, authors, year, DOI, journal, series, ISBN, ISSN) come from `inge
 
 ## Reader (M2)
 
-- A document opens in the main pane (`features/reader`), later also as a split beside a chat. PDF.js renders it. Files reach the viewer through the `chingui-doc://localhost/<document id>` URI scheme registered in Rust (`services/docfile.rs`). The id is looked up in the database and the managed copy is read, so the webview never supplies a path. Single byte ranges are supported.
+- A document opens in the main pane (`features/reader`), later also as a split beside a chat. PDF.js renders it. Files reach the viewer through the `chingolo-doc://localhost/<document id>` URI scheme registered in Rust (`services/docfile.rs`). The id is looked up in the database and the managed copy is read, so the webview never supplies a path. Single byte ranges are supported.
 - `get_passage` returns a passage with its line boxes (PDF user space). The reader converts two opposite corners through the page viewport and draws the boxes in percent of the page, which survives zoom. A passage without boxes opens the page with a note.
-- PDF.js assets (wasm, CMaps, fonts, ICC profiles) are served from `/pdfjs/` by a small Vite plugin and copied into the build. The CSP allows `chingui-doc:`, `wasm-unsafe-eval` and blob workers.
+- PDF.js assets (wasm, CMaps, fonts, ICC profiles) are served from `/pdfjs/` by a small Vite plugin and copied into the build. The CSP allows `chingolo-doc:`, `wasm-unsafe-eval` and blob workers.
 - Pinch zoom is a CSS transform preview with one PDF.js rescale at the end (`features/reader/pinch.ts`).
 - Tailwind's `border-box` default must not apply to `.pdfViewer .page`, or the canvas and text layer disagree on size (see `index.css`).
 
 ## Logging and usage
 
-- Logs: `tauri-plugin-log`, console plus a file in `~/Library/Logs/app.chingui.desktop/` (2 MB, 5 kept). Our code logs at debug in dev builds and info in release, dependencies at info. Lines carry timings, counts, model ids and errors, never document text, messages or keys. Settings has a "Show log folder" button (`show_logs`, opens the app's own log folder).
+- Logs: `tauri-plugin-log`, console plus a file in `~/Library/Logs/app.chingolo.desktop/` (2 MB, 5 kept). Our code logs at debug in dev builds and info in release, dependencies at info. Lines carry timings, counts, model ids and errors, never document text, messages or keys. Settings has a "Show log folder" button (`show_logs`, opens the app's own log folder).
 - Usage: table `api_usage` (migration 0006, `conversation_id` added in 0008), one row per paid call, kinds `chat`, `handoff`, `embed_index`, `embed_query`, `rerank`, `metadata`. Chat and hand-off rows carry their conversation, so `get_conversation_cost` can total one conversation (indexing and search queries have none). Written by `services/chat.rs` and the embedding engine (`persistence/usage.rs`). The Gemini encoder reports prompt tokens from the response (`last_usage`), or an estimate from text length flagged `estimated`. `get_usage` groups by provider, model and kind for 24 hours, 7 days or all time.
 - Cost: `services/pricing.rs` prices a call when it is recorded. The table is a trimmed models.dev copy: `src-tauri/data/prices.json` is bundled, and `keep_fresh` fetches a new one at startup and then daily when automatic updates are on (settings key `prices_auto_update`, default on) and the last success is over 7 days old (`prices_checked_at`). The Usage tab has the switch and an "Update prices now" button that fetches whatever the switch says, saving it as `prices.json` in the app data folder. The newer of the two wins, a feed that looks wrong is refused, and a failure only logs. Models without a price show tokens only. To refresh the bundled copy for a new build: `cargo test update_bundled_prices -- --ignored` in `src-tauri`.
 

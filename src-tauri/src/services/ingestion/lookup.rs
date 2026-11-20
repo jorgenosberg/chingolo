@@ -406,7 +406,7 @@ mod tests {
         assert!(crossref::search_hit_fits(&good, title, &[], None));
         assert!(!crossref::search_hit_fits(&good, title, &wanted, Some(2005)), "year too far off");
         assert!(!crossref::search_hit_fits(&good, title, &["A. Someone".to_string()], Some(1993)), "other author");
-        // the real near misses from the owner's library
+        // real near misses found in a paper library
         assert!(!crossref::search_hit_fits(&hit("Part 2: Protozoa, Myxozoa, Mesozoa", 2024, &[]), "Protozoa and Myxozoa", &[], None));
         assert!(!crossref::search_hit_fits(&hit("SoundToxins: A Research and Monitoring Partnership for Harmful Phytoplankton", 2023, &[]), "SoundToxins manual", &[], None));
         assert_eq!(first_surname(&wanted).as_deref(), Some("Albright"));

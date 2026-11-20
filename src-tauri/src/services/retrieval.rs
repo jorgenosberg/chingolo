@@ -90,7 +90,7 @@ pub fn hybrid_search(
 }
 
 /// The passages around a hit, in reading order, so an answer isn't cut off mid-argument.
-/// Slice 8's retrieval tools use this.
+/// Not used by the app yet.
 #[allow(dead_code)]
 pub fn neighbour_passages(conn: &Connection, passage_id: &str, k: u32) -> Result<Vec<SearchHit>> {
     let ids = vectors::neighbours(conn, passage_id, k)?;
