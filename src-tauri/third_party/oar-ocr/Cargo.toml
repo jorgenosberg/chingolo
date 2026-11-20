@@ -123,7 +123,7 @@ features = ["general-category"]
 default-features = false
 
 [dependencies.zip]
-version = "8.6"
+version = "9.3"
 features = ["deflate-flate2"]
 default-features = false
 
