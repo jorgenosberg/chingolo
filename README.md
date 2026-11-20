@@ -1,3 +1,5 @@
+<img src="src-tauri/icons/128x128@2x.png" alt="Chingolo app icon" width="96">
+
 # Chingolo
 
 A little help for big ideas.
