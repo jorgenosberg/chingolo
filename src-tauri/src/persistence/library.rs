@@ -561,7 +561,7 @@ pub struct TableRow {
     pub page_no: u32,
     pub ordinal: u32,
     pub rect: [f32; 4],
-    /// `ok`, `unsure` or `failed`, see migration 0014.
+    /// `ok`, `unsure` or `failed`, see `migrations/0001_init.sql`.
     pub status: String,
     pub note: Option<String>,
     /// Text in the region but outside the grid (footnotes, sources).

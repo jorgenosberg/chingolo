@@ -37,7 +37,7 @@ src-tauri/
 ## Data
 
 - SQLite via rusqlite (bundled, FTS5 on). WAL and foreign keys on. Migrations run at startup. IDs are UUIDv7 text.
-- M1 tables: `projects`, `chapters`, `conversations` (with nullable `source_scope` JSON, see Source scope), `messages` (plus `turns` and `citations` JSON, migration 0007), `messages_fts`, `settings`. `conversation_sources` holds the handles of a conversation.
+- M1 tables: `projects`, `chapters`, `conversations` (with nullable `source_scope` JSON, see Source scope), `messages` (plus `turns` and `citations` JSON), `messages_fts`, `settings`. `conversation_sources` holds the handles of a conversation.
 - Message status is `streaming`, `complete`, `error`, `cancelled` or `interrupted`. Replies are flushed about twice a second while streaming, so a crash keeps most of the text.
 - Each message records its provider, model and token counts. A conversation also reports `switch_cost_tokens`, computed from its latest reply (see Conversations and models).
 - Original files go in a managed library folder, named by content hash.
@@ -113,7 +113,7 @@ Details (title, authors, year, DOI, journal, series, ISBN, ISSN) come from `inge
 ## Logging and usage
 
 - Logs: `tauri-plugin-log`, console plus a file in `~/Library/Logs/app.chingolo.desktop/` (2 MB, 5 kept). Our code logs at debug in dev builds and info in release, dependencies at info. Lines carry timings, counts, model ids and errors, never document text, messages or keys. Settings has a "Show log folder" button (`show_logs`, opens the app's own log folder).
-- Usage: table `api_usage` (migration 0006, `conversation_id` added in 0008), one row per paid call, kinds `chat`, `handoff`, `embed_index`, `embed_query`, `rerank`, `metadata`. Chat and hand-off rows carry their conversation, so `get_conversation_cost` can total one conversation (indexing and search queries have none). Written by `services/chat.rs` and the embedding engine (`persistence/usage.rs`). The Gemini encoder reports prompt tokens from the response (`last_usage`), or an estimate from text length flagged `estimated`. `get_usage` groups by provider, model and kind for 24 hours, 7 days or all time.
+- Usage: table `api_usage` (`conversation_id` links a call to its chat), one row per paid call, kinds `chat`, `handoff`, `embed_index`, `embed_query`, `rerank`, `metadata`. Chat and hand-off rows carry their conversation, so `get_conversation_cost` can total one conversation (indexing and search queries have none). Written by `services/chat.rs` and the embedding engine (`persistence/usage.rs`). The Gemini encoder reports prompt tokens from the response (`last_usage`), or an estimate from text length flagged `estimated`. `get_usage` groups by provider, model and kind for 24 hours, 7 days or all time.
 - Cost: `services/pricing.rs` prices a call when it is recorded. The table is a trimmed models.dev copy: `src-tauri/data/prices.json` is bundled, and `keep_fresh` fetches a new one at startup and then daily when automatic updates are on (settings key `prices_auto_update`, default on) and the last success is over 7 days old (`prices_checked_at`). The Usage tab has the switch and an "Update prices now" button that fetches whatever the switch says, saving it as `prices.json` in the app data folder. The newer of the two wins, a feed that looks wrong is refused, and a failure only logs. Models without a price show tokens only. To refresh the bundled copy for a new build: `cargo test update_bundled_prices -- --ignored` in `src-tauri`.
 
 ## Privacy

@@ -17,24 +17,7 @@ use rusqlite::Connection;
 use crate::error::{AppError, Result};
 
 /// Applied in order. The number of applied entries is stored in `PRAGMA user_version`.
-const MIGRATIONS: &[&str] = &[
-    include_str!("../../migrations/0001_init.sql"),
-    include_str!("../../migrations/0002_cached_tokens.sql"),
-    include_str!("../../migrations/0003_fork_marker.sql"),
-    include_str!("../../migrations/0004_library.sql"),
-    include_str!("../../migrations/0005_embeddings.sql"),
-    include_str!("../../migrations/0006_api_usage.sql"),
-    include_str!("../../migrations/0007_grounded_answers.sql"),
-    include_str!("../../migrations/0008_usage_conversation.sql"),
-    include_str!("../../migrations/0009_page_ocr.sql"),
-    include_str!("../../migrations/0010_metadata.sql"),
-    include_str!("../../migrations/0011_source_label.sql"),
-    include_str!("../../migrations/0012_enrich_state.sql"),
-    include_str!("../../migrations/0013_layout.sql"),
-    include_str!("../../migrations/0014_tables.sql"),
-    include_str!("../../migrations/0015_table_footer.sql"),
-    include_str!("../../migrations/0016_table_guessed.sql"),
-];
+const MIGRATIONS: &[&str] = &[include_str!("../../migrations/0001_init.sql")];
 
 #[derive(Clone)]
 pub struct Db(Arc<Mutex<Connection>>);
