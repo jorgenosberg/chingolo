@@ -9,7 +9,7 @@ pub mod settings;
 pub mod sources;
 pub mod vectors;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
@@ -26,6 +26,7 @@ impl Db {
     pub fn open(path: &Path) -> Result<Self> {
         let mut conn = Connection::open(path)?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
+        back_up_before_migrating(&conn, path, MIGRATIONS.len())?;
         Self::init(&mut conn)?;
         Ok(Db(Arc::new(Mutex::new(conn))))
     }
@@ -63,6 +64,48 @@ impl Db {
         })
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?
+    }
+}
+
+/// How many backups of older schema versions to keep.
+const KEEP_BACKUPS: usize = 2;
+
+/// Copies an existing database to `<file>.bak-v<version>` before migrations change it, so an
+/// update that goes wrong can be undone by hand. A new database (version 0) needs none. If the
+/// copy fails the app doesn't start, rather than migrating without a backup.
+fn back_up_before_migrating(conn: &Connection, path: &Path, latest: usize) -> Result<()> {
+    let version = conn.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))? as usize;
+    if version == 0 || version >= latest {
+        return Ok(());
+    }
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("database");
+    let target = path.with_file_name(format!("{name}.bak-v{version}"));
+    if target.exists() {
+        std::fs::remove_file(&target)
+            .map_err(|e| AppError::Internal(format!("could not replace the old backup: {e}")))?;
+    }
+    // VACUUM INTO writes a consistent copy that includes what is still in the WAL.
+    conn.execute("VACUUM INTO ?1", [target.to_string_lossy().as_ref()])?;
+    log::info!("database backed up to {} before migrating from version {version}", target.display());
+    prune_backups(path, name);
+    Ok(())
+}
+
+fn prune_backups(path: &Path, name: &str) {
+    let Some(dir) = path.parent() else { return };
+    let prefix = format!("{name}.bak-v");
+    let mut found: Vec<(u64, PathBuf)> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| {
+            let v = e.file_name().to_str()?.strip_prefix(&prefix)?.parse().ok()?;
+            Some((v, e.path()))
+        })
+        .collect();
+    found.sort_by(|a, b| b.0.cmp(&a.0));
+    for (_, old) in found.into_iter().skip(KEEP_BACKUPS) {
+        let _ = std::fs::remove_file(old);
     }
 }
 
@@ -104,6 +147,49 @@ mod tests {
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
         assert_eq!(v as usize, MIGRATIONS.len());
+    }
+
+    #[test]
+    fn an_older_database_is_backed_up_before_migrating_and_old_backups_are_pruned() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.sqlite");
+        let mut conn = Connection::open(&path).unwrap();
+        conn.pragma_update(None, "journal_mode", "WAL").unwrap();
+        migrate(&mut conn).unwrap();
+        conn.execute("INSERT INTO settings (key, value) VALUES ('k', 'v')", []).unwrap();
+
+        // Up to date: nothing to back up.
+        back_up_before_migrating(&conn, &path, MIGRATIONS.len()).unwrap();
+        assert!(!dir.path().join("test.sqlite.bak-v1").exists());
+
+        // A newer schema is coming: the copy has the data, including what sits in the WAL.
+        back_up_before_migrating(&conn, &path, MIGRATIONS.len() + 1).unwrap();
+        let copy = Connection::open(dir.path().join("test.sqlite.bak-v1")).unwrap();
+        let v: String = copy.query_row("SELECT value FROM settings WHERE key = 'k'", [], |r| r.get(0)).unwrap();
+        assert_eq!(v, "v");
+
+        // Only the newest two stay.
+        for n in [2, 3, 4] {
+            std::fs::write(dir.path().join(format!("test.sqlite.bak-v{n}")), b"x").unwrap();
+        }
+        prune_backups(&path, "test.sqlite");
+        let mut left: Vec<String> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .flatten()
+            .filter_map(|e| e.file_name().to_str().map(String::from))
+            .filter(|n| n.contains(".bak-v"))
+            .collect();
+        left.sort();
+        assert_eq!(left, ["test.sqlite.bak-v3", "test.sqlite.bak-v4"]);
+    }
+
+    #[test]
+    fn a_new_database_needs_no_backup() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("new.sqlite");
+        let conn = Connection::open(&path).unwrap();
+        back_up_before_migrating(&conn, &path, 5).unwrap();
+        assert!(!dir.path().join("new.sqlite.bak-v0").exists());
     }
 
     #[test]
