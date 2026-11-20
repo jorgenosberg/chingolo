@@ -8,7 +8,7 @@ Status: early development. macOS on Apple Silicon only.
 
 ## Install
 
-Download the `.dmg` from the [latest release](https://github.com/jorgenosberg/chingolo/releases/latest) and drag Chingolo to Applications. The app is not notarized (no paid Apple Developer account), so macOS blocks the first launch. Either open System Settings > Privacy & Security and choose Open Anyway, or run:
+Download the `.dmg` from the [latest release](https://github.com/jorgenosberg/chingolo/releases/latest) and drag Chingolo to Applications. The app is not notarized (no paid Apple Developer account), so macOS blocks it twice: once when you open the `.dmg`, and again when you first launch the app. Each time, open System Settings > Privacy & Security and choose Open Anyway. Or, after dragging the app to Applications, skip the second block by running:
 
 ```sh
 xattr -dr com.apple.quarantine /Applications/Chingolo.app
