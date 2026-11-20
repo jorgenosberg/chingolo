@@ -41,6 +41,15 @@
 			"icons/128x128@2x.png",
 			"icons/icon.icns",
 			"icons/icon.ico"
-		]
+		],
+		"createUpdaterArtifacts": true
+	},
+	"plugins": {
+		"updater": {
+			"pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEM0QTY2QjM2QURFMzg1NjAKUldSZ2hlT3RObXVteEswVno1ME03aTlya2VOZXNmVnhITzNBdGR1bTYvWmpOMDl4QWxaa3pwRW0K",
+			"endpoints": [
+				"https://github.com/jorgenosberg/chingolo/releases/latest/download/latest.json"
+			]
+		}
 	}
 }

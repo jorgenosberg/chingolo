@@ -78,6 +78,10 @@ export const commands = {
 	getLayout: (documentId: string) => typedError<PageRegion[], CmdError>(__TAURI_INVOKE("get_layout", { documentId })),
 	/**  The saved copy of a cited passage, for when its document was deleted or read again. */
 	getSource: (conversationId: string, handle: number) => typedError<SourceView, CmdError>(__TAURI_INVOKE("get_source", { conversationId, handle })),
+	/**  Asks the release page whether a newer version exists. Nothing is downloaded. */
+	checkForUpdate: () => typedError<UpdateInfo | null, CmdError>(__TAURI_INVOKE("check_for_update")),
+	/**  Downloads the newer version, checks its signature, installs it and restarts the app. */
+	installUpdate: () => typedError<null, CmdError>(__TAURI_INVOKE("install_update")),
 	ocrStatus: () => __TAURI_INVOKE<ModelState>("ocr_status"),
 	/**
 	 *  Downloads the text recognition models (about 31 MB), if they aren't there yet. Documents read
@@ -548,6 +552,11 @@ export type SourceView = {
 	/**  First page, 0 for Word documents. */
 	page: number,
 	text: string,
+};
+
+export type UpdateInfo = {
+	version: string,
+	notes: string | null,
 };
 
 export type UsagePeriod = "day" | "week" | "all";

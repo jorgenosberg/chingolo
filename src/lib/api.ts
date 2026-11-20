@@ -123,6 +123,9 @@ export const api = {
 	searchLibrary: (query: string, projectId: string | null, meaning: boolean) =>
 		unwrap(commands.searchLibrary(query, projectId, 30, meaning)),
 
+	checkForUpdate: () => unwrap(commands.checkForUpdate()),
+	installUpdate: () => unwrap(commands.installUpdate()),
+
 	ocrStatus: () => commands.ocrStatus(),
 	downloadOcrModel: () => commands.downloadOcrModel(),
 	layoutStatus: () => commands.layoutStatus(),

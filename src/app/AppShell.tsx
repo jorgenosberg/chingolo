@@ -13,6 +13,7 @@ import { LibraryView } from "../features/library/LibraryView";
 import { Sidebar } from "../features/projects/Sidebar";
 import { SearchModal } from "../features/search/SearchModal";
 import { SettingsView } from "../features/settings/SettingsView";
+import { UpdateBar } from "../features/updates/UpdateBar";
 import { api } from "../lib/api";
 import { useDropActive, useLibraryEvents } from "../lib/library";
 import { useConversations, useProjects } from "../lib/queries";
@@ -251,6 +252,7 @@ export function AppShell() {
 				</Panel>
 			</Group>
 			<SearchModal />
+			<UpdateBar />
 			<DropOverlay
 				targetName={
 					projects.data?.find((p) => p.id === importTarget)?.name ?? null

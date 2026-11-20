@@ -69,6 +69,8 @@ fn specta_builder() -> Builder<tauri::Wry> {
         commands::library::get_passage,
         commands::library::get_layout,
         commands::library::get_source,
+        commands::update::check_for_update,
+        commands::update::install_update,
         commands::ocr::ocr_status,
         commands::ocr::download_ocr_model,
         commands::ocr::layout_status,
@@ -157,6 +159,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(logging())
         .register_asynchronous_uri_scheme_protocol(docfile::SCHEME, |ctx, request, responder| {
             let app = ctx.app_handle().clone();
