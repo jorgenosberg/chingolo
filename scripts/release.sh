@@ -42,6 +42,8 @@ mv src-tauri/tauri.conf.json.new src-tauri/tauri.conf.json
 jq --arg v "$version" '.version = $v' package.json >package.json.new
 mv package.json.new package.json
 perl -0pi -e "s/^version = \"[^\"]*\"/version = \"$version\"/m" src-tauri/Cargo.toml
+# jq reindents the files, so put the repo's formatting back.
+bunx biome check --write package.json src-tauri/tauri.conf.json >/dev/null
 
 echo "== build (signing identity: ${APPLE_SIGNING_IDENTITY:-ad hoc})"
 bun run tauri build
@@ -66,7 +68,7 @@ fi
 read -r -p "Commit the version bump, push, and publish $tag on $repo? [y/N] " answer
 [ "$answer" = y ] || { echo "stopped. Undo the version bump with: git checkout ."; exit 1; }
 git add -A
-git commit -m "chore: release $tag"
+if ! git diff --cached --quiet; then git commit -m "chore: release $tag"; fi
 git push origin HEAD
 gh release create "$tag" --repo "$repo" --target "$(git rev-parse HEAD)" --title "Chingolo $version" \
 	--notes "${notes:-Chingolo $version}" "$archive" "$archive.sig" "$dmg" "$out/latest.json"

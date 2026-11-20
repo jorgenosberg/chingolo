@@ -1,65 +1,60 @@
 {
-  "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Chingolo",
-  "version": "0.1.0",
-  "identifier": "app.chingolo.desktop",
-  "build": {
-    "beforeDevCommand": "bun run dev",
-    "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "bun run build",
-    "frontendDist": "../dist"
-  },
-  "app": {
-    "windows": [
-      {
-        "title": "Chingolo",
-        "width": 1280,
-        "height": 800,
-        "minWidth": 900,
-        "minHeight": 600,
-        "titleBarStyle": "Overlay",
-        "hiddenTitle": true,
-        "dragDropEnabled": true
-      }
-    ],
-    "security": {
-      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost chingolo-doc:",
-      "devCsp": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost chingolo-doc: ws://localhost:1420 http://localhost:1420"
-    }
-  },
-  "bundle": {
-    "active": true,
-    "targets": [
-      "app",
-      "dmg"
-    ],
-    "category": "Education",
-    "macOS": {
-      "minimumSystemVersion": "13.0",
-      "frameworks": [
-        "vendor/pdfium/libpdfium.dylib"
-      ]
-    },
-    "icon": [
-      "icons/32x32.png",
-      "icons/128x128.png",
-      "icons/128x128@2x.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
-    ],
-    "createUpdaterArtifacts": true,
-    "resources": {
-      "vendor/pdfium/LICENSE": "licenses/pdfium/LICENSE",
-      "vendor/pdfium/licenses/": "licenses/pdfium/third-party/",
-      "../NOTICE.md": "licenses/NOTICE.md"
-    }
-  },
-  "plugins": {
-    "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEM0QTY2QjM2QURFMzg1NjAKUldSZ2hlT3RObXVteEswVno1ME03aTlya2VOZXNmVnhITzNBdGR1bTYvWmpOMDl4QWxaa3pwRW0K",
-      "endpoints": [
-        "https://github.com/jorgenosberg/chingolo/releases/latest/download/latest.json"
-      ]
-    }
-  }
+	"$schema": "https://schema.tauri.app/config/2",
+	"productName": "Chingolo",
+	"version": "0.1.0",
+	"identifier": "app.chingolo.desktop",
+	"build": {
+		"beforeDevCommand": "bun run dev",
+		"devUrl": "http://localhost:1420",
+		"beforeBuildCommand": "bun run build",
+		"frontendDist": "../dist"
+	},
+	"app": {
+		"windows": [
+			{
+				"title": "Chingolo",
+				"width": 1280,
+				"height": 800,
+				"minWidth": 900,
+				"minHeight": 600,
+				"titleBarStyle": "Overlay",
+				"hiddenTitle": true,
+				"dragDropEnabled": true
+			}
+		],
+		"security": {
+			"csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost chingolo-doc:",
+			"devCsp": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost chingolo-doc: ws://localhost:1420 http://localhost:1420"
+		}
+	},
+	"bundle": {
+		"active": true,
+		"targets": ["app", "dmg"],
+		"category": "Education",
+		"macOS": {
+			"minimumSystemVersion": "13.0",
+			"frameworks": ["vendor/pdfium/libpdfium.dylib"]
+		},
+		"icon": [
+			"icons/32x32.png",
+			"icons/128x128.png",
+			"icons/128x128@2x.png",
+			"icons/icon.icns",
+			"icons/icon.ico"
+		],
+		"createUpdaterArtifacts": true,
+		"resources": {
+			"vendor/pdfium/LICENSE": "licenses/pdfium/LICENSE",
+			"vendor/pdfium/licenses/": "licenses/pdfium/third-party/",
+			"../NOTICE.md": "licenses/NOTICE.md"
+		}
+	},
+	"plugins": {
+		"updater": {
+			"pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEM0QTY2QjM2QURFMzg1NjAKUldSZ2hlT3RObXVteEswVno1ME03aTlya2VOZXNmVnhITzNBdGR1bTYvWmpOMDl4QWxaa3pwRW0K",
+			"endpoints": [
+				"https://github.com/jorgenosberg/chingolo/releases/latest/download/latest.json"
+			]
+		}
+	}
 }
