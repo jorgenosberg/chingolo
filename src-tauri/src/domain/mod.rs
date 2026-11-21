@@ -215,6 +215,22 @@ pub struct ConversationFilter {
     pub query: Option<String>,
 }
 
+/// One message that matched a chat search.
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MessageHit {
+    pub conversation_id: Id,
+    pub conversation_title: String,
+    pub project_id: Option<Id>,
+    pub archived: bool,
+    pub message_id: Id,
+    pub role: Role,
+    #[specta(type = Number)]
+    pub created_at: i64,
+    /// Matching text around the hit. Matched words sit between U+0002 and U+0003.
+    pub snippet: String,
+}
+
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {

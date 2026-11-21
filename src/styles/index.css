@@ -122,6 +122,39 @@
 	overflow-x: auto;
 }
 
+/* Marks the message a search hit jumped to, then fades. */
+.message-flash {
+	border-radius: 0.5rem;
+	animation: message-flash 1.6s ease-out;
+}
+@keyframes message-flash {
+	0%,
+	40% {
+		background-color: oklch(0.88 0.15 90 / 0.6);
+		box-shadow: 0 0 0 6px oklch(0.88 0.15 90 / 0.6);
+	}
+	100% {
+		background-color: transparent;
+		box-shadow: 0 0 0 6px transparent;
+	}
+}
+/* No fade: a steady outline for the same time. It still runs as an animation so `animationend`
+   fires and the class comes off. */
+@media (prefers-reduced-motion: reduce) {
+	.message-flash {
+		animation: message-flash-still 1.6s steps(1, end);
+		outline: 2px solid oklch(0.75 0.15 90);
+		outline-offset: 4px;
+	}
+}
+@keyframes message-flash-still {
+	from,
+	to {
+		background-color: transparent;
+		box-shadow: none;
+	}
+}
+
 /* Passage highlight drawn over a PDF.js page. Boxes are positioned in percent of the page. */
 .passage-highlight {
 	position: absolute;

@@ -39,6 +39,7 @@ export const api = {
 				...filter,
 			}),
 		),
+	searchMessages: (query: string) => unwrap(commands.searchMessages(query)),
 	createConversation: (projectId: string | null, chapterId: string | null) =>
 		unwrap(commands.createConversation(projectId, chapterId)),
 	renameConversation: (id: string, title: string) =>

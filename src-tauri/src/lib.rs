@@ -37,6 +37,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
         commands::projects::rename_chapter,
         commands::projects::delete_chapter,
         commands::chat::list_conversations,
+        commands::chat::search_messages,
         commands::chat::create_conversation,
         commands::chat::rename_conversation,
         commands::chat::archive_conversation,

@@ -39,7 +39,13 @@ import { MessageItem } from "./MessageItem";
 
 export function ChatView({ conversationId }: { conversationId: string }) {
 	const qc = useQueryClient();
-	const { openSettings, toggleContext, contextOpen } = useNav();
+	const {
+		openSettings,
+		toggleContext,
+		contextOpen,
+		messageTarget,
+		clearMessageTarget,
+	} = useNav();
 	const { prompt, confirm } = useDialogs();
 	const { fork, handoff } = useConversationFlows();
 	const conversations = useConversations();
@@ -64,7 +70,10 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 	const [sending, setSending] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [askPrivacy, setAskPrivacy] = useState(false);
-	const [showEarlier, setShowEarlier] = useState(false);
+	// The conversation whose copied messages are expanded. Keyed by id so switching chats
+	// collapses them without an effect.
+	const [earlierFor, setEarlierFor] = useState<string | null>(null);
+	const showEarlier = earlierFor === conversationId;
 
 	const scroller = useRef<HTMLDivElement>(null);
 	const stick = useRef(true);
@@ -80,8 +89,60 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 	useLayoutEffect(() => {
 		stick.current = true;
 		setError(null);
-		setShowEarlier(false);
 	}, [conversationId]);
+
+	// Jump to a message a search hit asked for. Declared after the effects above so it has the
+	// last word on the scroll position when both run in one commit.
+	const targetId =
+		messageTarget?.conversationId === conversationId
+			? messageTarget.messageId
+			: null;
+	const targetNonce = messageTarget?.nonce;
+	const forkBoundaryId = conversation?.forkBoundaryMessageId;
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the nonce re-runs a repeat jump
+	useLayoutEffect(() => {
+		const el = scroller.current;
+		const list = messages.data;
+		if (!targetId || !el || !list) return;
+		const at = list.findIndex((m) => m.id === targetId);
+		if (at < 0) {
+			// Deleted since the search. Stay where the chat opens.
+			clearMessageTarget();
+			return;
+		}
+		const boundary = forkBoundaryId
+			? list.findIndex((m) => m.id === forkBoundaryId)
+			: -1;
+		if (at <= boundary && !showEarlier) {
+			// Behind the collapsed fork row. Expand it; this effect runs again.
+			setEarlierFor(conversationId);
+			return;
+		}
+		const node = el.querySelector(
+			`[data-message-id="${CSS.escape(targetId)}"]`,
+		);
+		if (!node) return;
+		stick.current = false;
+		node.scrollIntoView({ block: "center" });
+		const mark = node.querySelector(".selectable") ?? node;
+		mark.classList.remove("message-flash");
+		void (mark as HTMLElement).offsetWidth; // restart the animation on a repeat jump
+		mark.classList.add("message-flash");
+		mark.addEventListener(
+			"animationend",
+			() => mark.classList.remove("message-flash"),
+			{ once: true },
+		);
+		clearMessageTarget();
+	}, [
+		targetId,
+		targetNonce,
+		messages.data,
+		forkBoundaryId,
+		showEarlier,
+		conversationId,
+		clearMessageTarget,
+	]);
 
 	if (conversations.isSuccess && !conversation) {
 		return (
@@ -303,7 +364,11 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 							<button
 								type="button"
 								aria-expanded={showEarlier}
-								onClick={() => setShowEarlier((v) => !v)}
+								onClick={() =>
+									setEarlierFor((f) =>
+										f === conversationId ? null : conversationId,
+									)
+								}
 								className="mx-auto flex max-w-full items-center gap-2 rounded-md px-2 py-1 text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/60"
 							>
 								<span className="truncate">

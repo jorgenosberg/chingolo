@@ -15,6 +15,7 @@ export const commands = {
 	renameChapter: (id: string, title: string) => typedError<Chapter, CmdError>(__TAURI_INVOKE("rename_chapter", { id, title })),
 	deleteChapter: (id: string) => typedError<null, CmdError>(__TAURI_INVOKE("delete_chapter", { id })),
 	listConversations: (filter: ConversationFilter) => typedError<Conversation[], CmdError>(__TAURI_INVOKE("list_conversations", { filter })),
+	searchMessages: (query: string) => typedError<MessageHit[], CmdError>(__TAURI_INVOKE("search_messages", { query })),
 	createConversation: (projectId: string | null, chapterId: string | null) => typedError<Conversation, CmdError>(__TAURI_INVOKE("create_conversation", { projectId, chapterId })),
 	renameConversation: (id: string, title: string) => typedError<Conversation, CmdError>(__TAURI_INVOKE("rename_conversation", { id, title })),
 	archiveConversation: (id: string, archived: boolean) => typedError<Conversation, CmdError>(__TAURI_INVOKE("archive_conversation", { id, archived })),
@@ -393,6 +394,19 @@ export type Message = {
 	citations?: Citation[],
 	createdAt: number,
 	updatedAt: number,
+};
+
+/**  One message that matched a chat search. */
+export type MessageHit = {
+	conversationId: string,
+	conversationTitle: string,
+	projectId: string | null,
+	archived: boolean,
+	messageId: string,
+	role: Role,
+	createdAt: number,
+	/**  Matching text around the hit. Matched words sit between U+0002 and U+0003. */
+	snippet: string,
 };
 
 export type MessageStatus = "streaming" | "complete" | "error" | "cancelled" | "interrupted";

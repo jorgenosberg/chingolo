@@ -31,7 +31,10 @@ export const MessageItem = memo(function MessageItem({
 }) {
 	if (message.role === "user") {
 		return (
-			<div className="group flex flex-col items-end gap-1">
+			<div
+				data-message-id={message.id}
+				className="group flex flex-col items-end gap-1"
+			>
 				<div className="selectable max-w-[85%] whitespace-pre-wrap rounded-2xl bg-accent-soft px-4 py-2.5 text-[15px] leading-relaxed">
 					{message.content}
 				</div>
@@ -57,7 +60,7 @@ export const MessageItem = memo(function MessageItem({
 	const note = describeNote(message);
 
 	return (
-		<div className="group flex flex-col gap-1.5">
+		<div data-message-id={message.id} className="group flex flex-col gap-1.5">
 			{text ? (
 				<div className="selectable chat-prose">
 					<CiteProvider

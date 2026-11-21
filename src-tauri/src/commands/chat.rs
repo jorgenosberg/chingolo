@@ -2,7 +2,7 @@ use tauri::State;
 use tauri::ipc::Channel;
 
 use crate::domain::library::Scope;
-use crate::domain::{Conversation, ConversationFilter, Message};
+use crate::domain::{Conversation, ConversationFilter, Message, MessageHit};
 use crate::error::CmdResult;
 use crate::commands::settings::pick_provider;
 use crate::persistence::chat as repo;
@@ -19,6 +19,18 @@ pub async fn list_conversations(
     Ok(state
         .db
         .call(move |c| repo::list_conversations(c, &filter))
+        .await?)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn search_messages(
+    state: State<'_, AppState>,
+    query: String,
+) -> CmdResult<Vec<MessageHit>> {
+    Ok(state
+        .db
+        .call(move |c| repo::search_messages(c, &query, 3, 40))
         .await?)
 }
 

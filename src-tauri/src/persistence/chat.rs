@@ -5,8 +5,8 @@ use rusqlite::{Connection, OptionalExtension, Row, ToSql, params, params_from_it
 use super::sources;
 
 use crate::domain::{
-    Conversation, ConversationFilter, DEFAULT_CONVERSATION_TITLE, Id, Message, MessageStatus,
-    Role, clean_name, new_id, now_ms,
+    Conversation, ConversationFilter, DEFAULT_CONVERSATION_TITLE, Id, Message, MessageHit,
+    MessageStatus, Role, clean_name, new_id, now_ms,
 };
 use crate::domain::library::Scope;
 use crate::error::{AppError, Result};
@@ -143,6 +143,53 @@ pub fn list_conversations(
 
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(params_from_iter(args.iter()), conversation_from_row)?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+/// Messages that match `query`, best first, at most `per_chat` per conversation and `limit` in
+/// all. Archived conversations are included.
+pub fn search_messages(
+    conn: &Connection,
+    query: &str,
+    per_chat: u32,
+    limit: u32,
+) -> Result<Vec<MessageHit>> {
+    let Some(fts) = fts_query(query) else {
+        return Ok(Vec::new());
+    };
+    let mut stmt = conn.prepare(
+        // FTS5 auxiliary functions only work on a plain scan of the FTS table, so the scan is its
+        // own CTE and the joins and the per-chat window sit above it.
+        "WITH hits AS MATERIALIZED (
+           SELECT rowid AS rid, snippet(messages_fts, 0, char(2), char(3), '…', 12) AS snippet, rank
+           FROM messages_fts WHERE messages_fts MATCH ?1
+         )
+         SELECT conversation_id, title, project_id, archived_at, id, role, created_at, snippet
+         FROM (
+           SELECT m.conversation_id, c.title, c.project_id, c.archived_at, m.id, m.role,
+                  m.created_at, h.snippet, h.rank,
+                  ROW_NUMBER() OVER (PARTITION BY m.conversation_id ORDER BY h.rank) AS n
+           FROM hits h
+           JOIN messages m ON m.rowid = h.rid
+           JOIN conversations c ON c.id = m.conversation_id
+         )
+         WHERE n <= ?2
+         ORDER BY rank
+         LIMIT ?3",
+    )?;
+    let rows = stmt.query_map(params![fts, per_chat, limit], |r| {
+        let role: String = r.get(5)?;
+        Ok(MessageHit {
+            conversation_id: r.get(0)?,
+            conversation_title: r.get(1)?,
+            project_id: r.get(2)?,
+            archived: r.get::<_, Option<i64>>(3)?.is_some(),
+            message_id: r.get(4)?,
+            role: Role::parse(&role).ok_or(rusqlite::Error::InvalidQuery)?,
+            created_at: r.get(6)?,
+            snippet: r.get(7)?,
+        })
+    })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
@@ -621,6 +668,49 @@ mod tests {
         assert_eq!(q("sammenheng"), [b.id.clone()]);
         assert!(q("\"quoted\" OR (weird").is_empty(), "odd input must not break the query");
         assert!(q("100%").is_empty());
+    }
+
+    #[test]
+    fn message_search_returns_hits_with_snippets() {
+        let conn = test_conn();
+        let a = conv(&conn);
+        rename_conversation(&conn, &a.id, "Notes").unwrap();
+        let m = insert_message(&conn, &a.id, Role::User, "Hva er forskjellen på årsak og sammenheng?", MessageStatus::Complete, None, None).unwrap();
+        insert_message(&conn, &a.id, Role::User, "Unrelated", MessageStatus::Complete, None, None).unwrap();
+        let archived = conv(&conn);
+        let am = insert_message(&conn, &archived.id, Role::Assistant, "Årsak is cause.", MessageStatus::Complete, None, None).unwrap();
+        set_archived(&conn, &archived.id, true).unwrap();
+
+        let hits = search_messages(&conn, "arsak", 3, 40).unwrap();
+        assert_eq!(hits.len(), 2, "diacritics are ignored");
+        let hit = hits.iter().find(|h| h.message_id == m.id).unwrap();
+        assert_eq!(hit.conversation_id, a.id);
+        assert_eq!(hit.conversation_title, "Notes");
+        assert!(!hit.archived);
+        assert!(hit.snippet.contains('\u{2}') && hit.snippet.contains('\u{3}'));
+        let ah = hits.iter().find(|h| h.message_id == am.id).unwrap();
+        assert!(ah.archived, "archived chats are searched");
+        assert_eq!(ah.role, Role::Assistant);
+
+        assert!(search_messages(&conn, "   ", 3, 40).unwrap().is_empty());
+        assert!(search_messages(&conn, "\"", 3, 40).unwrap().is_empty());
+        assert!(search_messages(&conn, "\"quoted\" OR (weird", 3, 40).unwrap().is_empty());
+    }
+
+    #[test]
+    fn message_search_caps_hits_per_chat() {
+        let conn = test_conn();
+        let a = conv(&conn);
+        for i in 0..5 {
+            insert_message(&conn, &a.id, Role::User, &format!("plankton bloom {i}"), MessageStatus::Complete, None, None).unwrap();
+        }
+        let b = conv(&conn);
+        insert_message(&conn, &b.id, Role::User, "plankton too", MessageStatus::Complete, None, None).unwrap();
+
+        let hits = search_messages(&conn, "plankton", 3, 40).unwrap();
+        assert_eq!(hits.iter().filter(|h| h.conversation_id == a.id).count(), 3);
+        assert_eq!(hits.iter().filter(|h| h.conversation_id == b.id).count(), 1);
+        assert_eq!(search_messages(&conn, "plankton", 3, 2).unwrap().len(), 2);
     }
 
     #[test]

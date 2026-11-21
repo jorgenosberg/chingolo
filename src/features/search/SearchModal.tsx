@@ -16,6 +16,7 @@ import { cx, focus } from "../../components/ui";
 import {
 	useConversationSearch,
 	useConversations,
+	useMessageSearch,
 	useProjects,
 } from "../../lib/queries";
 
@@ -35,8 +36,24 @@ type Result = {
 	label: string;
 	detail: string;
 	icon: "chat" | "project";
+	/** Matching message text, with the matched words between U+0002 and U+0003. */
+	snippet?: string;
 	run: () => void;
 };
+
+/** The snippet with its matched words in `<mark>`. Built as elements, never as HTML. */
+function Snippet({ text }: { text: string }) {
+	const parts = text.replace(/\s+/g, " ").split(/\u0002|\u0003/);
+	return (
+		<>
+			{parts.map((p, i) =>
+				// Odd parts sit between a start and an end marker.
+				// biome-ignore lint/suspicious/noArrayIndexKey: parts never reorder
+				i % 2 === 1 ? <mark key={i}>{p}</mark> : <span key={i}>{p}</span>,
+			)}
+		</>
+	);
+}
 
 /**
  * A centered search over conversations and projects. Written so more kinds of results (documents,
@@ -74,6 +91,7 @@ function SearchPanel({ close }: { close: () => void }) {
 	const conversations = useConversations();
 	const projects = useProjects();
 	const found = useConversationSearch(mode === "conversations" ? query : "");
+	const hits = useMessageSearch(mode === "conversations" ? query : "");
 	const q = query.trim();
 
 	const results = useMemo<Result[]>(() => {
@@ -98,28 +116,45 @@ function SearchPanel({ close }: { close: () => void }) {
 					};
 				});
 		}
+		const detailOf = (projectId: string | null, archived: boolean) =>
+			[
+				projectId ? projectName.get(projectId) : null,
+				archived ? "Archived" : null,
+			]
+				.filter(Boolean)
+				.join(" · ");
+		// The conversation search also returns chats that only match in a message. Those show up
+		// below as message hits, so only title matches are listed here.
+		const needle = q.toLowerCase();
 		const list = q
-			? (found.data ?? [])
+			? (found.data ?? []).filter((c) => c.title.toLowerCase().includes(needle))
 			: [...(conversations.data ?? [])]
 					.filter((c) => !c.archivedAt)
 					.sort((a, b) => b.updatedAt - a.updatedAt)
 					.slice(0, 12);
-		return list.map((c) => ({
+		const titles: Result[] = list.map((c) => ({
 			id: c.id,
 			label: c.title,
-			detail: [
-				c.projectId ? projectName.get(c.projectId) : null,
-				c.archivedAt ? "Archived" : null,
-			]
-				.filter(Boolean)
-				.join(" · "),
+			detail: detailOf(c.projectId, !!c.archivedAt),
 			icon: "chat" as const,
 			run: () => select(c.id),
 		}));
+		const messages: Result[] = q
+			? (hits.data ?? []).map((h) => ({
+					id: `message:${h.messageId}`,
+					label: h.conversationTitle,
+					detail: detailOf(h.projectId, h.archived),
+					icon: "chat" as const,
+					snippet: h.snippet,
+					run: () => select(h.conversationId, { messageId: h.messageId }),
+				}))
+			: [];
+		return [...titles, ...messages];
 	}, [
 		mode,
 		q,
 		found.data,
+		hits.data,
 		conversations.data,
 		projects.data,
 		select,
@@ -141,7 +176,10 @@ function SearchPanel({ close }: { close: () => void }) {
 		r.run();
 	};
 
-	const searching = mode === "conversations" && q.length > 0 && found.isPending;
+	const searching =
+		mode === "conversations" &&
+		q.length > 0 &&
+		(found.isPending || hits.isPending);
 	const meta = MODES.find((m) => m.id === mode) ?? MODES[0];
 	const empty = !searching && results.length === 0;
 
@@ -231,7 +269,14 @@ function SearchPanel({ close }: { close: () => void }) {
 								<FolderIcon className="size-[17px]" />
 							)}
 						</span>
-						<span className="min-w-0 flex-1 truncate">{r.label}</span>
+						<span className="min-w-0 flex-1">
+							<span className="block truncate">{r.label}</span>
+							{r.snippet && (
+								<span className="block truncate text-xs text-muted-foreground [&_mark]:rounded-sm [&_mark]:bg-[oklch(0.88_0.15_90/0.6)] [&_mark]:text-foreground">
+									<Snippet text={r.snippet} />
+								</span>
+							)}
+						</span>
 						{r.detail && (
 							<span className="shrink-0 text-xs text-muted-foreground">
 								{r.detail}
@@ -253,9 +298,9 @@ function SearchPanel({ close }: { close: () => void }) {
 								: "No conversations yet."}
 					</p>
 				)}
-				{mode === "conversations" && found.isError && (
+				{mode === "conversations" && (found.isError || hits.isError) && (
 					<p role="alert" className="px-2.5 py-2 text-xs text-problem">
-						{found.error.message}
+						{(found.error ?? hits.error)?.message}
 					</p>
 				)}
 			</div>

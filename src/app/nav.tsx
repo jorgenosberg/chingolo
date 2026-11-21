@@ -29,6 +29,13 @@ export type ReaderTarget = {
 	source?: { conversationId: string; handle: number };
 };
 
+/** `nonce` changes on every request, so picking the same message twice still jumps. */
+export type MessageTarget = {
+	conversationId: string;
+	messageId: string;
+	nonce: number;
+};
+
 /** Width the split reader opens at when a citation is clicked. */
 const CITATION_PANE_PX = 560;
 
@@ -47,7 +54,11 @@ type Nav = {
 	openLibrary: (scope?: string | null) => void;
 	setLibraryScope: (scope: string | null) => void;
 	conversationId: string | null;
-	select: (id: string | null) => void;
+	/** Opens a conversation, optionally at one of its messages (a search hit). */
+	select: (id: string | null, opts?: { messageId?: string }) => void;
+	/** A message the open chat should scroll to. The chat clears it once it has jumped. */
+	messageTarget: MessageTarget | null;
+	clearMessageTarget: () => void;
 	/** Creates a conversation, optionally inside a project or chapter, and opens it. */
 	newChat: (
 		projectId?: string | null,
@@ -92,6 +103,10 @@ export function NavProvider({ children }: { children: ReactNode }) {
 	const [conversationId, setConversationId] = useState<string | null>(
 		readSaved,
 	);
+	const [messageTarget, setMessageTarget] = useState<MessageTarget | null>(
+		null,
+	);
+	const targetNonce = useRef(0);
 	const [view, setView] = useState<View>("chat");
 	const [libraryScope, setLibraryScope] = useState<string | null>(null);
 	const [reader, setReader] = useState<ReaderTarget | null>(null);
@@ -129,17 +144,30 @@ export function NavProvider({ children }: { children: ReactNode }) {
 		setView("library");
 	}, []);
 
-	const select = useCallback((id: string | null) => {
-		setConversationId(id);
-		setCitation(null);
-		setView("chat");
-		try {
-			if (id) localStorage.setItem(STORAGE_KEY, id);
-			else localStorage.removeItem(STORAGE_KEY);
-		} catch {
-			// remembering the selection is a convenience only
-		}
-	}, []);
+	const select = useCallback(
+		(id: string | null, opts?: { messageId?: string }) => {
+			setConversationId(id);
+			setMessageTarget(
+				id && opts?.messageId
+					? {
+							conversationId: id,
+							messageId: opts.messageId,
+							nonce: ++targetNonce.current,
+						}
+					: null,
+			);
+			setCitation(null);
+			setView("chat");
+			try {
+				if (id) localStorage.setItem(STORAGE_KEY, id);
+				else localStorage.removeItem(STORAGE_KEY);
+			} catch {
+				// remembering the selection is a convenience only
+			}
+		},
+		[],
+	);
+	const clearMessageTarget = useCallback(() => setMessageTarget(null), []);
 
 	const newChat = useCallback(
 		async (
@@ -198,6 +226,8 @@ export function NavProvider({ children }: { children: ReactNode }) {
 			setLibraryScope,
 			conversationId,
 			select,
+			messageTarget,
+			clearMessageTarget,
 			newChat,
 			openSettings,
 			closeSettings,
@@ -224,6 +254,8 @@ export function NavProvider({ children }: { children: ReactNode }) {
 			openLibrary,
 			conversationId,
 			select,
+			messageTarget,
+			clearMessageTarget,
 			newChat,
 			openSettings,
 			closeSettings,

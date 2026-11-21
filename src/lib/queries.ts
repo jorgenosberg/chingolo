@@ -16,6 +16,7 @@ export const keys = {
 	conversations: ["conversations"] as const,
 	conversationCost: (id: string) => ["conversation-cost", id] as const,
 	search: (q: string) => ["conversations", "search", q] as const,
+	messageSearch: (q: string) => ["conversations", "message-search", q] as const,
 	messages: (conversationId: string) => ["messages", conversationId] as const,
 	/** Prefix of every document list, whatever the scope. */
 	documents: ["documents"] as const,
@@ -65,6 +66,16 @@ export function useConversationSearch(query: string) {
 	return useQuery({
 		queryKey: keys.search(q),
 		queryFn: () => api.listConversations({ includeArchived: true, query: q }),
+		enabled: q.length > 0,
+	});
+}
+
+/** Messages that match, with a snippet each. Under the `conversations` key so new replies refresh it. */
+export function useMessageSearch(query: string) {
+	const q = query.trim();
+	return useQuery({
+		queryKey: keys.messageSearch(q),
+		queryFn: () => api.searchMessages(q),
 		enabled: q.length > 0,
 	});
 }
