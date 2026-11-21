@@ -2,6 +2,7 @@ import {
 	CaretDownIcon,
 	CaretUpIcon,
 	MagnifyingGlassIcon,
+	XIcon,
 } from "@phosphor-icons/react";
 import {
 	type RefObject,
@@ -150,6 +151,12 @@ export function FindBar({
 			role="search"
 			className="flex shrink-0 items-center gap-1.5 border-b border-border px-5 py-2"
 			onSubmit={(e) => e.preventDefault()}
+			// On the form, so Escape closes the bar from the buttons as well as the field.
+			onKeyDown={(e) => {
+				if (e.key !== "Escape" || e.nativeEvent.isComposing) return;
+				e.preventDefault();
+				onClose();
+			}}
 		>
 			<div className="relative min-w-0 flex-1">
 				<MagnifyingGlassIcon className="pointer-events-none absolute left-2 top-1.5 size-4 text-muted-foreground" />
@@ -171,9 +178,6 @@ export function FindBar({
 						if (e.key === "Enter") {
 							e.preventDefault();
 							step(e.shiftKey ? -1 : 1);
-						} else if (e.key === "Escape") {
-							e.preventDefault();
-							onClose();
 						}
 					}}
 					className="h-7 w-full rounded-md border border-transparent bg-muted pr-2 pl-7 text-[13px] outline-none placeholder:text-muted-foreground focus:border-primary/50"
@@ -200,6 +204,9 @@ export function FindBar({
 				onPress={() => step(1)}
 			>
 				<CaretDownIcon />
+			</IconButton>
+			<IconButton label="Close find" onPress={onClose}>
+				<XIcon />
 			</IconButton>
 		</form>
 	);
