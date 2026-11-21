@@ -13,8 +13,8 @@ use tokio::sync::mpsc;
 
 use super::sse::SseParser;
 use super::{
-    Capabilities, EventStream, FinishReason, GenerationEvent, GenerationRequest, Part, Provider, Turn, TurnRole,
-    merge_turns,
+    Capabilities, EventStream, FinishReason, GenerationEvent, GenerationRequest, Part, Provider,
+    Turn, TurnRole, merge_turns,
 };
 use crate::domain::ModelInfo;
 use crate::error::{AppError, Result};
@@ -63,7 +63,11 @@ impl OpenAi {
             .connect_timeout(Duration::from_secs(15))
             .build()
             .expect("http client");
-        OpenAi { client, base, retry_delay }
+        OpenAi {
+            client,
+            base,
+            retry_delay,
+        }
     }
 }
 
@@ -73,7 +77,11 @@ impl Provider for OpenAi {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities { tools: true, implicit_caching: true, vision: true }
+        Capabilities {
+            tools: true,
+            implicit_caching: true,
+            vision: true,
+        }
     }
 
     fn list_models<'a>(&'a self, api_key: &'a str) -> BoxFuture<'a, Result<Vec<ModelInfo>>> {
@@ -92,7 +100,9 @@ impl Provider for OpenAi {
             let ids = value
                 .get("data")
                 .and_then(Value::as_array)
-                .ok_or_else(|| AppError::Provider("Unexpected OpenAI response: no model list.".into()))?
+                .ok_or_else(|| {
+                    AppError::Provider("Unexpected OpenAI response: no model list.".into())
+                })?
                 .iter()
                 .filter_map(|m| m.get("id").and_then(Value::as_str));
             let mut models: Vec<ModelInfo> = ids
@@ -103,7 +113,10 @@ impl Provider for OpenAi {
                         provider: "openai".to_string(),
                         id: id.to_string(),
                         // The list has no names, the price table does.
-                        display_name: facts.as_ref().and_then(|f| f.name.clone()).unwrap_or_else(|| id.to_string()),
+                        display_name: facts
+                            .as_ref()
+                            .and_then(|f| f.name.clone())
+                            .unwrap_or_else(|| id.to_string()),
                         // The model list has no limits, the price table does.
                         input_token_limit: pricing::context_limit("openai", id),
                         output_token_limit: None,
@@ -118,7 +131,8 @@ impl Provider for OpenAi {
 
     fn generate(&self, api_key: String, request: GenerationRequest) -> EventStream {
         let (tx, mut rx) = mpsc::channel::<Result<GenerationEvent>>(64);
-        let (client, base, retry_delay) = (self.client.clone(), self.base.clone(), self.retry_delay);
+        let (client, base, retry_delay) =
+            (self.client.clone(), self.base.clone(), self.retry_delay);
         tokio::spawn(async move {
             // The task also ends when the receiver is dropped (cancellation).
             tokio::select! {
@@ -133,7 +147,10 @@ impl Provider for OpenAi {
 /// Text models only: `gpt-*` and the `o<digit>` reasoning models, minus audio, image and the like.
 fn is_chat_model(id: &str) -> bool {
     let family = id.starts_with("gpt-")
-        || id.strip_prefix('o').and_then(|r| r.chars().next()).is_some_and(|c| c.is_ascii_digit());
+        || id
+            .strip_prefix('o')
+            .and_then(|r| r.chars().next())
+            .is_some_and(|c| c.is_ascii_digit());
     family && !SKIP_IDS.iter().any(|s| id.contains(s))
 }
 
@@ -178,7 +195,10 @@ async fn stream_inner(
         if is_retryable(status, &text) && attempt < RETRIES {
             attempt += 1;
             let wait = wait.map_or(retry_delay, |w| w.min(MAX_RETRY_WAIT));
-            log::warn!("openai {status}, retry {attempt} of {RETRIES} in {} ms", wait.as_millis());
+            log::warn!(
+                "openai {status}, retry {attempt} of {RETRIES} in {} ms",
+                wait.as_millis()
+            );
             tokio::time::sleep(wait).await;
             continue;
         }
@@ -292,22 +312,35 @@ pub struct StreamState {
 }
 
 impl StreamState {
-    fn finish_call(&mut self, key: &str, full_args: Option<&str>) -> Result<Option<GenerationEvent>> {
+    fn finish_call(
+        &mut self,
+        key: &str,
+        full_args: Option<&str>,
+    ) -> Result<Option<GenerationEvent>> {
         if self.done.contains(key) {
             return Ok(None);
         }
-        let Some(call) = self.pending.remove(key) else { return Ok(None) };
+        let Some(call) = self.pending.remove(key) else {
+            return Ok(None);
+        };
         let raw = full_args.unwrap_or(&call.args);
         let args: Value = if raw.trim().is_empty() {
             json!({})
         } else {
             serde_json::from_str(raw).map_err(|_| {
-                AppError::Provider(format!("OpenAI sent tool call arguments for {} that are not valid JSON.", call.name))
+                AppError::Provider(format!(
+                    "OpenAI sent tool call arguments for {} that are not valid JSON.",
+                    call.name
+                ))
             })?
         };
         self.done.insert(key.to_string());
         self.calls += 1;
-        Ok(Some(GenerationEvent::ToolCall { id: call.call_id, name: call.name, args }))
+        Ok(Some(GenerationEvent::ToolCall {
+            id: call.call_id,
+            name: call.name,
+            args,
+        }))
     }
 }
 
@@ -334,10 +367,19 @@ pub fn parse_event(v: &Value, state: &mut StreamState) -> Result<Vec<GenerationE
         "response.output_item.added" => {
             let item = v.get("item").unwrap_or(&Value::Null);
             if item.get("type").and_then(Value::as_str) == Some("function_call") {
-                let text = |k: &str| item.get(k).and_then(Value::as_str).unwrap_or_default().to_string();
+                let text = |k: &str| {
+                    item.get(k)
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string()
+                };
                 state.pending.insert(
                     item_key(v),
-                    PendingCall { call_id: text("call_id"), name: text("name"), args: text("arguments") },
+                    PendingCall {
+                        call_id: text("call_id"),
+                        name: text("name"),
+                        args: text("arguments"),
+                    },
                 );
             }
         }
@@ -356,7 +398,10 @@ pub fn parse_event(v: &Value, state: &mut StreamState) -> Result<Vec<GenerationE
         "response.output_item.done" => {
             let item = v.get("item").unwrap_or(&Value::Null);
             if item.get("type").and_then(Value::as_str) == Some("function_call") {
-                out.extend(state.finish_call(&item_key(v), item.get("arguments").and_then(Value::as_str))?);
+                out.extend(
+                    state
+                        .finish_call(&item_key(v), item.get("arguments").and_then(Value::as_str))?,
+                );
             }
         }
         "response.completed" => {
@@ -367,13 +412,20 @@ pub fn parse_event(v: &Value, state: &mut StreamState) -> Result<Vec<GenerationE
                 out.push(GenerationEvent::Replay(Value::Array(items.clone())));
             }
             out.extend(usage(resp));
-            let reason = if state.calls > 0 { FinishReason::ToolCalls } else { FinishReason::Stop };
+            let reason = if state.calls > 0 {
+                FinishReason::ToolCalls
+            } else {
+                FinishReason::Stop
+            };
             out.push(GenerationEvent::Finished(reason));
         }
         "response.incomplete" => {
             let resp = v.get("response").unwrap_or(&Value::Null);
             out.extend(usage(resp));
-            let reason = match resp.pointer("/incomplete_details/reason").and_then(Value::as_str) {
+            let reason = match resp
+                .pointer("/incomplete_details/reason")
+                .and_then(Value::as_str)
+            {
                 Some("max_output_tokens") => FinishReason::Length,
                 Some(other) => FinishReason::Other(other.to_string()),
                 None => FinishReason::Other("incomplete".to_string()),
@@ -381,8 +433,13 @@ pub fn parse_event(v: &Value, state: &mut StreamState) -> Result<Vec<GenerationE
             out.push(GenerationEvent::Finished(reason));
         }
         "response.failed" => {
-            let message = v.pointer("/response/error/message").and_then(Value::as_str).unwrap_or("it failed");
-            return Err(AppError::Provider(format!("OpenAI could not finish the reply: {message}")));
+            let message = v
+                .pointer("/response/error/message")
+                .and_then(Value::as_str)
+                .unwrap_or("it failed");
+            return Err(AppError::Provider(format!(
+                "OpenAI could not finish the reply: {message}"
+            )));
         }
         "error" => {
             let message = v
@@ -409,7 +466,14 @@ fn usage(resp: &Value) -> Option<GenerationEvent> {
 }
 
 fn retry_after(resp: &reqwest::Response) -> Option<Duration> {
-    let secs: f64 = resp.headers().get("retry-after")?.to_str().ok()?.trim().parse().ok()?;
+    let secs: f64 = resp
+        .headers()
+        .get("retry-after")?
+        .to_str()
+        .ok()?
+        .trim()
+        .parse()
+        .ok()?;
     (secs.is_finite() && secs >= 0.0).then(|| Duration::from_secs_f64(secs))
 }
 
@@ -425,13 +489,19 @@ fn is_retryable(status: u16, body: &str) -> bool {
 fn error_code(body: &str) -> String {
     serde_json::from_str::<Value>(body)
         .ok()
-        .and_then(|v| v.pointer("/error/code").and_then(Value::as_str).map(str::to_owned))
+        .and_then(|v| {
+            v.pointer("/error/code")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
         .unwrap_or_default()
 }
 
 fn is_billing_limit(body: &str) -> bool {
     let code = error_code(body);
-    code.contains("insufficient_quota") || code.contains("credit_balance_exhausted") || code.contains("spend_limit")
+    code.contains("insufficient_quota")
+        || code.contains("credit_balance_exhausted")
+        || code.contains("spend_limit")
 }
 
 pub(crate) fn net_error(e: reqwest::Error) -> AppError {
@@ -441,7 +511,10 @@ pub(crate) fn net_error(e: reqwest::Error) -> AppError {
         AppError::Provider("Couldn't reach OpenAI. Check your internet connection.".into())
     } else {
         // The key is sent as a header, so it is never in the URL that reqwest may print.
-        AppError::Provider(format!("Network error talking to OpenAI: {}", error_chain(&e)))
+        AppError::Provider(format!(
+            "Network error talking to OpenAI: {}",
+            error_chain(&e)
+        ))
     }
 }
 
@@ -466,9 +539,11 @@ async fn check_status(resp: reqwest::Response) -> Result<reqwest::Response> {
 }
 
 pub fn describe_error(status: u16, body: &str) -> String {
-    let message = serde_json::from_str::<Value>(body)
-        .ok()
-        .and_then(|v| v.pointer("/error/message").and_then(Value::as_str).map(str::to_owned));
+    let message = serde_json::from_str::<Value>(body).ok().and_then(|v| {
+        v.pointer("/error/message")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    });
     let with = |text: &str| match &message {
         Some(m) => format!("{text} {m}"),
         None => text.to_string(),
@@ -476,7 +551,9 @@ pub fn describe_error(status: u16, body: &str) -> String {
     match status {
         401 => with("OpenAI rejected the API key."),
         403 => with("OpenAI refused the request. It may not be available in your region."),
-        429 if is_billing_limit(body) => with("The OpenAI account is out of credit or over its spend limit."),
+        429 if is_billing_limit(body) => {
+            with("The OpenAI account is out of credit or over its spend limit.")
+        }
         429 => with("OpenAI rate limit reached."),
         s => match message {
             Some(m) => format!("OpenAI error {s}: {m}"),
@@ -521,7 +598,13 @@ mod tests {
     }
 
     fn request(turns: Vec<Turn>) -> GenerationRequest {
-        GenerationRequest { model: "m".into(), system: None, turns, tools: Vec::new(), no_tool_calls: false }
+        GenerationRequest {
+            model: "m".into(),
+            system: None,
+            turns,
+            tools: Vec::new(),
+            no_tool_calls: false,
+        }
     }
 
     fn add_tool() -> ToolSpec {
@@ -544,20 +627,37 @@ mod tests {
             .collect();
         assert_eq!(text, "Hello");
         // Reasoning tokens are already inside output_tokens and must not be added again.
-        assert!(ev.contains(&GenerationEvent::Usage { input_tokens: 10, output_tokens: 8, cached_tokens: 4 }));
-        assert_eq!(ev.last(), Some(&GenerationEvent::Finished(FinishReason::Stop)));
+        assert!(ev.contains(&GenerationEvent::Usage {
+            input_tokens: 10,
+            output_tokens: 8,
+            cached_tokens: 4
+        }));
+        assert_eq!(
+            ev.last(),
+            Some(&GenerationEvent::Finished(FinishReason::Stop))
+        );
     }
 
     #[test]
     fn a_tool_call_is_sent_once_with_joined_arguments_and_the_replay_keeps_reasoning() {
         let ev = events(TOOL_STREAM);
-        let calls: Vec<_> = ev.iter().filter(|e| matches!(e, GenerationEvent::ToolCall { .. })).collect();
+        let calls: Vec<_> = ev
+            .iter()
+            .filter(|e| matches!(e, GenerationEvent::ToolCall { .. }))
+            .collect();
         assert_eq!(calls.len(), 1, "the done events must not repeat the call");
         assert_eq!(
             calls[0],
-            &GenerationEvent::ToolCall { id: "call_1".into(), name: "add".into(), args: json!({ "a": 1, "b": 2 }) }
+            &GenerationEvent::ToolCall {
+                id: "call_1".into(),
+                name: "add".into(),
+                args: json!({ "a": 1, "b": 2 })
+            }
         );
-        assert_eq!(ev.last(), Some(&GenerationEvent::Finished(FinishReason::ToolCalls)));
+        assert_eq!(
+            ev.last(),
+            Some(&GenerationEvent::Finished(FinishReason::ToolCalls))
+        );
         let replay = ev
             .iter()
             .find_map(|e| match e {
@@ -575,7 +675,14 @@ mod tests {
             "data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"function_call\",\"id\":\"fc_9\",\"call_id\":\"c9\",\"name\":\"add\",\"arguments\":\"\"}}\r\n\r\n",
             "data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"function_call\",\"id\":\"fc_9\",\"call_id\":\"c9\",\"name\":\"add\",\"arguments\":\"{}\"}}\r\n\r\n",
         ));
-        assert_eq!(ev, vec![GenerationEvent::ToolCall { id: "c9".into(), name: "add".into(), args: json!({}) }]);
+        assert_eq!(
+            ev,
+            vec![GenerationEvent::ToolCall {
+                id: "c9".into(),
+                name: "add".into(),
+                args: json!({})
+            }]
+        );
     }
 
     #[test]
@@ -596,21 +703,37 @@ mod tests {
             &mut state,
         )
         .unwrap();
-        assert_eq!(ev.last(), Some(&GenerationEvent::Finished(FinishReason::Length)));
+        assert_eq!(
+            ev.last(),
+            Some(&GenerationEvent::Finished(FinishReason::Length))
+        );
         let filtered = parse_event(
             &json!({ "type": "response.incomplete", "response": { "incomplete_details": { "reason": "content_filter" } } }),
             &mut state,
         )
         .unwrap();
-        assert_eq!(filtered, vec![GenerationEvent::Finished(FinishReason::Other("content_filter".into()))]);
+        assert_eq!(
+            filtered,
+            vec![GenerationEvent::Finished(FinishReason::Other(
+                "content_filter".into()
+            ))]
+        );
         let failed = json!({ "type": "response.failed", "response": { "error": { "message": "boom" }, "usage": null } });
-        assert!(parse_event(&failed, &mut state).unwrap_err().to_string().contains("boom"));
+        assert!(
+            parse_event(&failed, &mut state)
+                .unwrap_err()
+                .to_string()
+                .contains("boom")
+        );
         assert!(parse_event(&json!({ "type": "error", "message": "bad" }), &mut state).is_err());
     }
 
     #[test]
     fn body_does_not_store_and_declares_tools() {
-        let mut req = request(vec![Turn::text(TurnRole::User, "hi"), Turn::text(TurnRole::Model, "yo")]);
+        let mut req = request(vec![
+            Turn::text(TurnRole::User, "hi"),
+            Turn::text(TurnRole::Model, "yo"),
+        ]);
         req.system = Some("be brief".into());
         req.tools = vec![add_tool()];
         let b = build_body(&req);
@@ -618,7 +741,10 @@ mod tests {
         assert_eq!(b["stream"], true);
         assert_eq!(b["instructions"], "be brief");
         assert_eq!(b["input"][0], json!({ "role": "user", "content": "hi" }));
-        assert_eq!(b["input"][1], json!({ "role": "assistant", "content": "yo" }));
+        assert_eq!(
+            b["input"][1],
+            json!({ "role": "assistant", "content": "yo" })
+        );
         assert_eq!(b["tools"][0]["type"], "function");
         assert_eq!(b["tools"][0]["name"], "add");
         assert!(b["tools"][0]["parameters"].is_object());
@@ -638,15 +764,30 @@ mod tests {
         ]);
         let model = Turn {
             role: TurnRole::Model,
-            parts: vec![Part::ToolCall { id: "call_1".into(), name: "add".into(), args: json!({ "a": 1 }) }],
-            replay: Some(Replay { provider: "openai".into(), data: output.clone() }),
+            parts: vec![Part::ToolCall {
+                id: "call_1".into(),
+                name: "add".into(),
+                args: json!({ "a": 1 }),
+            }],
+            replay: Some(Replay {
+                provider: "openai".into(),
+                data: output.clone(),
+            }),
         };
         let result = Turn {
             role: TurnRole::User,
-            parts: vec![Part::ToolResult { id: "call_1".into(), name: "add".into(), output: json!({ "sum": 3 }) }],
+            parts: vec![Part::ToolResult {
+                id: "call_1".into(),
+                name: "add".into(),
+                output: json!({ "sum": 3 }),
+            }],
             replay: None,
         };
-        let b = build_body(&request(vec![Turn::text(TurnRole::User, "1+2?"), model.clone(), result.clone()]));
+        let b = build_body(&request(vec![
+            Turn::text(TurnRole::User, "1+2?"),
+            model.clone(),
+            result.clone(),
+        ]));
         assert_eq!(b["input"][1], output[0]);
         assert_eq!(b["input"][2], output[1]);
         assert_eq!(b["input"][3]["type"], "function_call_output");
@@ -655,7 +796,10 @@ mod tests {
 
         // Another provider's replay is ignored and the call is rebuilt from its parts.
         let mut other = model;
-        other.replay = Some(Replay { provider: "gemini".into(), data: json!([]) });
+        other.replay = Some(Replay {
+            provider: "gemini".into(),
+            data: json!([]),
+        });
         let b = build_body(&request(vec![other, result]));
         assert_eq!(b["input"][0]["type"], "function_call");
         assert_eq!(b["input"][0]["call_id"], "call_1");
@@ -670,7 +814,10 @@ mod tests {
         assert!(describe_error(403, "").contains("region"));
         let credit = r#"{"error":{"message":"You exceeded your current quota","code":"insufficient_quota"}}"#;
         assert!(describe_error(429, credit).contains("out of credit"));
-        assert!(describe_error(429, r#"{"error":{"code":"rate_limit_exceeded"}}"#).contains("rate limit"));
+        assert!(
+            describe_error(429, r#"{"error":{"code":"rate_limit_exceeded"}}"#)
+                .contains("rate limit")
+        );
         assert_eq!(describe_error(500, "not json"), "OpenAI error 500.");
         assert!(!is_retryable(429, credit));
         assert!(is_retryable(429, "{}"));
@@ -702,7 +849,11 @@ mod tests {
         }
     }
 
-    async fn collect(g: &OpenAi, key: &str, req: GenerationRequest) -> Vec<Result<GenerationEvent>> {
+    async fn collect(
+        g: &OpenAi,
+        key: &str,
+        req: GenerationRequest,
+    ) -> Vec<Result<GenerationEvent>> {
         g.generate(key.to_string(), req).collect().await
     }
 
@@ -710,12 +861,25 @@ mod tests {
     async fn streams_a_reply_with_the_key_in_a_header_only() {
         let (base, seen) = serve_with(vec![Reply::sse(TEXT_STREAM)]);
         let g = OpenAi::with_base(base, Duration::ZERO);
-        let out = collect(&g, "sk-secret", request(vec![Turn::text(TurnRole::User, "hi")])).await;
+        let out = collect(
+            &g,
+            "sk-secret",
+            request(vec![Turn::text(TurnRole::User, "hi")]),
+        )
+        .await;
         assert!(out.iter().all(Result::is_ok));
-        assert!(out.iter().any(|e| matches!(e, Ok(GenerationEvent::Text(t)) if t == "Hel")));
+        assert!(
+            out.iter()
+                .any(|e| matches!(e, Ok(GenerationEvent::Text(t)) if t == "Hel"))
+        );
         let seen = seen.lock().unwrap();
         assert!(seen[0].0.starts_with("POST /responses "));
-        assert!(seen[0].0.to_lowercase().contains("authorization: bearer sk-secret"));
+        assert!(
+            seen[0]
+                .0
+                .to_lowercase()
+                .contains("authorization: bearer sk-secret")
+        );
         assert!(!seen[0].0.lines().next().unwrap().contains("sk-secret"));
         assert!(!seen[0].1.contains("sk-secret"));
     }
@@ -723,7 +887,8 @@ mod tests {
     #[tokio::test]
     async fn retries_a_rate_limit_and_an_overload_then_succeeds() {
         let (base, seen) = serve_with(vec![
-            Reply::json(429, r#"{"error":{"code":"rate_limit_exceeded"}}"#).header("Retry-After", "0"),
+            Reply::json(429, r#"{"error":{"code":"rate_limit_exceeded"}}"#)
+                .header("Retry-After", "0"),
             Reply::json(503, r#"{"error":{"code":"server_is_overloaded"}}"#),
             Reply::sse(TEXT_STREAM),
         ]);
@@ -750,7 +915,11 @@ mod tests {
         let g = OpenAi::with_base(base, Duration::ZERO);
         let mut req = request(vec![Turn::text(TurnRole::User, "1+2?")]);
         req.tools = vec![add_tool()];
-        let first: Vec<GenerationEvent> = collect(&g, "k", req.clone()).await.into_iter().map(|e| e.unwrap()).collect();
+        let first: Vec<GenerationEvent> = collect(&g, "k", req.clone())
+            .await
+            .into_iter()
+            .map(|e| e.unwrap())
+            .collect();
         let (mut call, mut replay) = (None, None);
         for e in first {
             match e {
@@ -762,12 +931,23 @@ mod tests {
         let (id, name, args) = call.unwrap();
         req.turns.push(Turn {
             role: TurnRole::Model,
-            parts: vec![Part::ToolCall { id: id.clone(), name: name.clone(), args }],
-            replay: Some(Replay { provider: "openai".into(), data: replay.unwrap() }),
+            parts: vec![Part::ToolCall {
+                id: id.clone(),
+                name: name.clone(),
+                args,
+            }],
+            replay: Some(Replay {
+                provider: "openai".into(),
+                data: replay.unwrap(),
+            }),
         });
         req.turns.push(Turn {
             role: TurnRole::User,
-            parts: vec![Part::ToolResult { id, name, output: json!({ "sum": 3 }) }],
+            parts: vec![Part::ToolResult {
+                id,
+                name,
+                output: json!({ "sum": 3 }),
+            }],
             replay: None,
         });
         assert!(collect(&g, "k", req).await.iter().all(Result::is_ok));
@@ -784,19 +964,37 @@ mod tests {
             { "id": "gpt-4o-mini" }, { "id": "text-embedding-3-small" }, { "id": "o3" }, { "id": "gpt-image-2" },
         ]});
         let (base, seen) = serve_with(vec![Reply::json(200, list.to_string())]);
-        let models = OpenAi::with_base(base, Duration::ZERO).list_models("sk-secret").await.unwrap();
-        assert_eq!(models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["gpt-4o-mini", "o3"]);
-        assert!(models[0].input_token_limit.is_some(), "context comes from the price table");
+        let models = OpenAi::with_base(base, Duration::ZERO)
+            .list_models("sk-secret")
+            .await
+            .unwrap();
+        assert_eq!(
+            models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+            ["gpt-4o-mini", "o3"]
+        );
+        assert!(
+            models[0].input_token_limit.is_some(),
+            "context comes from the price table"
+        );
         let seen = seen.lock().unwrap();
         assert!(seen[0].0.starts_with("GET /models "));
-        assert!(seen[0].0.to_lowercase().contains("authorization: bearer sk-secret"));
+        assert!(
+            seen[0]
+                .0
+                .to_lowercase()
+                .contains("authorization: bearer sk-secret")
+        );
     }
 
     #[tokio::test]
     async fn a_rejected_key_says_so() {
         let body = r#"{"error":{"message":"Incorrect API key provided","code":"invalid_api_key"}}"#;
         let (base, _) = serve_with(vec![Reply::json(401, body)]);
-        let err = OpenAi::with_base(base, Duration::ZERO).list_models("bad").await.unwrap_err().to_string();
+        let err = OpenAi::with_base(base, Duration::ZERO)
+            .list_models("bad")
+            .await
+            .unwrap_err()
+            .to_string();
         assert!(err.starts_with("OpenAI rejected the API key."), "{err}");
     }
 
@@ -839,23 +1037,39 @@ mod tests {
         let sum = args["a"].as_f64().unwrap() + args["b"].as_f64().unwrap();
         req.turns.push(Turn {
             role: TurnRole::Model,
-            parts: vec![Part::ToolCall { id: id.clone(), name: name.clone(), args }],
-            replay: replay.map(|data| Replay { provider: "openai".into(), data }),
+            parts: vec![Part::ToolCall {
+                id: id.clone(),
+                name: name.clone(),
+                args,
+            }],
+            replay: replay.map(|data| Replay {
+                provider: "openai".into(),
+                data,
+            }),
         });
         req.turns.push(Turn {
             role: TurnRole::User,
-            parts: vec![Part::ToolResult { id, name, output: json!({ "sum": sum }) }],
+            parts: vec![Part::ToolResult {
+                id,
+                name,
+                output: json!({ "sum": sum }),
+            }],
             replay: None,
         });
         let mut text = String::new();
         for e in collect(&g, &key, req).await {
             match e.unwrap() {
                 GenerationEvent::Text(t) => text.push_str(&t),
-                ev @ (GenerationEvent::Usage { .. } | GenerationEvent::Finished(_)) => println!("second: {ev:?}"),
+                ev @ (GenerationEvent::Usage { .. } | GenerationEvent::Finished(_)) => {
+                    println!("second: {ev:?}")
+                }
                 _ => {}
             }
         }
         println!("answer: {text}");
-        assert!(text.replace([',', ' '], "").contains("5555"), "answer was: {text}");
+        assert!(
+            text.replace([',', ' '], "").contains("5555"),
+            "answer was: {text}"
+        );
     }
 }

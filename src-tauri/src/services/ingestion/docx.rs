@@ -9,9 +9,9 @@ use quick_xml::Reader;
 use quick_xml::events::Event;
 use zip::ZipArchive;
 
+use super::Extraction;
 use super::meta;
 use super::segment::{Block, Join};
-use super::Extraction;
 use crate::error::{AppError, Result};
 use crate::persistence::library::Extracted;
 
@@ -19,14 +19,18 @@ use crate::persistence::library::Extracted;
 const MAX_XML_BYTES: u64 = 200 * 1024 * 1024;
 
 fn read_entry(zip: &mut ZipArchive<File>, name: &str) -> Result<Option<String>> {
-    let Ok(entry) = zip.by_name(name) else { return Ok(None) };
+    let Ok(entry) = zip.by_name(name) else {
+        return Ok(None);
+    };
     let mut s = String::new();
     entry
         .take(MAX_XML_BYTES + 1)
         .read_to_string(&mut s)
         .map_err(|_| AppError::Invalid("This Word file is damaged.".into()))?;
     if s.len() as u64 > MAX_XML_BYTES {
-        return Err(AppError::Invalid("This Word file is too large to read.".into()));
+        return Err(AppError::Invalid(
+            "This Word file is too large to read.".into(),
+        ));
     }
     Ok(Some(s))
 }
@@ -97,9 +101,9 @@ fn paragraphs(xml: &str) -> Result<Vec<Paragraph>> {
 }
 
 fn is_title_style(e: &quick_xml::events::BytesStart) -> bool {
-    e.attributes()
-        .flatten()
-        .any(|a| a.key.local_name().as_ref() == "val" && a.value.as_ref().eq_ignore_ascii_case("Title"))
+    e.attributes().flatten().any(|a| {
+        a.key.local_name().as_ref() == "val" && a.value.as_ref().eq_ignore_ascii_case("Title")
+    })
 }
 
 /// Text of the first element with this local name (core.xml has one of each).
@@ -121,10 +125,13 @@ fn first_element_text(xml: &str, name: &str) -> Option<String> {
 }
 
 pub fn extract(path: &Path, cancelled: &dyn Fn() -> bool) -> Result<Extraction> {
-    let file = File::open(path).map_err(|e| AppError::Invalid(format!("Couldn't open this file: {e}")))?;
-    let mut zip = ZipArchive::new(file).map_err(|_| AppError::Invalid("This file couldn't be read as a Word document.".into()))?;
-    let body = read_entry(&mut zip, "word/document.xml")?
-        .ok_or_else(|| AppError::Invalid("This file couldn't be read as a Word document.".into()))?;
+    let file =
+        File::open(path).map_err(|e| AppError::Invalid(format!("Couldn't open this file: {e}")))?;
+    let mut zip = ZipArchive::new(file)
+        .map_err(|_| AppError::Invalid("This file couldn't be read as a Word document.".into()))?;
+    let body = read_entry(&mut zip, "word/document.xml")?.ok_or_else(|| {
+        AppError::Invalid("This file couldn't be read as a Word document.".into())
+    })?;
     if cancelled() {
         return Err(AppError::Cancelled);
     }
@@ -133,13 +140,31 @@ pub fn extract(path: &Path, cancelled: &dyn Fn() -> bool) -> Result<Extraction> 
 
     let title = first_element_text(&core, "title")
         .and_then(|t| meta::clean_title(&t))
-        .or_else(|| paras.iter().find(|p| p.is_title).and_then(|p| meta::clean_title(&p.text)));
-    let authors = first_element_text(&core, "creator").map(|a| meta::split_authors(&a)).unwrap_or_default();
-    let head: String = paras.iter().take(30).map(|p| p.text.as_str()).collect::<Vec<_>>().join(" ");
+        .or_else(|| {
+            paras
+                .iter()
+                .find(|p| p.is_title)
+                .and_then(|p| meta::clean_title(&p.text))
+        });
+    let authors = first_element_text(&core, "creator")
+        .map(|a| meta::split_authors(&a))
+        .unwrap_or_default();
+    let head: String = paras
+        .iter()
+        .take(30)
+        .map(|p| p.text.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
 
     let blocks = paras
         .into_iter()
-        .map(|p| Block { page: 0, text: p.text, rect: None, font_size: 0.0, join: Join::Newline })
+        .map(|p| Block {
+            page: 0,
+            text: p.text,
+            rect: None,
+            font_size: 0.0,
+            join: Join::Newline,
+        })
         .collect();
     Ok(Extraction {
         pages: vec![],
@@ -147,7 +172,13 @@ pub fn extract(path: &Path, cancelled: &dyn Fn() -> bool) -> Result<Extraction> 
         meta: Extracted {
             title,
             authors,
-            doi: meta::find_doi(&head, &path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()),
+            doi: meta::find_doi(
+                &head,
+                &path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+            ),
             ..Default::default()
         },
         unreadable_pages: 0,
@@ -191,7 +222,14 @@ mod tests {
         let path = make_docx(dir.path(), &doc, Some(core));
         let out = extract(&path, &|| false).unwrap();
         let texts: Vec<_> = out.blocks.iter().map(|b| b.text.as_str()).collect();
-        assert_eq!(texts, ["Algae and Ærø", "Fish & chips été", "See doi:10.1016/j.hal.2022.102310."]);
+        assert_eq!(
+            texts,
+            [
+                "Algae and Ærø",
+                "Fish & chips été",
+                "See doi:10.1016/j.hal.2022.102310."
+            ]
+        );
         assert!(out.pages.is_empty() && out.blocks.iter().all(|b| b.page == 0 && b.rect.is_none()));
         // the property title is a leftover file name, so the Title-styled paragraph wins
         assert_eq!(out.meta.title.as_deref(), Some("Algae and Ærø"));
@@ -202,16 +240,26 @@ mod tests {
     #[test]
     fn empty_document_has_no_blocks_and_junk_is_rejected() {
         let dir = tempfile::tempdir().unwrap();
-        let path = make_docx(dir.path(), &format!(r#"<w:document {W}><w:body/></w:document>"#), None);
+        let path = make_docx(
+            dir.path(),
+            &format!(r#"<w:document {W}><w:body/></w:document>"#),
+            None,
+        );
         assert!(extract(&path, &|| false).unwrap().blocks.is_empty());
 
         let junk = dir.path().join("junk.docx");
         std::fs::write(&junk, b"not a zip").unwrap();
-        assert!(extract(&junk, &|| false).unwrap_err().to_string().contains("Word document"));
+        assert!(
+            extract(&junk, &|| false)
+                .unwrap_err()
+                .to_string()
+                .contains("Word document")
+        );
 
         let no_body = dir.path().join("nobody.docx");
         let mut zip = zip::ZipWriter::new(File::create(&no_body).unwrap());
-        zip.start_file("other.txt", zip::write::SimpleFileOptions::default()).unwrap();
+        zip.start_file("other.txt", zip::write::SimpleFileOptions::default())
+            .unwrap();
         zip.finish().unwrap();
         assert!(extract(&no_body, &|| false).is_err());
         assert!(matches!(extract(&path, &|| true), Err(AppError::Cancelled)));

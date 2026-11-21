@@ -28,10 +28,16 @@ pub struct GridScore {
 /// Compares a produced grid with the truth cell by cell. Whitespace (including newlines) is
 /// collapsed. A cell is numeric when the truth has a digit in it.
 pub fn score_grid(got: &[Vec<String>], want: &[Vec<String>]) -> GridScore {
-    let mut s = GridScore { shape_ok: got.len() == want.len() && got.iter().zip(want).all(|(a, b)| a.len() == b.len()), ..Default::default() };
+    let mut s = GridScore {
+        shape_ok: got.len() == want.len() && got.iter().zip(want).all(|(a, b)| a.len() == b.len()),
+        ..Default::default()
+    };
     for (r, row) in want.iter().enumerate() {
         for (c, w) in row.iter().enumerate() {
-            let exact = got.get(r).and_then(|g| g.get(c)).is_some_and(|g| norm(g) == norm(w));
+            let exact = got
+                .get(r)
+                .and_then(|g| g.get(c))
+                .is_some_and(|g| norm(g) == norm(w));
             s.cells += 1;
             s.cells_exact += exact as usize;
             if w.chars().any(|ch| ch.is_ascii_digit()) {
@@ -45,7 +51,19 @@ pub fn score_grid(got: &[Vec<String>], want: &[Vec<String>]) -> GridScore {
 
 fn grid(v: &Value) -> Vec<Vec<String>> {
     v.as_array()
-        .map(|rows| rows.iter().map(|r| r.as_array().map(|c| c.iter().map(|x| x.as_str().unwrap_or("").to_string()).collect()).unwrap_or_default()).collect())
+        .map(|rows| {
+            rows.iter()
+                .map(|r| {
+                    r.as_array()
+                        .map(|c| {
+                            c.iter()
+                                .map(|x| x.as_str().unwrap_or("").to_string())
+                                .collect()
+                        })
+                        .unwrap_or_default()
+                })
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -67,17 +85,33 @@ fn missing_tokens(want: &[Vec<String>], page_text: &str) -> Vec<String> {
 
 #[test]
 fn numeric_tokens_keep_signs() {
-    assert_eq!(numeric_tokens("−258 (18%) 0.65 1,000 a-3 (-47)"), ["−258", "18", "0.65", "1,000", "3", "−47"]);
+    assert_eq!(
+        numeric_tokens("−258 (18%) 0.65 1,000 a-3 (-47)"),
+        ["−258", "18", "0.65", "1,000", "3", "−47"]
+    );
     assert_eq!(numeric_tokens("2258"), ["2258"]);
 }
 
 #[test]
 fn grid_score_counts_numeric_cells() {
-    let g = |r: &[&[&str]]| r.iter().map(|x| x.iter().map(|s| s.to_string()).collect()).collect::<Vec<Vec<String>>>();
+    let g = |r: &[&[&str]]| {
+        r.iter()
+            .map(|x| x.iter().map(|s| s.to_string()).collect())
+            .collect::<Vec<Vec<String>>>()
+    };
     let want = g(&[&["Name", "1.5"], &["a\nb", "−2"]]);
     let got = g(&[&["Name", "1.5"], &["a b", "2"]]);
     let s = score_grid(&got, &want);
-    assert_eq!((s.shape_ok, s.cells, s.cells_exact, s.numeric_cells, s.numeric_exact), (true, 4, 3, 2, 1));
+    assert_eq!(
+        (
+            s.shape_ok,
+            s.cells,
+            s.cells_exact,
+            s.numeric_cells,
+            s.numeric_exact
+        ),
+        (true, 4, 3, 2, 1)
+    );
 }
 
 #[test]
@@ -88,20 +122,53 @@ fn corpus_layout() {
         eprintln!("skipped: libpdfium not found");
         return;
     };
-    let truth: Value = serde_json::from_slice(&std::fs::read(Path::new(&dir).join("expected-tables.json")).expect("expected-tables.json")).unwrap();
-    println!("{:<12} {:>7} {:>5} {:>8} | numbers missing from the page text", "table", "checked", "page", "numbers");
+    let truth: Value = serde_json::from_slice(
+        &std::fs::read(Path::new(&dir).join("expected-tables.json")).expect("expected-tables.json"),
+    )
+    .unwrap();
+    println!(
+        "{:<12} {:>7} {:>5} {:>8} | numbers missing from the page text",
+        "table", "checked", "page", "numbers"
+    );
     for t in truth["tables"].as_array().unwrap() {
         let id = t["id"].as_str().unwrap();
         let page = t["page"].as_u64().unwrap() as u32;
         let want = grid(&t["rows"]);
-        let Ok(out) = reader.extract(&Path::new(&dir).join(t["file"].as_str().unwrap()), &|| false, &mut |_, _| {}) else {
+        let Ok(out) = reader.extract(
+            &Path::new(&dir).join(t["file"].as_str().unwrap()),
+            &|| false,
+            &mut |_, _| {},
+        ) else {
             println!("{id}: could not be read");
             continue;
         };
-        let text = out.blocks.iter().filter(|b| b.page == page).map(|b| b.text.as_str()).collect::<Vec<_>>().join("\n");
-        let total = want.iter().flatten().flat_map(|c| numeric_tokens(c)).count();
+        let text = out
+            .blocks
+            .iter()
+            .filter(|b| b.page == page)
+            .map(|b| b.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let total = want
+            .iter()
+            .flatten()
+            .flat_map(|c| numeric_tokens(c))
+            .count();
         let missing = missing_tokens(&want, &text);
-        println!("{:<12} {:>7} {:>5} {:>8} | {} {}", id, t["checked"].as_bool().unwrap_or(false), page, total, missing.len(), missing.iter().take(12).cloned().collect::<Vec<_>>().join(" "));
+        println!(
+            "{:<12} {:>7} {:>5} {:>8} | {} {}",
+            id,
+            t["checked"].as_bool().unwrap_or(false),
+            page,
+            total,
+            missing.len(),
+            missing
+                .iter()
+                .take(12)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
     }
 }
 
@@ -117,12 +184,21 @@ fn layout_regions() {
     let layout = super::layout::Layout::load(Path::new(&model)).unwrap();
     for spec in pages.split(',') {
         let (file, n) = spec.rsplit_once(':').unwrap();
-        let r = reader.render_page(&Path::new(&dir).join(file), n.parse().unwrap()).unwrap();
+        let r = reader
+            .render_page(&Path::new(&dir).join(file), n.parse().unwrap())
+            .unwrap();
         let t = std::time::Instant::now();
         let regions = layout.detect(r.img).unwrap();
-        println!("{file} p{n}: {} regions in {:.1}s", regions.len(), t.elapsed().as_secs_f32());
+        println!(
+            "{file} p{n}: {} regions in {:.1}s",
+            regions.len(),
+            t.elapsed().as_secs_f32()
+        );
         for g in regions {
-            println!("  {:>2} {:<16} {:.2} [{:.0} {:.0} {:.0} {:.0}]", g.order, g.label, g.score, g.rect[0], g.rect[1], g.rect[2], g.rect[3]);
+            println!(
+                "  {:>2} {:<16} {:.2} [{:.0} {:.0} {:.0} {:.0}]",
+                g.order, g.label, g.score, g.rect[0], g.rect[1], g.rect[2], g.rect[3]
+            );
         }
     }
 }
@@ -142,19 +218,46 @@ fn layout_apply() {
     for file in files.split(',') {
         let path = Path::new(&dir).join(file);
         let ex = reader.extract(&path, &|| false, &mut |_, _| {}).unwrap();
-        let pages: Vec<u32> = ex.pages.iter().filter(|p| p.quality == "ok").map(|p| p.page_no).collect();
+        let pages: Vec<u32> = ex
+            .pages
+            .iter()
+            .filter(|p| p.quality == "ok")
+            .map(|p| p.page_no)
+            .collect();
         let t = std::time::Instant::now();
-        let found = reader.detect_layout(&path, &pages, &layout, &|| false, &mut |_, _| {}).unwrap();
+        let found = reader
+            .detect_layout(&path, &pages, &layout, &|| false, &mut |_, _| {})
+            .unwrap();
         let secs = t.elapsed().as_secs_f32();
         let before = segment(&ex.blocks);
         let kept: std::collections::HashSet<String> = {
             let (blocks, _) = apply(ex.blocks.clone(), &found);
-            blocks.iter().map(|b| format!("{}|{}", b.page, b.text)).collect()
+            blocks
+                .iter()
+                .map(|b| format!("{}|{}", b.page, b.text))
+                .collect()
         };
-        let dropped: Vec<String> = ex.blocks.iter().filter(|b| !kept.contains(&format!("{}|{}", b.page, b.text))).map(|b| format!("p{} {}", b.page, b.text.chars().take(70).collect::<String>())).collect();
+        let dropped: Vec<String> = ex
+            .blocks
+            .iter()
+            .filter(|b| !kept.contains(&format!("{}|{}", b.page, b.text)))
+            .map(|b| {
+                format!(
+                    "p{} {}",
+                    b.page,
+                    b.text.chars().take(70).collect::<String>()
+                )
+            })
+            .collect();
         let (blocks, stats) = apply(ex.blocks, &found);
         let after = segment(&blocks);
-        println!("== {file}: {} pages in {secs:.1}s ({:.2}s/page), passages {} -> {}, {stats:?}", pages.len(), secs / pages.len().max(1) as f32, before.len(), after.len());
+        println!(
+            "== {file}: {} pages in {secs:.1}s ({:.2}s/page), passages {} -> {}, {stats:?}",
+            pages.len(),
+            secs / pages.len().max(1) as f32,
+            before.len(),
+            after.len()
+        );
         for d in dropped.iter().take(25) {
             println!("   dropped: {d}");
         }
@@ -171,11 +274,22 @@ fn table_grids() {
     use super::layout::Layout;
     use super::tables::Tables;
     let dir = std::env::var("CHINGOLO_TEST_PAPERS").expect("set CHINGOLO_TEST_PAPERS");
-    let layout = Layout::load(Path::new(&std::env::var("CHINGOLO_LAYOUT_DIR").expect("set CHINGOLO_LAYOUT_DIR"))).unwrap();
-    let tables = Tables::load(Path::new(&std::env::var("CHINGOLO_TABLES_DIR").expect("set CHINGOLO_TABLES_DIR"))).unwrap();
-    let only: Option<Vec<String>> = std::env::var("CHINGOLO_TABLE_IDS").ok().map(|s| s.split(',').map(str::to_string).collect());
+    let layout = Layout::load(Path::new(
+        &std::env::var("CHINGOLO_LAYOUT_DIR").expect("set CHINGOLO_LAYOUT_DIR"),
+    ))
+    .unwrap();
+    let tables = Tables::load(Path::new(
+        &std::env::var("CHINGOLO_TABLES_DIR").expect("set CHINGOLO_TABLES_DIR"),
+    ))
+    .unwrap();
+    let only: Option<Vec<String>> = std::env::var("CHINGOLO_TABLE_IDS")
+        .ok()
+        .map(|s| s.split(',').map(str::to_string).collect());
     let reader = PdfReader::new().expect("libpdfium");
-    let truth: Value = serde_json::from_slice(&std::fs::read(Path::new(&dir).join("expected-tables.json")).expect("expected-tables.json")).unwrap();
+    let truth: Value = serde_json::from_slice(
+        &std::fs::read(Path::new(&dir).join("expected-tables.json")).expect("expected-tables.json"),
+    )
+    .unwrap();
     for t in truth["tables"].as_array().unwrap() {
         let id = t["id"].as_str().unwrap();
         let scan = t["kind"].as_str().unwrap_or("").starts_with("scan");
@@ -186,11 +300,27 @@ fn table_grids() {
         let path = Path::new(&dir).join(t["file"].as_str().unwrap());
         let want = grid(&t["rows"]);
         let started = std::time::Instant::now();
-        let found = reader.detect_layout(&path, &[page], &layout, &|| false, &mut |_, _| {}).unwrap();
-        let regions: Vec<(u32, [f32; 4])> = found.iter().flat_map(|p| p.regions.iter().filter(|r| r.label == "table").map(move |r| (p.page, r.rect))).collect();
-        let reads = reader.read_tables(&path, &regions, &tables, &|| false, &mut |_, _| {}).unwrap();
+        let found = reader
+            .detect_layout(&path, &[page], &layout, &|| false, &mut |_, _| {})
+            .unwrap();
+        let regions: Vec<(u32, [f32; 4])> = found
+            .iter()
+            .flat_map(|p| {
+                p.regions
+                    .iter()
+                    .filter(|r| r.label == "table")
+                    .map(move |r| (p.page, r.rect))
+            })
+            .collect();
+        let reads = reader
+            .read_tables(&path, &regions, &tables, &|| false, &mut |_, _| {})
+            .unwrap();
         let secs = started.elapsed().as_secs_f32();
-        println!("== {id} (checked: {}) {} table regions on p{page}, {secs:.1}s", t["checked"].as_bool().unwrap_or(false), reads.len());
+        println!(
+            "== {id} (checked: {}) {} table regions on p{page}, {secs:.1}s",
+            t["checked"].as_bool().unwrap_or(false),
+            reads.len()
+        );
         let mut best: Option<(usize, GridScore, String)> = None;
         for (i, r) in reads.iter().enumerate() {
             match &r.filled {
@@ -205,13 +335,32 @@ fn table_grids() {
                     let s = score_grid(&got, &want);
                     println!(
                         "   region {i}: {rows}x{cols} (truth {}x{}), chars {}/{}, numbers_ok {}, sound {}, cells exact {}/{}, numeric exact {}/{}",
-                        want.len(), want.first().map_or(0, Vec::len), f.assigned, f.glyphs, f.numbers_ok, f.sound(), s.cells_exact, s.cells, s.numeric_exact, s.numeric_cells
+                        want.len(),
+                        want.first().map_or(0, Vec::len),
+                        f.assigned,
+                        f.glyphs,
+                        f.numbers_ok,
+                        f.sound(),
+                        s.cells_exact,
+                        s.cells,
+                        s.numeric_exact,
+                        s.numeric_cells
                     );
                     if !f.numbers_ok {
-                        println!("      numbers only in the region: {:?}, only in the cells: {:?}", f.number_diff.0, f.number_diff.1);
+                        println!(
+                            "      numbers only in the region: {:?}, only in the cells: {:?}",
+                            f.number_diff.0, f.number_diff.1
+                        );
                     }
-                    let line = got.iter().map(|r| r.join(" | ")).collect::<Vec<_>>().join("\n      ");
-                    if best.as_ref().is_none_or(|b| s.numeric_exact > b.1.numeric_exact) {
+                    let line = got
+                        .iter()
+                        .map(|r| r.join(" | "))
+                        .collect::<Vec<_>>()
+                        .join("\n      ");
+                    if best
+                        .as_ref()
+                        .is_none_or(|b| s.numeric_exact > b.1.numeric_exact)
+                    {
                         best = Some((i, s, line));
                     }
                 }
@@ -222,7 +371,8 @@ fn table_grids() {
                 println!("   best region {i}:\n      {text}");
             }
             if let Ok(f) = &reads[i].filled {
-                let mut got = vec![vec![String::new(); want.first().map_or(0, Vec::len)]; want.len()];
+                let mut got =
+                    vec![vec![String::new(); want.first().map_or(0, Vec::len)]; want.len()];
                 let mut ver = vec![vec![None; want.first().map_or(0, Vec::len)]; want.len()];
                 for c in &f.cells {
                     if let Some(slot) = got.get_mut(c.row).and_then(|r| r.get_mut(c.col)) {
@@ -236,13 +386,20 @@ fn table_grids() {
                         if norm(&got[r][c]) != norm(w) {
                             wrong += 1;
                             wrong_flagged += (ver[r][c] == Some(false)) as usize;
-                            println!("   differs r{r} c{c}: want {:?} got {:?}, second reader: {:?}", norm(w), norm(&got[r][c]), ver[r][c]);
+                            println!(
+                                "   differs r{r} c{c}: want {:?} got {:?}, second reader: {:?}",
+                                norm(w),
+                                norm(&got[r][c]),
+                                ver[r][c]
+                            );
                         }
                     }
                 }
                 let flagged = f.cells.iter().filter(|c| c.verified == Some(false)).count();
                 let checked = f.cells.iter().filter(|c| c.verified.is_some()).count();
-                println!("   second reader: {checked} cells compared, {flagged} unverified; {wrong} cells differ from the truth, {wrong_flagged} of them flagged");
+                println!(
+                    "   second reader: {checked} cells compared, {flagged} unverified; {wrong} cells differ from the truth, {wrong_flagged} of them flagged"
+                );
             }
         }
     }
@@ -255,9 +412,13 @@ fn table_grids() {
 #[ignore]
 fn unsure_tables() {
     use super::tables::Tables;
-    let db = rusqlite::Connection::open(std::env::var("CHINGOLO_DB").expect("set CHINGOLO_DB")).unwrap();
+    let db =
+        rusqlite::Connection::open(std::env::var("CHINGOLO_DB").expect("set CHINGOLO_DB")).unwrap();
     let lib = std::env::var("CHINGOLO_LIBRARY").expect("set CHINGOLO_LIBRARY");
-    let tables = Tables::load(Path::new(&std::env::var("CHINGOLO_TABLES_DIR").expect("set CHINGOLO_TABLES_DIR"))).unwrap();
+    let tables = Tables::load(Path::new(
+        &std::env::var("CHINGOLO_TABLES_DIR").expect("set CHINGOLO_TABLES_DIR"),
+    ))
+    .unwrap();
     let reader = PdfReader::new().expect("libpdfium");
     let mut stmt = db
         .prepare(
@@ -267,7 +428,15 @@ fn unsure_tables() {
         )
         .unwrap();
     let rows: Vec<(String, String, u32, u32, [f32; 4])> = stmt
-        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, [r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?])))
+        .query_map([], |r| {
+            Ok((
+                r.get(0)?,
+                r.get(1)?,
+                r.get(2)?,
+                r.get(3)?,
+                [r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?],
+            ))
+        })
         .unwrap()
         .map(|r| r.unwrap())
         .collect();
@@ -277,19 +446,29 @@ fn unsure_tables() {
             continue;
         }
         let path = Path::new(&lib).join(&hash[..2]).join(format!("{hash}.pdf"));
-        let reads = reader.read_tables(&path, &[(page, rect)], &tables, &|| false, &mut |_, _| {}).unwrap();
+        let reads = reader
+            .read_tables(&path, &[(page, rect)], &tables, &|| false, &mut |_, _| {})
+            .unwrap();
         match &reads[0].filled {
             Ok(f) => println!(
                 "== {} p{page} #{ordinal}: {} {}+{}+{}/{} chars, numbers: missing {:?} extra {:?}\n   left out: {}",
                 name.chars().take(30).collect::<String>(),
-                if f.sound() && !super::tables::has_duplicate_positions(&f.cells) { "NOW-OK" } else { "still unsure" },
+                if f.sound() && !super::tables::has_duplicate_positions(&f.cells) {
+                    "NOW-OK"
+                } else {
+                    "still unsure"
+                },
                 f.assigned,
                 f.placed,
                 f.noted,
                 f.glyphs,
                 f.number_diff.0,
                 f.number_diff.1,
-                f.left_out.chars().take(160).collect::<String>().replace('\n', " | ")
+                f.left_out
+                    .chars()
+                    .take(160)
+                    .collect::<String>()
+                    .replace('\n', " | ")
             ),
             Err(e) => println!("== {name} p{page} #{ordinal}: failed {e}"),
         }

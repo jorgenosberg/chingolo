@@ -27,7 +27,15 @@ pub const AUTO_KEY: &str = "prices_auto_update";
 const REFRESH_EVERY_MS: i64 = 7 * 24 * 3_600_000;
 const MAX_FEED_BYTES: usize = 40_000_000;
 /// Variants that bill differently from the base model, so a prefix match must not reach them.
-const NOT_BASE: &[&str] = &["tts", "image", "live", "audio", "robotics", "translate", "embedding"];
+const NOT_BASE: &[&str] = &[
+    "tts",
+    "image",
+    "live",
+    "audio",
+    "robotics",
+    "translate",
+    "embedding",
+];
 
 #[derive(Debug, Deserialize)]
 struct Tier {
@@ -98,7 +106,9 @@ impl Table {
 
     /// The model's context window, for providers whose model list doesn't say.
     pub fn context_limit(&self, provider: &str, model: &str) -> Option<u32> {
-        self.find(provider, model)?.context.and_then(|c| u32::try_from(c).ok())
+        self.find(provider, model)?
+            .context
+            .and_then(|c| u32::try_from(c).ok())
     }
 
     /// What the table knows about a model, matched like `cost` (a dated variant finds its base).
@@ -120,11 +130,27 @@ impl Table {
     }
 
     /// `input` includes the cached part. `output` includes thinking tokens.
-    pub fn cost(&self, provider: &str, model: &str, input: u32, output: u32, cached: u32) -> Option<f64> {
+    pub fn cost(
+        &self,
+        provider: &str,
+        model: &str,
+        input: u32,
+        output: u32,
+        cached: u32,
+    ) -> Option<f64> {
         let price = self.find(provider, model)?;
-        let (pin, pout, pcached) = match price.tiers.iter().filter(|t| input > t.over).max_by_key(|t| t.over) {
+        let (pin, pout, pcached) = match price
+            .tiers
+            .iter()
+            .filter(|t| input > t.over)
+            .max_by_key(|t| t.over)
+        {
             Some(t) => (t.input, t.output, t.cache_read.unwrap_or(t.input)),
-            None => (price.input, price.output, price.cache_read.unwrap_or(price.input)),
+            None => (
+                price.input,
+                price.output,
+                price.cache_read.unwrap_or(price.input),
+            ),
         };
         let cached = cached.min(input);
         let fresh = (input - cached) as f64;
@@ -143,7 +169,11 @@ static FRESH: RwLock<Option<Arc<Table>>> = RwLock::new(None);
 
 /// The newest prices we have: a refreshed copy if there is one, else the bundled one.
 pub fn current() -> Arc<Table> {
-    FRESH.read().ok().and_then(|g| g.clone()).unwrap_or_else(bundled)
+    FRESH
+        .read()
+        .ok()
+        .and_then(|g| g.clone())
+        .unwrap_or_else(bundled)
 }
 
 /// The model's context window from the price table, if known.
@@ -164,10 +194,16 @@ pub fn cost(provider: &str, model: &str, input: u32, output: u32, cached: u32) -
 fn trim_provider(provider: &Value) -> Value {
     let num = |v: &Value, k: &str| v.get(k).and_then(Value::as_f64);
     let mut out = serde_json::Map::new();
-    let Some(models) = provider.get("models").and_then(Value::as_object) else { return Value::Object(out) };
+    let Some(models) = provider.get("models").and_then(Value::as_object) else {
+        return Value::Object(out);
+    };
     for (id, model) in models {
-        let Some(cost) = model.get("cost") else { continue };
-        let Some(input) = num(cost, "input") else { continue };
+        let Some(cost) = model.get("cost") else {
+            continue;
+        };
+        let Some(input) = num(cost, "input") else {
+            continue;
+        };
         let takes = |kind: &str| {
             model
                 .pointer("/modalities/input")
@@ -225,9 +261,14 @@ pub fn trim(feed: &Value, date: &str) -> std::result::Result<(String, Table), St
     let text = serde_json::to_string_pretty(&doc).map_err(|e| e.to_string())?;
     let table = Table::parse(&text).map_err(|e| e.to_string())?;
     let gemini_models = table.providers.get("gemini").map_or(0, HashMap::len);
-    let embeds = table.cost("gemini", "gemini-embedding-2", 1_000_000, 0, 0).unwrap_or(0.0) > 0.0;
+    let embeds = table
+        .cost("gemini", "gemini-embedding-2", 1_000_000, 0, 0)
+        .unwrap_or(0.0)
+        > 0.0;
     if gemini_models < 10 || !embeds {
-        return Err(format!("the feed looks wrong ({gemini_models} Gemini models, embedding priced: {embeds})"));
+        return Err(format!(
+            "the feed looks wrong ({gemini_models} Gemini models, embedding priced: {embeds})"
+        ));
     }
     Ok((text, table))
 }
@@ -235,22 +276,36 @@ pub fn trim(feed: &Value, date: &str) -> std::result::Result<(String, Table), St
 /// Downloads and trims the feed at `url`. Returns the file text and the parsed table.
 pub async fn fetch_table(client: &reqwest::Client, url: &str) -> Result<(String, Table)> {
     let net = |e: reqwest::Error| AppError::Internal(format!("Couldn't fetch prices: {e}"));
-    let resp = client.get(url).timeout(Duration::from_secs(60)).send().await.map_err(net)?;
+    let resp = client
+        .get(url)
+        .timeout(Duration::from_secs(60))
+        .send()
+        .await
+        .map_err(net)?;
     if !resp.status().is_success() {
-        return Err(AppError::Internal(format!("Couldn't fetch prices: HTTP {}", resp.status().as_u16())));
+        return Err(AppError::Internal(format!(
+            "Couldn't fetch prices: HTTP {}",
+            resp.status().as_u16()
+        )));
     }
     let bytes = resp.bytes().await.map_err(net)?;
     if bytes.len() > MAX_FEED_BYTES {
-        return Err(AppError::Internal("The price feed is far bigger than expected.".into()));
+        return Err(AppError::Internal(
+            "The price feed is far bigger than expected.".into(),
+        ));
     }
-    let feed: Value = serde_json::from_slice(&bytes).map_err(|e| AppError::Internal(format!("Bad price feed: {e}")))?;
+    let feed: Value = serde_json::from_slice(&bytes)
+        .map_err(|e| AppError::Internal(format!("Bad price feed: {e}")))?;
     trim(&feed, &today()).map_err(|e| AppError::Internal(format!("Bad price feed: {e}")))
 }
 
 /// Uses the refreshed copy from a previous run if it is newer than the bundled one.
 pub fn load_saved(dir: &Path) {
     if let Some(table) = newer_saved(dir) {
-        log::info!("prices: using the copy from {} in the data folder", table.fetched_at);
+        log::info!(
+            "prices: using the copy from {} in the data folder",
+            table.fetched_at
+        );
         if let Ok(mut fresh) = FRESH.write() {
             *fresh = Some(Arc::new(table));
         }
@@ -266,7 +321,9 @@ fn newer_saved(dir: &Path) -> Option<Table> {
 async fn refresh(client: &reqwest::Client, dir: &Path) -> Result<()> {
     let (text, table) = fetch_table(client, FEED).await?;
     let tmp = dir.join(format!("{SAVED}.part"));
-    std::fs::write(&tmp, text).and_then(|()| std::fs::rename(&tmp, dir.join(SAVED))).map_err(|e| AppError::Internal(format!("Couldn't save prices: {e}")))?;
+    std::fs::write(&tmp, text)
+        .and_then(|()| std::fs::rename(&tmp, dir.join(SAVED)))
+        .map_err(|e| AppError::Internal(format!("Couldn't save prices: {e}")))?;
     log::info!("prices refreshed ({})", table.fetched_at);
     if let Ok(mut fresh) = FRESH.write() {
         *fresh = Some(Arc::new(table));
@@ -280,13 +337,18 @@ pub fn auto_update_enabled(conn: &rusqlite::Connection) -> Result<bool> {
 }
 
 fn http_client() -> reqwest::Client {
-    reqwest::Client::builder().connect_timeout(Duration::from_secs(15)).build().expect("http client")
+    reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(15))
+        .build()
+        .expect("http client")
 }
 
 /// Fetches the prices now, whatever the schedule says, and remembers the time on success.
 pub async fn update_now(db: &Db, dir: &Path) -> Result<()> {
     refresh(&http_client(), dir).await?;
-    let _ = db.call(|c| settings::set(c, CHECKED_KEY, &now_ms().to_string())).await;
+    let _ = db
+        .call(|c| settings::set(c, CHECKED_KEY, &now_ms().to_string()))
+        .await;
     Ok(())
 }
 
@@ -358,7 +420,10 @@ mod tests {
     #[test]
     fn input_output_and_cached_are_priced_separately() {
         // 600k fresh * 1.0 + 400k cached * 0.1 + 100k output * 4.0 = 0.6 + 0.04 + 0.4
-        near(table().cost("gemini", "base", 1_000_000, 100_000, 400_000), 1.04);
+        near(
+            table().cost("gemini", "base", 1_000_000, 100_000, 400_000),
+            1.04,
+        );
     }
 
     #[test]
@@ -392,16 +457,25 @@ mod tests {
     fn feed(gemini_models: usize) -> Value {
         let mut models = serde_json::Map::new();
         for i in 0..gemini_models {
-            models.insert(format!("gemini-m{i}"), json!({ "cost": { "input": 1.0, "output": 2.0, "cache_read": 0.1 } }));
+            models.insert(
+                format!("gemini-m{i}"),
+                json!({ "cost": { "input": 1.0, "output": 2.0, "cache_read": 0.1 } }),
+            );
         }
-        models.insert("gemini-embedding-2".into(), json!({ "cost": { "input": 0.2, "input_audio": 6.5 } }));
+        models.insert(
+            "gemini-embedding-2".into(),
+            json!({ "cost": { "input": 0.2, "input_audio": 6.5 } }),
+        );
         models.insert(
             "gemini-pro-x".into(),
             json!({ "cost": { "input": 2.0, "output": 12.0, "tiers": [
                 { "input": 4.0, "output": 18.0, "cache_read": 0.4, "tier": { "type": "context", "size": 200000 } },
                 { "input": 9.0, "output": 9.0, "tier": { "type": "other", "size": 5 } } ] } }),
         );
-        models.insert("gemini-free-thing".into(), json!({ "name": "no cost field" }));
+        models.insert(
+            "gemini-free-thing".into(),
+            json!({ "name": "no cost field" }),
+        );
         json!({ "google": { "models": models }, "openai": { "models": { "text-embedding-3-small": { "cost": { "input": 0.02 } } } } })
     }
 
@@ -411,7 +485,10 @@ mod tests {
         assert_eq!(t.fetched_at, "2026-02-03");
         near(t.cost("gemini", "gemini-embedding-2", 1_000_000, 0, 0), 0.2);
         near(t.cost("gemini", "gemini-pro-x", 200_001, 0, 0), 0.800004);
-        near(t.cost("openai", "text-embedding-3-small", 1_000_000, 0, 0), 0.02);
+        near(
+            t.cost("openai", "text-embedding-3-small", 1_000_000, 0, 0),
+            0.02,
+        );
         assert_eq!(t.cost("gemini", "gemini-free-thing", 1, 1, 0), None);
         assert!(!text.contains("input_audio"));
     }
@@ -419,22 +496,31 @@ mod tests {
     #[test]
     fn trimming_keeps_what_a_model_picker_shows() {
         let mut f = feed(12);
-        f["google"]["models"]["gemini-pro-x"].as_object_mut().unwrap().extend(
-            json!({
-                "name": "Gemini Pro X", "release_date": "2026-05-01", "knowledge": "2025-12",
-                "reasoning": true, "tool_call": true, "status": "deprecated",
-                "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] },
-            })
-            .as_object()
+        f["google"]["models"]["gemini-pro-x"]
+            .as_object_mut()
             .unwrap()
-            .clone(),
-        );
+            .extend(
+                json!({
+                    "name": "Gemini Pro X", "release_date": "2026-05-01", "knowledge": "2025-12",
+                    "reasoning": true, "tool_call": true, "status": "deprecated",
+                    "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] },
+                })
+                .as_object()
+                .unwrap()
+                .clone(),
+            );
         let (_, t) = trim(&f, "2026-02-03").unwrap();
         let facts = t.facts("gemini", "gemini-pro-x").unwrap();
         assert_eq!(facts.name.as_deref(), Some("Gemini Pro X"));
         assert_eq!(facts.release_date.as_deref(), Some("2026-05-01"));
         assert_eq!(facts.knowledge_cutoff.as_deref(), Some("2025-12"));
-        assert!(facts.reasoning && facts.tool_calls && facts.image_input && facts.pdf_input && facts.deprecated);
+        assert!(
+            facts.reasoning
+                && facts.tool_calls
+                && facts.image_input
+                && facts.pdf_input
+                && facts.deprecated
+        );
         assert_eq!((facts.input_price, facts.output_price), (2.0, 12.0));
         // A model with none of those fields gets plain defaults.
         let plain = t.facts("gemini", "gemini-m0").unwrap();
@@ -447,8 +533,14 @@ mod tests {
     fn facts_follow_the_same_matching_as_cost() {
         let t = table();
         assert!(t.facts("gemini", "base").is_some());
-        assert!(t.facts("gemini", "models/base-001").is_some(), "a dated variant finds its base");
-        assert!(t.facts("gemini", "base-tts-preview").is_none(), "special variants don't");
+        assert!(
+            t.facts("gemini", "models/base-001").is_some(),
+            "a dated variant finds its base"
+        );
+        assert!(
+            t.facts("gemini", "base-tts-preview").is_none(),
+            "special variants don't"
+        );
         assert!(t.facts("gemini", "something-new").is_none());
     }
 
@@ -501,13 +593,19 @@ mod tests {
                 let mut buf = [0u8; 2048];
                 let _ = s.read(&mut buf);
                 let b = if status == 200 { body.as_str() } else { "" };
-                let _ = write!(s, "HTTP/1.1 {status} X\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{b}", b.len());
+                let _ = write!(
+                    s,
+                    "HTTP/1.1 {status} X\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{b}",
+                    b.len()
+                );
             }
         });
         let client = reqwest::Client::new();
         let (_, t) = tauri::async_runtime::block_on(fetch_table(&client, &url)).unwrap();
         near(t.cost("gemini", "gemini-embedding-2", 1_000_000, 0, 0), 0.2);
-        let err = tauri::async_runtime::block_on(fetch_table(&client, &url)).unwrap_err().to_string();
+        let err = tauri::async_runtime::block_on(fetch_table(&client, &url))
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("HTTP 500"), "{err}");
     }
 
@@ -518,7 +616,8 @@ mod tests {
     #[ignore]
     fn update_bundled_prices() {
         let client = reqwest::Client::new();
-        let (text, table) = tauri::async_runtime::block_on(fetch_table(&client, FEED)).expect("fetch prices");
+        let (text, table) =
+            tauri::async_runtime::block_on(fetch_table(&client, FEED)).expect("fetch prices");
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("data/prices.json");
         std::fs::write(&path, text).expect("write prices.json");
         println!("wrote {} (fetched {})", path.display(), table.fetched_at);
@@ -542,6 +641,10 @@ mod tests {
     fn the_bundled_file_parses_and_prices_the_embedding_model() {
         let t = bundled();
         assert!(!t.fetched_at.is_empty());
-        assert!(t.cost("gemini", "gemini-embedding-2", 1_000_000, 0, 0).unwrap() > 0.0);
+        assert!(
+            t.cost("gemini", "gemini-embedding-2", 1_000_000, 0, 0)
+                .unwrap()
+                > 0.0
+        );
     }
 }

@@ -42,7 +42,12 @@ pub(super) fn text(v: &Value) -> Option<String> {
         Value::Array(a) => a.first()?.as_str()?,
         _ => return None,
     };
-    let s = MARKUP.replace_all(s, "").replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"");
+    let s = MARKUP
+        .replace_all(s, "")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"");
     let s = s.split_whitespace().collect::<Vec<_>>().join(" ");
     (!s.is_empty()).then_some(s)
 }
@@ -57,7 +62,11 @@ pub(super) fn fix_caps(s: &str) -> String {
             w.split('-')
                 .map(|p| {
                     let mut c = p.chars();
-                    c.next().map_or(String::new(), |f| f.to_uppercase().chain(c.flat_map(char::to_lowercase)).collect())
+                    c.next().map_or(String::new(), |f| {
+                        f.to_uppercase()
+                            .chain(c.flat_map(char::to_lowercase))
+                            .collect()
+                    })
                 })
                 .collect::<Vec<_>>()
                 .join("-")
@@ -68,11 +77,17 @@ pub(super) fn fix_caps(s: &str) -> String {
 
 fn person(a: &Value) -> Option<String> {
     let given = a["given"].as_str().map(str::trim).filter(|s| !s.is_empty());
-    let family = a["family"].as_str().map(str::trim).filter(|s| !s.is_empty());
+    let family = a["family"]
+        .as_str()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
     match (given, family) {
         (Some(g), Some(f)) => Some(format!("{g} {}", fix_caps(f))),
         (None, Some(f)) => Some(fix_caps(f)),
-        _ => a["name"].as_str().map(|n| n.trim().to_string()).filter(|n| !n.is_empty()),
+        _ => a["name"]
+            .as_str()
+            .map(|n| n.trim().to_string())
+            .filter(|n| !n.is_empty()),
     }
 }
 
@@ -83,7 +98,10 @@ pub fn parse(reply: &Value) -> Option<Record> {
         source: "crossref",
         doi: Some(m["DOI"].as_str()?.to_string()),
         title: text(&m["title"])?,
-        authors: m["author"].as_array().map(|a| a.iter().filter_map(person).collect()).unwrap_or_default(),
+        authors: m["author"]
+            .as_array()
+            .map(|a| a.iter().filter_map(person).collect())
+            .unwrap_or_default(),
         year: ["issued", "published", "published-print", "published-online"]
             .iter()
             .find_map(|k| m[k]["date-parts"][0][0].as_i64())
@@ -100,7 +118,11 @@ pub fn parse(reply: &Value) -> Option<Record> {
 }
 
 fn tokens(s: &str) -> Vec<String> {
-    fold(s).split(|c: char| !c.is_alphanumeric()).filter(|t| !t.is_empty()).map(String::from).collect()
+    fold(s)
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|t| !t.is_empty())
+        .map(String::from)
+        .collect()
 }
 
 /// True if the record's title is in the document's text: all of it for a short title, at least 90
@@ -112,7 +134,11 @@ pub fn title_in_text(title: &str, head: &str) -> bool {
     }
     let have: HashSet<String> = tokens(head).into_iter().collect();
     let found = want.iter().filter(|t| have.contains(*t)).count();
-    if want.len() < 5 { found == want.len() } else { found * 10 >= want.len() * 9 }
+    if want.len() < 5 {
+        found == want.len()
+    } else {
+        found * 10 >= want.len() * 9
+    }
 }
 
 /// What the record adds to a document. The title, authors and year of a publisher's record are
@@ -125,7 +151,11 @@ pub fn to_extracted(r: &Record, has_publisher: bool) -> Extracted {
         year: r.year,
         doi: r.doi.clone(),
         journal: r.journal.clone(),
-        publisher: if has_publisher { None } else { r.publisher.clone() },
+        publisher: if has_publisher {
+            None
+        } else {
+            r.publisher.clone()
+        },
         volume: r.volume.clone(),
         issue: r.issue.clone(),
         pages: r.pages.clone(),
@@ -138,15 +168,30 @@ pub fn to_extracted(r: &Record, has_publisher: bool) -> Extracted {
 /// DOIs that file names of well-known sources spell out ("nature02437.pdf", "dao014105.pdf").
 /// Only tried through a lookup whose title must then be found in the document.
 pub fn candidates(file_name: &str) -> Vec<String> {
-    let stem = file_name.rsplit_once('.').map_or(file_name, |(s, _)| s).trim();
+    let stem = file_name
+        .rsplit_once('.')
+        .map_or(file_name, |(s, _)| s)
+        .trim();
     let rules: [(&str, &dyn Fn(&str) -> String); 5] = [
-        (r"^(?i)bf\d{8}$", &|s| format!("10.1007/{}", s.to_uppercase())),
-        (r"^(?i)dao\d{6}$", &|s| format!("10.3354/{}", s.to_lowercase())),
-        (r"^(?i)nature\d{5}$", &|s| format!("10.1038/{}", s.to_lowercase())),
+        (r"^(?i)bf\d{8}$", &|s| {
+            format!("10.1007/{}", s.to_uppercase())
+        }),
+        (r"^(?i)dao\d{6}$", &|s| {
+            format!("10.3354/{}", s.to_lowercase())
+        }),
+        (r"^(?i)nature\d{5}$", &|s| {
+            format!("10.1038/{}", s.to_lowercase())
+        }),
         (r"^\d{6}a\d$", &|s| format!("10.1038/{s}")),
-        (r"^(?i)science\.\d{7}$", &|s| format!("10.1126/{}", s.to_lowercase())),
+        (r"^(?i)science\.\d{7}$", &|s| {
+            format!("10.1126/{}", s.to_lowercase())
+        }),
     ];
-    rules.iter().filter(|(p, _)| Regex::new(p).is_ok_and(|r| r.is_match(stem))).map(|(_, f)| f(stem)).collect()
+    rules
+        .iter()
+        .filter(|(p, _)| Regex::new(p).is_ok_and(|r| r.is_match(stem)))
+        .map(|(_, f)| f(stem))
+        .collect()
 }
 
 pub fn http_client() -> reqwest::Client {
@@ -162,7 +207,10 @@ pub fn http_client() -> reqwest::Client {
 pub async fn fetch(client: &reqwest::Client, base: &str, doi: &str) -> Result<Option<Record>> {
     let started = std::time::Instant::now();
     let v = send_json(client.get(format!("{base}{doi}")), "Crossref").await?;
-    log::debug!("Crossref: {doi} answered in {} ms", started.elapsed().as_millis());
+    log::debug!(
+        "Crossref: {doi} answered in {} ms",
+        started.elapsed().as_millis()
+    );
     Ok(v.and_then(|v| parse(&v)))
 }
 
@@ -173,14 +221,25 @@ pub(super) async fn send_json(req: reqwest::RequestBuilder, who: &str) -> Result
 }
 
 /// With `big_is_none`, a reply over the size limit counts as "nothing found" instead of an error.
-async fn send_json_with(req: reqwest::RequestBuilder, who: &str, big_is_none: bool) -> Result<Option<Value>> {
+async fn send_json_with(
+    req: reqwest::RequestBuilder,
+    who: &str,
+    big_is_none: bool,
+) -> Result<Option<Value>> {
     let net = |e: reqwest::Error| AppError::Internal(format!("{who} lookup failed: {e}"));
-    let resp = req.timeout(Duration::from_secs(15)).send().await.map_err(net)?;
+    let resp = req
+        .timeout(Duration::from_secs(15))
+        .send()
+        .await
+        .map_err(net)?;
     if resp.status().as_u16() == 404 {
         return Ok(None);
     }
     if !resp.status().is_success() {
-        return Err(AppError::Internal(format!("{who} lookup failed: HTTP {}", resp.status().as_u16())));
+        return Err(AppError::Internal(format!(
+            "{who} lookup failed: HTTP {}",
+            resp.status().as_u16()
+        )));
     }
     let bytes = resp.bytes().await.map_err(net)?;
     if bytes.len() > MAX_BYTES {
@@ -188,9 +247,13 @@ async fn send_json_with(req: reqwest::RequestBuilder, who: &str, big_is_none: bo
             log::debug!("{who} reply of {} bytes ignored", bytes.len());
             return Ok(None);
         }
-        return Err(AppError::Internal(format!("{who} sent far more than expected.")));
+        return Err(AppError::Internal(format!(
+            "{who} sent far more than expected."
+        )));
     }
-    serde_json::from_slice(&bytes).map(Some).map_err(|e| AppError::Internal(format!("{who} sent something unreadable: {e}")))
+    serde_json::from_slice(&bytes)
+        .map(Some)
+        .map_err(|e| AppError::Internal(format!("{who} sent something unreadable: {e}")))
 }
 
 /// Reads a CSL-JSON record, which is what doi.org returns for DOIs Crossref doesn't hold (DataCite:
@@ -198,14 +261,23 @@ async fn send_json_with(req: reqwest::RequestBuilder, who: &str, big_is_none: bo
 pub fn parse_csl(v: &Value, doi: &str) -> Option<Record> {
     let year = ["issued", "published", "published-print", "published-online"]
         .iter()
-        .find_map(|k| v[k]["date-parts"][0][0].as_i64().or_else(|| v[k]["date-parts"][0][0].as_str().and_then(|s| s.parse().ok())))
+        .find_map(|k| {
+            v[k]["date-parts"][0][0].as_i64().or_else(|| {
+                v[k]["date-parts"][0][0]
+                    .as_str()
+                    .and_then(|s| s.parse().ok())
+            })
+        })
         .and_then(|y| i32::try_from(y).ok())
         .filter(|y| (1000..=2200).contains(y));
     Some(Record {
         source: "doi",
         doi: Some(doi.to_string()),
         title: text(&v["title"])?,
-        authors: v["author"].as_array().map(|a| a.iter().filter_map(person).collect()).unwrap_or_default(),
+        authors: v["author"]
+            .as_array()
+            .map(|a| a.iter().filter_map(person).collect())
+            .unwrap_or_default(),
         year,
         journal: text(&v["container-title"]),
         volume: text(&v["volume"]),
@@ -218,7 +290,12 @@ pub fn parse_csl(v: &Value, doi: &str) -> Option<Record> {
 }
 
 /// Crossref's search by title and first author. Returns up to three records, best first.
-pub async fn search(client: &reqwest::Client, base: &str, title: &str, surname: Option<&str>) -> Result<Vec<Record>> {
+pub async fn search(
+    client: &reqwest::Client,
+    base: &str,
+    title: &str,
+    surname: Option<&str>,
+) -> Result<Vec<Record>> {
     let mut req = client.get(base.trim_end_matches('/')).query(&[
         ("query.bibliographic", title),
         ("rows", "3"),
@@ -250,21 +327,35 @@ fn covered(want: &[String], have: &HashSet<String>) -> bool {
         return false;
     }
     let found = want.iter().filter(|t| have.contains(*t)).count();
-    if want.len() < 5 { found == want.len() } else { found * 10 >= want.len() * 9 }
+    if want.len() < 5 {
+        found == want.len()
+    } else {
+        found * 10 >= want.len() * 9
+    }
 }
 
-const EDITION_WORDS: [&str; 12] = ["edition", "ed", "revised", "rev", "updated", "expanded", "first", "second", "third", "fourth", "fifth", "new"];
+const EDITION_WORDS: [&str; 12] = [
+    "edition", "ed", "revised", "rev", "updated", "expanded", "first", "second", "third", "fourth",
+    "fifth", "new",
+];
 
 /// "2nd", "3rd", "11th" and the words that name an edition.
 fn is_edition_word(t: &str) -> bool {
     EDITION_WORDS.contains(&t)
-        || t.strip_suffix("st").or_else(|| t.strip_suffix("nd")).or_else(|| t.strip_suffix("rd")).or_else(|| t.strip_suffix("th")).is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+        || t.strip_suffix("st")
+            .or_else(|| t.strip_suffix("nd"))
+            .or_else(|| t.strip_suffix("rd"))
+            .or_else(|| t.strip_suffix("th"))
+            .is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
 }
 
 /// The title without a trailing edition statement ("... Microalgae. 2nd revised edition.").
 pub fn without_edition(title: &str) -> String {
     let mut words: Vec<&str> = title.split_whitespace().collect();
-    while words.last().is_some_and(|w| tokens(w).iter().all(|t| is_edition_word(t))) {
+    while words
+        .last()
+        .is_some_and(|w| tokens(w).iter().all(|t| is_edition_word(t)))
+    {
         words.pop();
     }
     words.join(" ")
@@ -273,17 +364,28 @@ pub fn without_edition(title: &str) -> String {
 /// Both titles cover each other, or one is the other plus an edition statement (repositories file
 /// "Manual on X. 2nd revised edition." while the paper's own title page says "Manual on X").
 fn titles_match(a: &[String], b: &[String]) -> bool {
-    let (sa, sb): (HashSet<_>, HashSet<_>) = (a.iter().cloned().collect(), b.iter().cloned().collect());
+    let (sa, sb): (HashSet<_>, HashSet<_>) =
+        (a.iter().cloned().collect(), b.iter().cloned().collect());
     if covered(a, &sb) && covered(b, &sa) {
         return true;
     }
-    let extends = |short: &[String], long: &[String]| !short.is_empty() && long.len() > short.len() && long[..short.len()] == *short && long[short.len()..].iter().all(|t| is_edition_word(t));
+    let extends = |short: &[String], long: &[String]| {
+        !short.is_empty()
+            && long.len() > short.len()
+            && long[..short.len()] == *short
+            && long[short.len()..].iter().all(|t| is_edition_word(t))
+    };
     extends(a, b) || extends(b, a)
 }
 
 /// Strict check for a search hit: the two titles match, the years are within one, and the first
 /// author's surname is among the record's authors (each only when both are known).
-pub fn search_hit_fits(record: &Record, title: &str, authors: &[String], year: Option<i32>) -> bool {
+pub fn search_hit_fits(
+    record: &Record,
+    title: &str,
+    authors: &[String],
+    year: Option<i32>,
+) -> bool {
     if !titles_match(&tokens(title), &tokens(&record.title)) {
         return false;
     }
@@ -307,7 +409,10 @@ pub fn search_hit_fits(record: &Record, title: &str, authors: &[String], year: O
 
 /// One creator of a DataCite record as "Given Family". `None` for "et al".
 fn creator(c: &Value) -> Option<String> {
-    let name = c["name"].as_str().map(str::trim).filter(|n| !n.is_empty())?;
+    let name = c["name"]
+        .as_str()
+        .map(str::trim)
+        .filter(|n| !n.is_empty())?;
     if name.trim_end_matches('.').eq_ignore_ascii_case("et al") {
         return None;
     }
@@ -315,7 +420,9 @@ fn creator(c: &Value) -> Option<String> {
         return Some(name.to_string());
     }
     match name.split_once(',') {
-        Some((family, given)) if !family.trim().is_empty() && !given.trim().is_empty() => Some(format!("{} {}", given.trim(), fix_caps(family.trim()))),
+        Some((family, given)) if !family.trim().is_empty() && !given.trim().is_empty() => {
+            Some(format!("{} {}", given.trim(), fix_caps(family.trim())))
+        }
         _ => Some(fix_caps(name)),
     }
 }
@@ -323,12 +430,19 @@ fn creator(c: &Value) -> Option<String> {
 /// Reads one item of a DataCite `/dois` reply.
 pub fn parse_datacite(item: &Value) -> Option<Record> {
     let a = &item["attributes"];
-    let year = a["publicationYear"].as_i64().or_else(|| a["publicationYear"].as_str().and_then(|s| s.parse().ok())).and_then(|y| i32::try_from(y).ok()).filter(|y| (1000..=2200).contains(y));
+    let year = a["publicationYear"]
+        .as_i64()
+        .or_else(|| a["publicationYear"].as_str().and_then(|s| s.parse().ok()))
+        .and_then(|y| i32::try_from(y).ok())
+        .filter(|y| (1000..=2200).contains(y));
     Some(Record {
         source: "datacite",
         doi: Some(a["doi"].as_str()?.to_string()),
         title: text(&a["titles"][0]["title"])?,
-        authors: a["creators"].as_array().map(|c| c.iter().filter_map(creator).collect()).unwrap_or_default(),
+        authors: a["creators"]
+            .as_array()
+            .map(|c| c.iter().filter_map(creator).collect())
+            .unwrap_or_default(),
         year,
         journal: None,
         volume: None,
@@ -342,11 +456,21 @@ pub fn parse_datacite(item: &Value) -> Option<Record> {
 
 /// DataCite's search by title, for reports and other repository records Crossref doesn't hold.
 /// Returns up to three records, best first.
-pub async fn search_datacite(client: &reqwest::Client, base: &str, title: &str) -> Result<Vec<Record>> {
+pub async fn search_datacite(
+    client: &reqwest::Client,
+    base: &str,
+    title: &str,
+) -> Result<Vec<Record>> {
     let phrase = format!("titles.title:\"{}\"", title.replace('"', " "));
-    let req = client.get(base).query(&[("query", phrase.as_str()), ("page[size]", "3")]);
+    let req = client
+        .get(base)
+        .query(&[("query", phrase.as_str()), ("page[size]", "3")]);
     let v = send_json_with(req, "DataCite", true).await?;
-    Ok(v.and_then(|v| v["data"].as_array().cloned()).unwrap_or_default().iter().filter_map(parse_datacite).collect())
+    Ok(v.and_then(|v| v["data"].as_array().cloned())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(parse_datacite)
+        .collect())
 }
 
 #[cfg(test)]
@@ -363,23 +487,46 @@ mod tests {
     fn a_record_is_read_with_names_in_ordinary_case() {
         let r = parse(&serde_json::from_str(WATSON).unwrap()).unwrap();
         assert_eq!(r.authors, ["J. D. Watson", "F. H. C. Crick"]);
-        assert_eq!((r.year, r.journal.as_deref(), r.volume.as_deref(), r.pages.as_deref()), (Some(1953), Some("Nature"), Some("171"), Some("737-738")));
+        assert_eq!(
+            (
+                r.year,
+                r.journal.as_deref(),
+                r.volume.as_deref(),
+                r.pages.as_deref()
+            ),
+            (Some(1953), Some("Nature"), Some("171"), Some("737-738"))
+        );
         assert_eq!((r.issn.as_deref(), r.isbn), (Some("0028-0836"), None));
         assert_eq!(fix_caps("BENITEZ-NELSON"), "Benitez-Nelson");
         assert_eq!(fix_caps("DiCicco"), "DiCicco");
         let marked = serde_json::json!({"message": {"DOI": "10.1/x", "title": ["Effects on <i>Chaetoceros</i> &amp; trout"]}});
-        assert_eq!(parse(&marked).unwrap().title, "Effects on Chaetoceros & trout");
-        assert!(parse(&serde_json::json!({"message": {"DOI": "10.1/x"}})).is_none(), "no title, no record");
+        assert_eq!(
+            parse(&marked).unwrap().title,
+            "Effects on Chaetoceros & trout"
+        );
+        assert!(
+            parse(&serde_json::json!({"message": {"DOI": "10.1/x"}})).is_none(),
+            "no title, no record"
+        );
     }
 
     #[test]
     fn the_title_must_be_in_the_document() {
         let head = "Mesoscale Iron Enrichment Experiments 1993–2005: Synthesis and Future Directions P. W. Boyd";
-        assert!(title_in_text("Mesoscale iron enrichment experiments 1993-2005: synthesis and future directions", head));
-        assert!(!title_in_text("Seismic structure of the Cascadia subduction zone and its tectonic implications", head));
+        assert!(title_in_text(
+            "Mesoscale iron enrichment experiments 1993-2005: synthesis and future directions",
+            head
+        ));
+        assert!(!title_in_text(
+            "Seismic structure of the Cascadia subduction zone and its tectonic implications",
+            head
+        ));
         // one word lost to a garbled text layer out of many is fine, out of a short title is not
         let garbled = "increase mortality rates of penned Pacific salmon and C. c~nv~Z~t~~ Sub-lethal concentrations of the harmful diatoms Chaetoceros concavicornis";
-        assert!(title_in_text("Sub-lethal concentrations of the harmful diatoms, Chaetoceros concavicornis and C. convolutus, increase mortality rates of penned Pacific salmon", garbled));
+        assert!(title_in_text(
+            "Sub-lethal concentrations of the harmful diatoms, Chaetoceros concavicornis and C. convolutus, increase mortality rates of penned Pacific salmon",
+            garbled
+        ));
         assert!(!title_in_text("Reply", "A long text without that word"));
         assert!(!title_in_text("", head));
     }
@@ -390,7 +537,10 @@ mod tests {
         assert_eq!(candidates("dao014105.pdf"), ["10.3354/dao014105"]);
         assert_eq!(candidates("nature02437.pdf"), ["10.1038/nature02437"]);
         assert_eq!(candidates("383495a0.pdf"), ["10.1038/383495a0"]);
-        assert_eq!(candidates("science.1131669.pdf"), ["10.1126/science.1131669"]);
+        assert_eq!(
+            candidates("science.1131669.pdf"),
+            ["10.1126/science.1131669"]
+        );
         assert!(candidates("ninarapport2669.pdf").is_empty());
     }
 
@@ -398,31 +548,68 @@ mod tests {
     fn a_publishers_publisher_name_does_not_replace_a_known_one() {
         let r = parse(&serde_json::from_str(WATSON).unwrap()).unwrap();
         assert_eq!(to_extracted(&r, true).publisher, None);
-        assert_eq!(to_extracted(&r, false).publisher.as_deref(), Some("Springer Science and Business Media LLC"));
+        assert_eq!(
+            to_extracted(&r, false).publisher.as_deref(),
+            Some("Springer Science and Business Media LLC")
+        );
     }
 
     #[tokio::test]
     async fn lookups_handle_a_record_an_unknown_doi_and_garbage() {
-        let (base, seen) = serve(vec![(200, WATSON.into()), (404, "Resource not found.".into()), (200, "not json".into()), (500, "oops".into())]);
+        let (base, seen) = serve(vec![
+            (200, WATSON.into()),
+            (404, "Resource not found.".into()),
+            (200, "not json".into()),
+            (500, "oops".into()),
+        ]);
         let client = http_client();
         let base = format!("{base}/works/");
-        let r = fetch(&client, &base, "10.1038/171737a0").await.unwrap().unwrap();
+        let r = fetch(&client, &base, "10.1038/171737a0")
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(r.year, Some(1953));
-        assert!(fetch(&client, &base, "10.1000/none").await.unwrap().is_none());
+        assert!(
+            fetch(&client, &base, "10.1000/none")
+                .await
+                .unwrap()
+                .is_none()
+        );
         assert!(fetch(&client, &base, "10.1000/bad").await.is_err());
         assert!(fetch(&client, &base, "10.1000/down").await.is_err());
         let head = seen.lock().unwrap()[0].0.to_lowercase();
         assert!(head.starts_with("get /works/10.1038/171737a0 "), "{head}");
-        assert!(head.contains("user-agent: chingolo/") && !head.contains('@'), "{head}");
+        assert!(
+            head.contains("user-agent: chingolo/") && !head.contains('@'),
+            "{head}"
+        );
     }
 
     #[tokio::test]
     async fn a_search_reply_with_thousands_of_authors_is_no_match_not_an_error() {
-        let big = format!(r#"{{"message":{{"items":[{{"DOI":"10.1/x","title":["T"],"author":[{}]}}]}}}}"#, vec![r#"{"family":"Name","given":"Some"}"#; 40_000].join(","));
+        let big = format!(
+            r#"{{"message":{{"items":[{{"DOI":"10.1/x","title":["T"],"author":[{}]}}]}}}}"#,
+            vec![r#"{"family":"Name","given":"Some"}"#; 40_000].join(",")
+        );
         assert!(big.len() > MAX_BYTES);
         let (base, _) = serve(vec![(200, big.clone()), (200, big)]);
         let client = http_client();
-        assert!(search(&client, &format!("{base}/works/"), "A title of some words", None).await.unwrap().is_empty());
-        assert!(fetch(&client, &format!("{base}/works/"), "10.1/x").await.is_err(), "a DOI lookup keeps the strict limit");
+        assert!(
+            search(
+                &client,
+                &format!("{base}/works/"),
+                "A title of some words",
+                None
+            )
+            .await
+            .unwrap()
+            .is_empty()
+        );
+        assert!(
+            fetch(&client, &format!("{base}/works/"), "10.1/x")
+                .await
+                .is_err(),
+            "a DOI lookup keeps the strict limit"
+        );
     }
 }

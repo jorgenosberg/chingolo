@@ -27,17 +27,33 @@ pub async fn get_usage(state: State<'_, AppState>, period: UsagePeriod) -> CmdRe
 /// recorded, and search queries, aren't included.
 #[tauri::command]
 #[specta::specta]
-pub async fn get_conversation_cost(state: State<'_, AppState>, id: String) -> CmdResult<Vec<UsageRow>> {
-    Ok(state.db.call(move |c| usage::conversation_summary(c, &id)).await?)
+pub async fn get_conversation_cost(
+    state: State<'_, AppState>,
+    id: String,
+) -> CmdResult<Vec<UsageRow>> {
+    Ok(state
+        .db
+        .call(move |c| usage::conversation_summary(c, &id))
+        .await?)
 }
 
 /// Turns the weekly price download on or off. Turning it on checks right away.
 #[tauri::command]
 #[specta::specta]
-pub async fn set_prices_auto_update(app: AppHandle, state: State<'_, AppState>, enabled: bool) -> CmdResult<()> {
-    state.db.call(move |c| settings::set_bool(c, pricing::AUTO_KEY, enabled)).await?;
+pub async fn set_prices_auto_update(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    enabled: bool,
+) -> CmdResult<()> {
+    state
+        .db
+        .call(move |c| settings::set_bool(c, pricing::AUTO_KEY, enabled))
+        .await?;
     if enabled {
-        let dir = app.path().app_data_dir().map_err(|e| AppError::Internal(e.to_string()))?;
+        let dir = app
+            .path()
+            .app_data_dir()
+            .map_err(|e| AppError::Internal(e.to_string()))?;
         let db = state.db.clone();
         tauri::async_runtime::spawn(async move { pricing::update_if_due(&db, &dir).await });
     }
@@ -48,7 +64,10 @@ pub async fn set_prices_auto_update(app: AppHandle, state: State<'_, AppState>, 
 #[tauri::command]
 #[specta::specta]
 pub async fn update_prices_now(app: AppHandle, state: State<'_, AppState>) -> CmdResult<()> {
-    let dir = app.path().app_data_dir().map_err(|e| AppError::Internal(e.to_string()))?;
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| AppError::Internal(e.to_string()))?;
     Ok(pricing::update_now(&state.db, &dir).await?)
 }
 
@@ -56,7 +75,10 @@ pub async fn update_prices_now(app: AppHandle, state: State<'_, AppState>) -> Cm
 #[tauri::command]
 #[specta::specta]
 pub fn show_logs(app: AppHandle) -> CmdResult<()> {
-    let dir = app.path().app_log_dir().map_err(|e| AppError::Internal(e.to_string()))?;
+    let dir = app
+        .path()
+        .app_log_dir()
+        .map_err(|e| AppError::Internal(e.to_string()))?;
     std::fs::create_dir_all(&dir).map_err(|e| AppError::Internal(e.to_string()))?;
     std::process::Command::new("open")
         .arg(&dir)

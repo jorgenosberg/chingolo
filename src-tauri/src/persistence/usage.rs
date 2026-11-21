@@ -22,7 +22,13 @@ pub struct NewUsage<'a> {
 }
 
 pub fn record(conn: &Connection, u: &NewUsage) -> Result<()> {
-    let cost = pricing::cost(u.provider, u.model, u.input_tokens, u.output_tokens, u.cached_tokens);
+    let cost = pricing::cost(
+        u.provider,
+        u.model,
+        u.input_tokens,
+        u.output_tokens,
+        u.cached_tokens,
+    );
     conn.execute(
         "INSERT INTO api_usage (at, provider, model, kind, input_tokens, output_tokens, cached_tokens, estimated, latency_ms, ok, cost_usd, conversation_id)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
@@ -112,8 +118,16 @@ mod tests {
     #[test]
     fn groups_by_model_and_kind_and_sums_cost() {
         let conn = test_conn();
-        record(&conn, &u("gemini-embedding-2", "embed_index", 1_000_000, true)).unwrap();
-        record(&conn, &u("gemini-embedding-2", "embed_index", 500_000, true)).unwrap();
+        record(
+            &conn,
+            &u("gemini-embedding-2", "embed_index", 1_000_000, true),
+        )
+        .unwrap();
+        record(
+            &conn,
+            &u("gemini-embedding-2", "embed_index", 500_000, true),
+        )
+        .unwrap();
         record(&conn, &u("gemini-embedding-2", "embed_query", 10, false)).unwrap();
         record(&conn, &u("some-unknown-model", "chat", 5, true)).unwrap();
 
@@ -122,10 +136,17 @@ mod tests {
         let index = rows.iter().find(|r| r.kind == "embed_index").unwrap();
         assert_eq!((index.calls, index.input_tokens), (2, 1_500_000));
         let expect = pricing::cost("gemini", "gemini-embedding-2", 1_500_000, 0, 0).unwrap();
-        assert!(expect > 0.0 && (index.cost_usd - expect).abs() < 1e-9, "{}", index.cost_usd);
+        assert!(
+            expect > 0.0 && (index.cost_usd - expect).abs() < 1e-9,
+            "{}",
+            index.cost_usd
+        );
         let query = rows.iter().find(|r| r.kind == "embed_query").unwrap();
         assert_eq!(query.errors, 1);
-        let unknown = rows.iter().find(|r| r.model == "some-unknown-model").unwrap();
+        let unknown = rows
+            .iter()
+            .find(|r| r.model == "some-unknown-model")
+            .unwrap();
         assert_eq!((unknown.unpriced_calls, unknown.cost_usd), (1, 0.0));
     }
 
@@ -145,14 +166,22 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!((rows[0].calls, rows[0].input_tokens), (2, 2_000));
         assert!(conversation_summary(&conn, "nope").unwrap().is_empty());
-        assert_eq!(summary(&conn, UsagePeriod::All).unwrap().iter().map(|r| r.calls).sum::<u32>(), 4);
+        assert_eq!(
+            summary(&conn, UsagePeriod::All)
+                .unwrap()
+                .iter()
+                .map(|r| r.calls)
+                .sum::<u32>(),
+            4
+        );
     }
 
     #[test]
     fn periods_leave_out_older_calls() {
         let conn = test_conn();
         record(&conn, &u("gemini-embedding-2", "embed_index", 10, true)).unwrap();
-        conn.execute("UPDATE api_usage SET at = at - 3 * 24 * 3600 * 1000", []).unwrap();
+        conn.execute("UPDATE api_usage SET at = at - 3 * 24 * 3600 * 1000", [])
+            .unwrap();
         assert!(summary(&conn, UsagePeriod::Day).unwrap().is_empty());
         assert_eq!(summary(&conn, UsagePeriod::Week).unwrap().len(), 1);
     }

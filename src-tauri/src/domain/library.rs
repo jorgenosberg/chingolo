@@ -125,7 +125,10 @@ pub fn surname(name: &str) -> String {
     if let Some((s, _)) = name.split_once(',') {
         return s.trim().to_string();
     }
-    const PARTICLES: &[&str] = &["van", "von", "de", "der", "den", "da", "di", "du", "la", "le", "dos", "ter", "ten", "af", "al", "bin"];
+    const PARTICLES: &[&str] = &[
+        "van", "von", "de", "der", "den", "da", "di", "du", "la", "le", "dos", "ter", "ten", "af",
+        "al", "bin",
+    ];
     let toks: Vec<&str> = name.split_whitespace().collect();
     let mut start = toks.len().saturating_sub(1);
     while start > 1 && PARTICLES.contains(&toks[start - 1]) {
@@ -285,11 +288,34 @@ mod tests {
     #[test]
     fn sources_are_named_by_surname_and_year() {
         let a = |n: &[&str]| n.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        assert_eq!(short_label(&a(&["P. W. Boyd"]), Some(2004), None), "Boyd 2004");
-        assert_eq!(short_label(&a(&["C. Z. Yang", "L. J. Albright"]), Some(1992), None), "Yang & Albright 1992");
-        assert_eq!(short_label(&a(&["Philip W. Boyd", "Tim Jickells", "Cliff Law"]), Some(2004), None), "Boyd et al. 2004");
-        assert_eq!(short_label(&a(&["Hallegraeff, Gustaaf M.", "Anderson, Don M."]), None, None), "Hallegraeff & Anderson");
-        assert_eq!(short_label(&[], Some(2025), Some("Veterinærinstituttet")), "Veterinærinstituttet 2025");
+        assert_eq!(
+            short_label(&a(&["P. W. Boyd"]), Some(2004), None),
+            "Boyd 2004"
+        );
+        assert_eq!(
+            short_label(&a(&["C. Z. Yang", "L. J. Albright"]), Some(1992), None),
+            "Yang & Albright 1992"
+        );
+        assert_eq!(
+            short_label(
+                &a(&["Philip W. Boyd", "Tim Jickells", "Cliff Law"]),
+                Some(2004),
+                None
+            ),
+            "Boyd et al. 2004"
+        );
+        assert_eq!(
+            short_label(
+                &a(&["Hallegraeff, Gustaaf M.", "Anderson, Don M."]),
+                None,
+                None
+            ),
+            "Hallegraeff & Anderson"
+        );
+        assert_eq!(
+            short_label(&[], Some(2025), Some("Veterinærinstituttet")),
+            "Veterinærinstituttet 2025"
+        );
         assert_eq!(short_label(&[], Some(2025), None), "");
         assert_eq!(surname("Renee Mina van Dorst"), "van Dorst");
         assert_eq!(surname("Jan-Erik Thrane"), "Thrane");
@@ -300,18 +326,30 @@ mod tests {
 
     #[test]
     fn folds_norwegian_letters_and_case() {
-        assert_eq!(fold("Økosystemet ved Ærø og Åre"), "okosystemet ved aero og are");
+        assert_eq!(
+            fold("Økosystemet ved Ærø og Åre"),
+            "okosystemet ved aero og are"
+        );
     }
 
     #[test]
     fn scope_json_round_trips_and_reads_the_old_value() {
         let old: Scope = serde_json::from_str("{\"kind\":\"library\"}").unwrap();
         assert_eq!(old, Scope::Library);
-        for s in [Scope::Project, Scope::Library, Scope::Documents { ids: vec!["a".into(), "b".into()] }] {
+        for s in [
+            Scope::Project,
+            Scope::Library,
+            Scope::Documents {
+                ids: vec!["a".into(), "b".into()],
+            },
+        ] {
             let json = serde_json::to_string(&s).unwrap();
             assert_eq!(serde_json::from_str::<Scope>(&json).unwrap(), s);
         }
-        assert_eq!(serde_json::to_string(&Scope::Project).unwrap(), "{\"kind\":\"project\"}");
+        assert_eq!(
+            serde_json::to_string(&Scope::Project).unwrap(),
+            "{\"kind\":\"project\"}"
+        );
     }
 
     #[test]

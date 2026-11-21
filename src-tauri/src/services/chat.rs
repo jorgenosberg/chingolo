@@ -101,11 +101,18 @@ async fn record_usage(
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum ChatEvent {
-    Delta { text: String },
+    Delta {
+        text: String,
+    },
     /// The model is using a tool. `summary` is a short line to show while it runs.
-    Tool { name: String, summary: String },
+    Tool {
+        name: String,
+        summary: String,
+    },
     /// Sent once at the end, whether the reply completed, failed or was cancelled.
-    Finished { message: Message },
+    Finished {
+        message: Message,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -115,7 +122,10 @@ pub struct SendResult {
     pub assistant_message: Message,
 }
 
-async fn provider_and_key(state: &AppState, provider_id: &str) -> Result<(Arc<dyn Provider>, String)> {
+async fn provider_and_key(
+    state: &AppState,
+    provider_id: &str,
+) -> Result<(Arc<dyn Provider>, String)> {
     let provider = state.providers.get(provider_id)?;
     let key = security::get_key(provider.id())
         .await?
@@ -146,7 +156,9 @@ async fn rerank_target(
     if let (Some(model), Some(provider)) = (model, provider) {
         match provider_and_key(state, &provider).await {
             Ok((p, key)) => return Ok(Some((p, key, Some(model)))),
-            Err(e) => log::warn!("rerank model's provider {provider} unavailable, using the chat model: {e}"),
+            Err(e) => log::warn!(
+                "rerank model's provider {provider} unavailable, using the chat model: {e}"
+            ),
         }
     }
     Ok(Some((chat_provider.clone(), chat_key.to_string(), None)))
@@ -195,30 +207,56 @@ pub async fn send(
                 repo::set_model(&tx, &conv.id, &conv.provider, &model)?;
             }
             let user_message = repo::insert_message(
-                &tx, &conv.id, Role::User, &content, MessageStatus::Complete, None, None,
+                &tx,
+                &conv.id,
+                Role::User,
+                &content,
+                MessageStatus::Complete,
+                None,
+                None,
             )?;
             repo::title_from_first_message(&tx, &conv.id, &content)?;
             let turns = history(&tx, &conv.id)?;
             let assistant_message = repo::insert_message(
-                &tx, &conv.id, Role::Assistant, "", MessageStatus::Streaming,
-                Some(&provider_id), Some(&model),
+                &tx,
+                &conv.id,
+                Role::Assistant,
+                "",
+                MessageStatus::Streaming,
+                Some(&provider_id),
+                Some(&model),
             )?;
             // Tools only when there is something to read and the model can call them.
-            let scope = if can_use_tools { tools::scope_for(&tx, &conv)? } else { None };
+            let scope = if can_use_tools {
+                tools::scope_for(&tx, &conv)?
+            } else {
+                None
+            };
             tx.commit()?;
             let tool_ctx = scope.map(|filter| ToolCtx {
                 db,
                 embedder,
                 conversation_id: conv.id.clone(),
                 filter,
-                rerank: rerank_setup.map(|(provider, api_key, own)| RerankCtx { provider, api_key, model: own.unwrap_or_else(|| model.clone()) }),
+                rerank: rerank_setup.map(|(provider, api_key, own)| RerankCtx {
+                    provider,
+                    api_key,
+                    model: own.unwrap_or_else(|| model.clone()),
+                }),
             });
             Ok(Prepared {
                 user_message,
                 assistant_message,
                 request: GenerationRequest {
                     model,
-                    system: Some(if tool_ctx.is_some() { GROUNDED_PROMPT } else { SYSTEM_PROMPT }.to_string()),
+                    system: Some(
+                        if tool_ctx.is_some() {
+                            GROUNDED_PROMPT
+                        } else {
+                            SYSTEM_PROMPT
+                        }
+                        .to_string(),
+                    ),
                     turns,
                     tools: Vec::new(),
                     no_tool_calls: false,
@@ -255,7 +293,13 @@ fn calls_answered(turns: &[Turn]) -> bool {
     let answered: std::collections::HashSet<&str> = turns
         .iter()
         .flat_map(|t| &t.parts)
-        .filter_map(|p| if let Part::ToolResult { id, .. } = p { Some(id.as_str()) } else { None })
+        .filter_map(|p| {
+            if let Part::ToolResult { id, .. } = p {
+                Some(id.as_str())
+            } else {
+                None
+            }
+        })
         .collect();
     turns
         .iter()
@@ -276,8 +320,14 @@ fn history(conn: &rusqlite::Connection, conversation_id: &str) -> Result<Vec<Tur
                     out.extend(turns);
                     continue;
                 }
-                Ok(_) => log::warn!("stored turns of message {} have a tool call with no result, using its text", m.id),
-                Err(e) => log::warn!("stored turns of message {} are unreadable, using its text: {e}", m.id),
+                Ok(_) => log::warn!(
+                    "stored turns of message {} have a tool call with no result, using its text",
+                    m.id
+                ),
+                Err(e) => log::warn!(
+                    "stored turns of message {} are unreadable, using its text: {e}",
+                    m.id
+                ),
             }
         }
         let role = match m.role {
@@ -323,13 +373,17 @@ impl Live<'_> {
         if std::mem::take(&mut self.break_before_next) && !self.content.is_empty() {
             text.insert_str(0, "\n\n");
         }
-        self.first_text_ms.get_or_insert_with(|| self.started.elapsed().as_millis());
+        self.first_text_ms
+            .get_or_insert_with(|| self.started.elapsed().as_millis());
         self.content.push_str(&text);
         let _ = self.on_event.send(ChatEvent::Delta { text });
         if self.last_flush.elapsed() >= FLUSH_EVERY {
             self.last_flush = Instant::now();
             let (id, snapshot) = (self.message_id.to_string(), self.content.clone());
-            let _ = self.db.call(move |c| repo::flush_content(c, &id, &snapshot)).await;
+            let _ = self
+                .db
+                .call(move |c| repo::flush_content(c, &id, &snapshot))
+                .await;
         }
     }
 }
@@ -369,15 +423,24 @@ async fn stream_round(
 fn model_turn(round: &Round, provider_id: &str) -> Turn {
     let mut parts = Vec::new();
     if !round.text.is_empty() {
-        parts.push(Part::Text { text: round.text.clone() });
+        parts.push(Part::Text {
+            text: round.text.clone(),
+        });
     }
     for (id, name, args) in &round.calls {
-        parts.push(Part::ToolCall { id: id.clone(), name: name.clone(), args: args.clone() });
+        parts.push(Part::ToolCall {
+            id: id.clone(),
+            name: name.clone(),
+            args: args.clone(),
+        });
     }
     Turn {
         role: TurnRole::Model,
         parts,
-        replay: round.replay.clone().map(|data| Replay { provider: provider_id.to_string(), data }),
+        replay: round.replay.clone().map(|data| Replay {
+            provider: provider_id.to_string(),
+            data,
+        }),
     }
 }
 
@@ -407,11 +470,16 @@ async fn run_generation(
         first_text_ms: None,
         break_before_next: false,
     };
-    let tool_specs = if tool_ctx.is_some() { tools::specs() } else { Vec::new() };
+    let tool_specs = if tool_ctx.is_some() {
+        tools::specs()
+    } else {
+        Vec::new()
+    };
     let mut ignored_calls = false;
     // The turns this reply added, saved with it when tools were used.
     let mut new_turns: Vec<Turn> = Vec::new();
-    let (mut input_tokens, mut output_tokens, mut cached_input_tokens) = (None::<u32>, None::<u32>, None::<u32>);
+    let (mut input_tokens, mut output_tokens, mut cached_input_tokens) =
+        (None::<u32>, None::<u32>, None::<u32>);
     let mut finish_reason: Option<FinishReason> = None;
     let (mut round_no, mut tool_rounds) = (0usize, 0usize);
 
@@ -425,10 +493,13 @@ async fn run_generation(
         request.no_tool_calls = tool_ctx.is_some() && !tools_on;
         let mut this_request = request.clone();
         if request.no_tool_calls {
-            this_request.turns.push(Turn::text(TurnRole::User, OUT_OF_SEARCHES));
+            this_request
+                .turns
+                .push(Turn::text(TurnRole::User, OUT_OF_SEARCHES));
         }
         let round_started = Instant::now();
-        let (round, end) = stream_round(&provider, api_key.clone(), this_request, &token, &mut live).await;
+        let (round, end) =
+            stream_round(&provider, api_key.clone(), this_request, &token, &mut live).await;
 
         if let Some((i, o, c)) = round.usage {
             // Input is what the last request read (the whole history), output adds up.
@@ -453,7 +524,17 @@ async fn run_generation(
         // A cancelled request with no usage report was not billed as far as we know.
         if !(matches!(end, Outcome::Cancelled) && round.usage.is_none()) {
             let ok = matches!(end, Outcome::Done);
-            record_usage(&db, provider_id, model_id.clone(), "chat", tokens, round_started, ok, assistant.conversation_id.clone()).await;
+            record_usage(
+                &db,
+                provider_id,
+                model_id.clone(),
+                "chat",
+                tokens,
+                round_started,
+                ok,
+                assistant.conversation_id.clone(),
+            )
+            .await;
         }
         match end {
             Outcome::Done => {}
@@ -463,7 +544,9 @@ async fn run_generation(
         finish_reason = round.finish.clone();
         if round.calls.is_empty() || !tools_on {
             if !round.calls.is_empty() {
-                log::warn!("chat reply {provider_id}/{model_id}: ignored tool calls after the last round");
+                log::warn!(
+                    "chat reply {provider_id}/{model_id}: ignored tool calls after the last round"
+                );
                 ignored_calls = true;
             }
             // A call we ignored has no result, so only the text of that turn is kept.
@@ -480,7 +563,10 @@ async fn run_generation(
         let ctx = tool_ctx.as_ref().expect("tools are on only with a context");
         let mut results = Vec::with_capacity(round.calls.len());
         for (id, name, args) in &round.calls {
-            let _ = on_event.send(ChatEvent::Tool { name: name.clone(), summary: tools::summary(name, args) });
+            let _ = on_event.send(ChatEvent::Tool {
+                name: name.clone(),
+                summary: tools::summary(name, args),
+            });
             let tool_started = Instant::now();
             let output = tokio::select! {
                 _ = token.cancelled() => break 'rounds Outcome::Cancelled,
@@ -491,9 +577,17 @@ async fn run_generation(
                 tool_started.elapsed().as_millis(),
                 output.to_string().len()
             );
-            results.push(Part::ToolResult { id: id.clone(), name: name.clone(), output });
+            results.push(Part::ToolResult {
+                id: id.clone(),
+                name: name.clone(),
+                output,
+            });
         }
-        let answers = Turn { role: TurnRole::User, parts: results, replay: None };
+        let answers = Turn {
+            role: TurnRole::User,
+            parts: results,
+            replay: None,
+        };
         request.turns.push(answers.clone());
         new_turns.push(answers);
         live.break_before_next = !live.content.is_empty();
@@ -539,7 +633,8 @@ async fn run_generation(
             Ok(list) => {
                 let known = list.into_iter().map(|s| (s.handle, s)).collect();
                 let checked = citations::check(&content, &known);
-                let count = |s: CitationStatus| checked.citations.iter().filter(|c| c.status == s).count();
+                let count =
+                    |s: CitationStatus| checked.citations.iter().filter(|c| c.status == s).count();
                 log::info!(
                     "chat reply {provider_id}/{model_id}: {} cited ({} weak, {} quote mismatch), {} removed",
                     checked.citations.len(),
@@ -551,7 +646,11 @@ async fn run_generation(
                     let msg = format!(
                         "{} citation{} removed because no source matches {}.",
                         checked.removed,
-                        if checked.removed == 1 { " was" } else { "s were" },
+                        if checked.removed == 1 {
+                            " was"
+                        } else {
+                            "s were"
+                        },
                         if checked.removed == 1 { "it" } else { "them" }
                     );
                     note = Some(note.map_or(msg.clone(), |n| format!("{n} {msg}")));
@@ -572,7 +671,9 @@ async fn run_generation(
         input_tokens.unwrap_or(0),
         output_tokens.unwrap_or(0),
         cached_input_tokens.unwrap_or(0),
-        note.as_deref().map(|n| format!(", note: {n}")).unwrap_or_default()
+        note.as_deref()
+            .map(|n| format!(", note: {n}"))
+            .unwrap_or_default()
     );
 
     // Tool turns are only worth keeping for a reply that finished.
@@ -629,7 +730,9 @@ pub async fn handoff_summary(state: &AppState, conversation_id: String) -> Resul
         .call(move |c| Ok((repo::get_conversation(c, &id)?, history(c, &id)?)))
         .await?;
     if turns.is_empty() {
-        return Err(AppError::Invalid("There is nothing to summarize yet.".into()));
+        return Err(AppError::Invalid(
+            "There is nothing to summarize yet.".into(),
+        ));
     }
     let model = match conv.model_id.clone() {
         Some(m) => m,
@@ -659,10 +762,16 @@ pub async fn handoff_summary(state: &AppState, conversation_id: String) -> Resul
         while let Some(item) = stream.next().await {
             match item? {
                 GenerationEvent::Text(t) => out.push_str(&t),
-                GenerationEvent::Usage { input_tokens, output_tokens, cached_tokens } => {
+                GenerationEvent::Usage {
+                    input_tokens,
+                    output_tokens,
+                    cached_tokens,
+                } => {
                     tokens = (input_tokens, output_tokens, cached_tokens);
                 }
-                GenerationEvent::Finished(_) | GenerationEvent::ToolCall { .. } | GenerationEvent::Replay(_) => {}
+                GenerationEvent::Finished(_)
+                | GenerationEvent::ToolCall { .. }
+                | GenerationEvent::Replay(_) => {}
             }
         }
         Ok::<_, AppError>(out)
@@ -679,11 +788,23 @@ pub async fn handoff_summary(state: &AppState, conversation_id: String) -> Resul
         tokens.1,
         tokens.2
     );
-    record_usage(&state.db, provider_id, model_id, "handoff", tokens, started, collected.is_ok(), conversation_id.clone()).await;
+    record_usage(
+        &state.db,
+        provider_id,
+        model_id,
+        "handoff",
+        tokens,
+        started,
+        collected.is_ok(),
+        conversation_id.clone(),
+    )
+    .await;
     let text = collected?;
     let text = text.trim().to_string();
     if text.is_empty() {
-        return Err(AppError::Provider("The model returned an empty summary.".into()));
+        return Err(AppError::Provider(
+            "The model returned an empty summary.".into(),
+        ));
     }
     Ok(text)
 }
@@ -720,16 +841,34 @@ mod tests {
             "fake"
         }
         fn capabilities(&self) -> Capabilities {
-            Capabilities { tools: true, implicit_caching: false, vision: false }
+            Capabilities {
+                tools: true,
+                implicit_caching: false,
+                vision: false,
+            }
         }
-        fn list_models<'a>(&'a self, _: &'a str) -> futures_util::future::BoxFuture<'a, Result<Vec<crate::domain::ModelInfo>>> {
+        fn list_models<'a>(
+            &'a self,
+            _: &'a str,
+        ) -> futures_util::future::BoxFuture<'a, Result<Vec<crate::domain::ModelInfo>>> {
             Box::pin(async { Ok(vec![]) })
         }
-        fn generate(&self, _key: String, request: GenerationRequest) -> crate::services::ai::EventStream {
+        fn generate(
+            &self,
+            _key: String,
+            request: GenerationRequest,
+        ) -> crate::services::ai::EventStream {
             self.seen.lock().unwrap().push(request);
-            let next = self.rounds.lock().unwrap().pop_front().unwrap_or(Scripted::Events(vec![]));
+            let next = self
+                .rounds
+                .lock()
+                .unwrap()
+                .pop_front()
+                .unwrap_or(Scripted::Events(vec![]));
             let stream: EventStream = match next {
-                Scripted::Events(events) => Box::pin(futures_util::stream::iter(events.into_iter().map(Ok))),
+                Scripted::Events(events) => {
+                    Box::pin(futures_util::stream::iter(events.into_iter().map(Ok)))
+                }
                 Scripted::Hang => Box::pin(futures_util::stream::pending()),
             };
             stream
@@ -737,11 +876,19 @@ mod tests {
     }
 
     fn usage(i: u32, o: u32) -> GenerationEvent {
-        GenerationEvent::Usage { input_tokens: i, output_tokens: o, cached_tokens: 0 }
+        GenerationEvent::Usage {
+            input_tokens: i,
+            output_tokens: o,
+            cached_tokens: 0,
+        }
     }
 
     fn call(name: &str, args: Value) -> GenerationEvent {
-        GenerationEvent::ToolCall { id: format!("c-{name}"), name: name.into(), args }
+        GenerationEvent::ToolCall {
+            id: format!("c-{name}"),
+            name: name.into(),
+            args,
+        }
     }
 
     struct Setup {
@@ -774,14 +921,54 @@ mod tests {
             .call(|c| {
                 let doc = library::insert_document(c, "h1", "Iron paper", DocKind::Pdf)?;
                 let passages = vec![
-                    NewPassage { page_start: 1, page_end: 1, text: "Iron limitation controls plankton growth.".into(), boxes: None },
-                    NewPassage { page_start: 2, page_end: 2, text: "Samples were frozen.".into(), boxes: None },
+                    NewPassage {
+                        page_start: 1,
+                        page_end: 1,
+                        text: "Iron limitation controls plankton growth.".into(),
+                        boxes: None,
+                    },
+                    NewPassage {
+                        page_start: 2,
+                        page_end: 2,
+                        text: "Samples were frozen.".into(),
+                        boxes: None,
+                    },
                 ];
-                let pages = vec![NewPage { page_no: 1, width: 600.0, height: 800.0, quality: "ok", ocr: false }];
-                library::store_content(c, &doc.id, &pages, &passages, &Default::default(), DocStatus::Ready, None)?;
+                let pages = vec![NewPage {
+                    page_no: 1,
+                    width: 600.0,
+                    height: 800.0,
+                    quality: "ok",
+                    ocr: false,
+                }];
+                library::store_content(
+                    c,
+                    &doc.id,
+                    &pages,
+                    &passages,
+                    &Default::default(),
+                    DocStatus::Ready,
+                    None,
+                )?;
                 let conv = repo::create_conversation(c, None, None, "fake", Some("m"))?;
-                repo::insert_message(c, &conv.id, Role::User, "q", MessageStatus::Complete, None, None)?;
-                let a = repo::insert_message(c, &conv.id, Role::Assistant, "", MessageStatus::Streaming, Some("fake"), Some("m"))?;
+                repo::insert_message(
+                    c,
+                    &conv.id,
+                    Role::User,
+                    "q",
+                    MessageStatus::Complete,
+                    None,
+                    None,
+                )?;
+                let a = repo::insert_message(
+                    c,
+                    &conv.id,
+                    Role::Assistant,
+                    "",
+                    MessageStatus::Streaming,
+                    Some("fake"),
+                    Some("m"),
+                )?;
                 Ok((conv.id, a))
             })
             .await
@@ -794,22 +981,54 @@ mod tests {
             }
             Ok(())
         });
-        let ctx = ToolCtx { db: db.clone(), embedder, conversation_id: conv.clone(), filter: crate::domain::library::DocFilter::All, rerank: None };
-        Setup { _dir: dir, db, conv, assistant, ctx, seen: Arc::new(Mutex::new(Vec::new())), events, channel }
+        let ctx = ToolCtx {
+            db: db.clone(),
+            embedder,
+            conversation_id: conv.clone(),
+            filter: crate::domain::library::DocFilter::All,
+            rerank: None,
+        };
+        Setup {
+            _dir: dir,
+            db,
+            conv,
+            assistant,
+            ctx,
+            seen: Arc::new(Mutex::new(Vec::new())),
+            events,
+            channel,
+        }
     }
 
-    async fn play(s: &Setup, rounds: Vec<Scripted>, tools: bool, token: CancellationToken) -> Message {
-        let provider = Arc::new(Fake { rounds: Mutex::new(rounds.into()), seen: s.seen.clone() });
-        let turns = s.db.call({
-            let conv = s.conv.clone();
-            move |c| history(c, &conv)
-        }).await.unwrap();
+    async fn play(
+        s: &Setup,
+        rounds: Vec<Scripted>,
+        tools: bool,
+        token: CancellationToken,
+    ) -> Message {
+        let provider = Arc::new(Fake {
+            rounds: Mutex::new(rounds.into()),
+            seen: s.seen.clone(),
+        });
+        let turns =
+            s.db.call({
+                let conv = s.conv.clone();
+                move |c| history(c, &conv)
+            })
+            .await
+            .unwrap();
         run_generation(
             s.db.clone(),
             Generations::default(),
             provider,
             "key".into(),
-            GenerationRequest { model: "m".into(), system: None, turns, tools: Vec::new(), no_tool_calls: false },
+            GenerationRequest {
+                model: "m".into(),
+                system: None,
+                turns,
+                tools: Vec::new(),
+                no_tool_calls: false,
+            },
             tools.then(|| s.ctx.clone()),
             s.assistant.clone(),
             s.channel.clone(),
@@ -821,19 +1040,35 @@ mod tests {
     }
 
     async fn usage_rows(s: &Setup) -> i64 {
-        s.db.call(|c| Ok(c.query_row("SELECT COUNT(*) FROM api_usage", [], |r| r.get::<_, i64>(0))?)).await.unwrap()
+        s.db.call(
+            |c| Ok(c.query_row("SELECT COUNT(*) FROM api_usage", [], |r| r.get::<_, i64>(0))?),
+        )
+        .await
+        .unwrap()
     }
 
     #[tokio::test]
     async fn a_plain_reply_is_one_request_with_no_tools_and_no_stored_turns() {
         let s = setup().await;
-        let rounds = vec![Scripted::Events(vec![GenerationEvent::Text("Hello".into()), usage(10, 2), GenerationEvent::Finished(FinishReason::Stop)])];
+        let rounds = vec![Scripted::Events(vec![
+            GenerationEvent::Text("Hello".into()),
+            usage(10, 2),
+            GenerationEvent::Finished(FinishReason::Stop),
+        ])];
         let m = play(&s, rounds, false, CancellationToken::new()).await;
-        assert_eq!((m.status, m.content.as_str()), (MessageStatus::Complete, "Hello"));
+        assert_eq!(
+            (m.status, m.content.as_str()),
+            (MessageStatus::Complete, "Hello")
+        );
         assert_eq!(s.seen.lock().unwrap().len(), 1);
         assert!(s.seen.lock().unwrap()[0].tools.is_empty());
         let conv = s.conv.clone();
-        assert!(s.db.call(move |c| repo::turns_by_message(c, &conv)).await.unwrap().is_empty());
+        assert!(
+            s.db.call(move |c| repo::turns_by_message(c, &conv))
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[tokio::test]
@@ -847,38 +1082,79 @@ mod tests {
                 usage(100, 10),
                 GenerationEvent::Finished(FinishReason::ToolCalls),
             ]),
-            Scripted::Events(vec![GenerationEvent::Text("Iron limits growth [S1].".into()), usage(300, 20), GenerationEvent::Finished(FinishReason::Stop)]),
+            Scripted::Events(vec![
+                GenerationEvent::Text("Iron limits growth [S1].".into()),
+                usage(300, 20),
+                GenerationEvent::Finished(FinishReason::Stop),
+            ]),
         ];
         let m = play(&s, rounds, true, CancellationToken::new()).await;
         assert_eq!(m.status, MessageStatus::Complete, "{:?}", m.error);
         assert_eq!(m.content, "Let me check.\n\nIron limits growth [S1].");
-        assert_eq!((m.input_tokens, m.output_tokens), (Some(300), Some(30)), "input is the last request, output adds up");
+        assert_eq!(
+            (m.input_tokens, m.output_tokens),
+            (Some(300), Some(30)),
+            "input is the last request, output adds up"
+        );
 
         let seen = s.seen.lock().unwrap();
         assert_eq!(seen.len(), 2);
         assert!(seen.iter().all(|r| r.tools.len() == 4));
         let second = &seen[1].turns;
-        assert_eq!(second.len(), 3, "question, the model's call, the tool result");
-        assert_eq!(second[1].replay, Some(Replay { provider: "fake".into(), data: json!({ "opaque": 1 }) }));
-        let Part::ToolResult { id, output, .. } = &second[2].parts[0] else { panic!("expected a tool result") };
+        assert_eq!(
+            second.len(),
+            3,
+            "question, the model's call, the tool result"
+        );
+        assert_eq!(
+            second[1].replay,
+            Some(Replay {
+                provider: "fake".into(),
+                data: json!({ "opaque": 1 })
+            })
+        );
+        let Part::ToolResult { id, output, .. } = &second[2].parts[0] else {
+            panic!("expected a tool result")
+        };
         assert_eq!(id, "c-search_library");
         assert_eq!(output["results"][0]["handle"], "S1");
-        assert!(output["results"][0]["text"].as_str().unwrap().contains("Iron limitation"));
+        assert!(
+            output["results"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("Iron limitation")
+        );
         drop(seen);
 
         let conv = s.conv.clone();
-        let (saved, source) = s
-            .db
-            .call(move |c| Ok((history(c, &conv)?, sources::get(c, &conv, 1)?)))
-            .await
-            .unwrap();
-        assert_eq!(saved.len(), 4, "question, the call, its result and the final answer");
-        assert_eq!(saved[1].replay.as_ref().unwrap().data, json!({ "opaque": 1 }), "replay is stored as emitted");
-        assert!(source.is_some(), "the handle was saved before the model saw it");
+        let (saved, source) =
+            s.db.call(move |c| Ok((history(c, &conv)?, sources::get(c, &conv, 1)?)))
+                .await
+                .unwrap();
+        assert_eq!(
+            saved.len(),
+            4,
+            "question, the call, its result and the final answer"
+        );
+        assert_eq!(
+            saved[1].replay.as_ref().unwrap().data,
+            json!({ "opaque": 1 }),
+            "replay is stored as emitted"
+        );
+        assert!(
+            source.is_some(),
+            "the handle was saved before the model saw it"
+        );
 
         let events = s.events.lock().unwrap();
-        let tool = events.iter().find(|e| e["type"] == "tool").expect("a tool event");
-        assert_eq!(tool["summary"], "Searching your library for \"iron plankton\"");
+        let tool = events
+            .iter()
+            .find(|e| e["type"] == "tool")
+            .expect("a tool event");
+        assert_eq!(
+            tool["summary"],
+            "Searching your library for \"iron plankton\""
+        );
         assert_eq!(usage_rows(&s).await, 2, "one usage row per request");
     }
 
@@ -892,15 +1168,23 @@ mod tests {
                 GenerationEvent::Finished(FinishReason::ToolCalls),
             ]),
             Scripted::Events(vec![
-                GenerationEvent::Text("Iron limitation controls plankton growth [S1]. A made-up claim [S9].".into()),
+                GenerationEvent::Text(
+                    "Iron limitation controls plankton growth [S1]. A made-up claim [S9].".into(),
+                ),
                 usage(9, 4),
                 GenerationEvent::Finished(FinishReason::Stop),
             ]),
         ];
         let m = play(&s, rounds, true, CancellationToken::new()).await;
         assert_eq!(m.status, MessageStatus::Complete);
-        assert_eq!(m.content, "Iron limitation controls plankton growth [S1]. A made-up claim.");
-        assert_eq!(m.error.as_deref(), Some("1 citation was removed because no source matches it."));
+        assert_eq!(
+            m.content,
+            "Iron limitation controls plankton growth [S1]. A made-up claim."
+        );
+        assert_eq!(
+            m.error.as_deref(),
+            Some("1 citation was removed because no source matches it.")
+        );
         assert_eq!(m.citations.len(), 1);
         let c = &m.citations[0];
         assert_eq!((c.handle, c.title.as_str(), c.page), (1, "Iron paper", 1));
@@ -915,13 +1199,23 @@ mod tests {
     async fn a_failing_tool_goes_back_as_a_result_not_a_failed_reply() {
         let s = setup().await;
         let rounds = vec![
-            Scripted::Events(vec![call("nope", json!({})), usage(5, 1), GenerationEvent::Finished(FinishReason::ToolCalls)]),
-            Scripted::Events(vec![GenerationEvent::Text("Sorry.".into()), usage(9, 1), GenerationEvent::Finished(FinishReason::Stop)]),
+            Scripted::Events(vec![
+                call("nope", json!({})),
+                usage(5, 1),
+                GenerationEvent::Finished(FinishReason::ToolCalls),
+            ]),
+            Scripted::Events(vec![
+                GenerationEvent::Text("Sorry.".into()),
+                usage(9, 1),
+                GenerationEvent::Finished(FinishReason::Stop),
+            ]),
         ];
         let m = play(&s, rounds, true, CancellationToken::new()).await;
         assert_eq!(m.status, MessageStatus::Complete);
         let seen = s.seen.lock().unwrap();
-        let Part::ToolResult { output, .. } = &seen[1].turns[2].parts[0] else { panic!("expected a tool result") };
+        let Part::ToolResult { output, .. } = &seen[1].turns[2].parts[0] else {
+            panic!("expected a tool result")
+        };
         assert!(output["error"].as_str().unwrap().contains("nope"));
     }
 
@@ -929,32 +1223,63 @@ mod tests {
     async fn after_the_round_cap_the_model_keeps_the_tools_but_may_not_call_them() {
         let s = setup().await;
         let mut rounds: Vec<Scripted> = (0..MAX_TOOL_ROUNDS)
-            .map(|_| Scripted::Events(vec![call("search_library", json!({ "query": "iron" })), usage(5, 1), GenerationEvent::Finished(FinishReason::ToolCalls)]))
+            .map(|_| {
+                Scripted::Events(vec![
+                    call("search_library", json!({ "query": "iron" })),
+                    usage(5, 1),
+                    GenerationEvent::Finished(FinishReason::ToolCalls),
+                ])
+            })
             .collect();
-        rounds.push(Scripted::Events(vec![GenerationEvent::Text("Done.".into()), usage(9, 1), GenerationEvent::Finished(FinishReason::Stop)]));
+        rounds.push(Scripted::Events(vec![
+            GenerationEvent::Text("Done.".into()),
+            usage(9, 1),
+            GenerationEvent::Finished(FinishReason::Stop),
+        ]));
         let m = play(&s, rounds, true, CancellationToken::new()).await;
-        assert_eq!((m.status, m.content.as_str()), (MessageStatus::Complete, "Done."));
+        assert_eq!(
+            (m.status, m.content.as_str()),
+            (MessageStatus::Complete, "Done.")
+        );
         let seen = s.seen.lock().unwrap();
         assert_eq!(seen.len(), MAX_TOOL_ROUNDS + 1);
-        assert!(seen[..MAX_TOOL_ROUNDS].iter().all(|r| !r.tools.is_empty() && !r.no_tool_calls));
+        assert!(
+            seen[..MAX_TOOL_ROUNDS]
+                .iter()
+                .all(|r| !r.tools.is_empty() && !r.no_tool_calls)
+        );
         let last = &seen[MAX_TOOL_ROUNDS];
         assert!(!last.tools.is_empty() && last.no_tool_calls);
-        let Part::Text { text } = &last.turns.last().unwrap().parts[0] else { panic!("expected the closing note") };
+        let Part::Text { text } = &last.turns.last().unwrap().parts[0] else {
+            panic!("expected the closing note")
+        };
         assert!(text.contains("can't search any more"));
-        assert_eq!(last.system, seen[0].system, "the system prompt stays the same so the cache holds");
+        assert_eq!(
+            last.system, seen[0].system,
+            "the system prompt stays the same so the cache holds"
+        );
     }
 
     #[tokio::test]
     async fn a_call_after_the_cap_with_no_text_gets_a_plain_message() {
         let s = setup().await;
         let rounds: Vec<Scripted> = (0..=MAX_TOOL_ROUNDS)
-            .map(|_| Scripted::Events(vec![call("search_library", json!({ "query": "iron" })), usage(5, 1), GenerationEvent::Finished(FinishReason::ToolCalls)]))
+            .map(|_| {
+                Scripted::Events(vec![
+                    call("search_library", json!({ "query": "iron" })),
+                    usage(5, 1),
+                    GenerationEvent::Finished(FinishReason::ToolCalls),
+                ])
+            })
             .collect();
         let m = play(&s, rounds, true, CancellationToken::new()).await;
         assert_eq!(m.status, MessageStatus::Complete);
         assert!(m.content.contains("couldn't put an answer together"));
         let conv = s.conv.clone();
-        let stored = s.db.call(move |c| repo::turns_by_message(c, &conv)).await.unwrap();
+        let stored =
+            s.db.call(move |c| repo::turns_by_message(c, &conv))
+                .await
+                .unwrap();
         let turns: Vec<Turn> = serde_json::from_str(stored.values().next().unwrap()).unwrap();
         assert!(calls_answered(&turns), "the ignored call must not be saved");
         assert!(matches!(turns.last().unwrap().parts[0], Part::Text { .. }));
@@ -962,8 +1287,24 @@ mod tests {
 
     #[test]
     fn a_call_without_a_result_is_not_replayed() {
-        let call = Turn { role: TurnRole::Model, parts: vec![Part::ToolCall { id: "a".into(), name: "n".into(), args: json!({}) }], replay: None };
-        let result = Turn { role: TurnRole::User, parts: vec![Part::ToolResult { id: "a".into(), name: "n".into(), output: json!(1) }], replay: None };
+        let call = Turn {
+            role: TurnRole::Model,
+            parts: vec![Part::ToolCall {
+                id: "a".into(),
+                name: "n".into(),
+                args: json!({}),
+            }],
+            replay: None,
+        };
+        let result = Turn {
+            role: TurnRole::User,
+            parts: vec![Part::ToolResult {
+                id: "a".into(),
+                name: "n".into(),
+                output: json!(1),
+            }],
+            replay: None,
+        };
         assert!(calls_answered(&[call.clone(), result]));
         assert!(!calls_answered(&[call]));
     }
@@ -976,7 +1317,16 @@ mod tests {
         let m = play(&s, vec![Scripted::Hang], true, token).await;
         assert_eq!(m.status, MessageStatus::Cancelled);
         let conv = s.conv.clone();
-        assert!(s.db.call(move |c| repo::turns_by_message(c, &conv)).await.unwrap().is_empty());
-        assert_eq!(usage_rows(&s).await, 0, "nothing was billed that we know of");
+        assert!(
+            s.db.call(move |c| repo::turns_by_message(c, &conv))
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            usage_rows(&s).await,
+            0,
+            "nothing was billed that we know of"
+        );
     }
 }

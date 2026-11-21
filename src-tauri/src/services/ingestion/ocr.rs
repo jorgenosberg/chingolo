@@ -6,7 +6,6 @@ use std::sync::{Arc, Mutex};
 
 use oar_ocr::oarocr::{OAROCR, OAROCRBuilder};
 
-
 use crate::error::{AppError, Result};
 use crate::services::embedding::model::{self, ManifestFile, ModelState};
 use tokio_util::sync::CancellationToken;
@@ -15,19 +14,28 @@ use tokio_util::sync::CancellationToken;
 pub const FILES: &[ManifestFile] = &[
     ManifestFile {
         name: "pp-ocrv6_small_det.onnx",
-        remote: concat!("https://github.com/GreatV/oar-ocr/releases/download/v0.7.0", "/pp-ocrv6_small_det.onnx"),
+        remote: concat!(
+            "https://github.com/GreatV/oar-ocr/releases/download/v0.7.0",
+            "/pp-ocrv6_small_det.onnx"
+        ),
         size: 9_880_512,
         sha256: "d73e0058b7a8086bbd57f3d10b8bcd4ff95363f67e06e2762b5e814fe9c9410e",
     },
     ManifestFile {
         name: "pp-ocrv6_small_rec.onnx",
-        remote: concat!("https://github.com/GreatV/oar-ocr/releases/download/v0.7.0", "/pp-ocrv6_small_rec.onnx"),
+        remote: concat!(
+            "https://github.com/GreatV/oar-ocr/releases/download/v0.7.0",
+            "/pp-ocrv6_small_rec.onnx"
+        ),
         size: 21_159_378,
         sha256: "5435fd747c9e0efe15a96d0b378d5bd157e9492ed8fd80edf08f30d02fa24634",
     },
     ManifestFile {
         name: "ppocrv6_dict.txt",
-        remote: concat!("https://github.com/GreatV/oar-ocr/releases/download/v0.7.0", "/ppocrv6_dict.txt"),
+        remote: concat!(
+            "https://github.com/GreatV/oar-ocr/releases/download/v0.7.0",
+            "/ppocrv6_dict.txt"
+        ),
         size: 74_947,
         sha256: "b5f2bfe2bdd9448429e3e82b51c789775d9b42f2403d082b00662eb77e401c5d",
     },
@@ -57,8 +65,16 @@ impl OcrModel {
 
     /// Any pinned set of files in one folder (the layout model uses this too).
     pub fn with_files(dir: PathBuf, files: &'static [ManifestFile]) -> Self {
-        let state = if model::is_complete(&dir, files) { ModelState::Ready } else { ModelState::Missing };
-        OcrModel { dir, files, state: Arc::new(Mutex::new(state)) }
+        let state = if model::is_complete(&dir, files) {
+            ModelState::Ready
+        } else {
+            ModelState::Missing
+        };
+        OcrModel {
+            dir,
+            files,
+            state: Arc::new(Mutex::new(state)),
+        }
     }
 
     pub fn dir(&self) -> &Path {
@@ -66,7 +82,10 @@ impl OcrModel {
     }
 
     pub fn status(&self) -> ModelState {
-        self.state.lock().map(|s| s.clone()).unwrap_or(ModelState::Missing)
+        self.state
+            .lock()
+            .map(|s| s.clone())
+            .unwrap_or(ModelState::Missing)
     }
 
     fn set(&self, s: ModelState) {
@@ -86,18 +105,33 @@ impl OcrModel {
                 *s = ModelState::Ready;
                 return;
             }
-            *s = ModelState::Downloading { done: 0.0, total: model::total_bytes(self.files) as f64 };
+            *s = ModelState::Downloading {
+                done: 0.0,
+                total: model::total_bytes(self.files) as f64,
+            };
         }
         let me = self.clone();
         tauri::async_runtime::spawn(async move {
             let progress = me.clone();
-            let result = model::download(&model::http_client(), "", me.files, &me.dir, &CancellationToken::new(), &mut |done, total| {
-                progress.set(ModelState::Downloading { done: done as f64, total: total as f64 });
-            })
+            let result = model::download(
+                &model::http_client(),
+                "",
+                me.files,
+                &me.dir,
+                &CancellationToken::new(),
+                &mut |done, total| {
+                    progress.set(ModelState::Downloading {
+                        done: done as f64,
+                        total: total as f64,
+                    });
+                },
+            )
             .await;
             me.set(match result {
                 Ok(()) => ModelState::Ready,
-                Err(e) => ModelState::Failed { message: e.to_string() },
+                Err(e) => ModelState::Failed {
+                    message: e.to_string(),
+                },
             });
         });
     }
@@ -139,17 +173,23 @@ impl Ocr {
 
     pub fn recognize(&self, img: image::RgbImage) -> Result<Vec<OcrLine>> {
         let mut out = self.engine.predict(vec![img]).map_err(fail)?;
-        let Some(page) = out.pop() else { return Ok(vec![]) };
-        Ok(reading_order(page
-            .text_regions
-            .iter()
-            .filter(|r| r.confidence.unwrap_or(1.0) >= MIN_CONFIDENCE)
-            .filter_map(|r| {
-                let text = r.text.as_ref()?.trim().to_string();
-                let b = &r.bounding_box;
-                (!text.is_empty()).then(|| OcrLine { text, rect: [b.x_min(), b.y_min(), b.x_max(), b.y_max()] })
-            })
-            .collect()))
+        let Some(page) = out.pop() else {
+            return Ok(vec![]);
+        };
+        Ok(reading_order(
+            page.text_regions
+                .iter()
+                .filter(|r| r.confidence.unwrap_or(1.0) >= MIN_CONFIDENCE)
+                .filter_map(|r| {
+                    let text = r.text.as_ref()?.trim().to_string();
+                    let b = &r.bounding_box;
+                    (!text.is_empty()).then(|| OcrLine {
+                        text,
+                        rect: [b.x_min(), b.y_min(), b.x_max(), b.y_max()],
+                    })
+                })
+                .collect(),
+        ))
     }
 }
 
@@ -247,7 +287,12 @@ pub type Rotation = u16;
 /// Maps a pixel box of a rendered page (top-left origin, pdfium applies `/Rotate` and the crop box
 /// when rendering) to PDF user space, where the stored line boxes live: `[left, bottom, right, top]`.
 /// `crop` is the page's visible box in user space, `scale` the pixels per point actually used.
-pub fn to_user_space(px: [f32; 4], scale: (f32, f32), crop: [f32; 4], rotation: Rotation) -> [f32; 4] {
+pub fn to_user_space(
+    px: [f32; 4],
+    scale: (f32, f32),
+    crop: [f32; 4],
+    rotation: Rotation,
+) -> [f32; 4] {
     let (cw, ch) = (crop[2] - crop[0], crop[3] - crop[1]);
     // Size of the rotated, visible page in points.
     let vis_h = if rotation % 180 == 0 { ch } else { cw };
@@ -268,7 +313,12 @@ pub fn to_user_space(px: [f32; 4], scale: (f32, f32), crop: [f32; 4], rotation: 
 
 /// The inverse of `to_user_space`: a user space box `[left, bottom, right, top]` as a pixel box of
 /// the rendered page `[x0, y0, x1, y1]` (top-left origin).
-pub fn to_pixels(user: [f32; 4], scale: (f32, f32), crop: [f32; 4], rotation: Rotation) -> [f32; 4] {
+pub fn to_pixels(
+    user: [f32; 4],
+    scale: (f32, f32),
+    crop: [f32; 4],
+    rotation: Rotation,
+) -> [f32; 4] {
     let (cw, ch) = (crop[2] - crop[0], crop[3] - crop[1]);
     let vis_h = if rotation % 180 == 0 { ch } else { cw };
     let corner = |x: f32, y: f32| -> (f32, f32) {
@@ -296,7 +346,10 @@ mod tests {
         for rotation in [0, 90, 180, 270] {
             let user = [50.0, 100.0, 120.0, 160.0];
             let px = to_pixels(user, (3.0, 3.0), crop, rotation);
-            assert!(close(to_user_space(px, (3.0, 3.0), crop, rotation), user), "rotation {rotation}");
+            assert!(
+                close(to_user_space(px, (3.0, 3.0), crop, rotation), user),
+                "rotation {rotation}"
+            );
         }
     }
 
@@ -305,7 +358,10 @@ mod tests {
     }
 
     fn line(text: &str, x0: f32, y0: f32, x1: f32) -> OcrLine {
-        OcrLine { text: text.into(), rect: [x0, y0, x1, y0 + 10.0] }
+        OcrLine {
+            text: text.into(),
+            rect: [x0, y0, x1, y0 + 10.0],
+        }
     }
 
     #[test]
@@ -325,7 +381,9 @@ mod tests {
 
     #[test]
     fn one_column_stays_top_to_bottom() {
-        let lines = (0..6).map(|i| line(&format!("a{i}"), 0.0, i as f32 * 14.0, 150.0 - i as f32)).collect::<Vec<_>>();
+        let lines = (0..6)
+            .map(|i| line(&format!("a{i}"), 0.0, i as f32 * 14.0, 150.0 - i as f32))
+            .collect::<Vec<_>>();
         let order: Vec<_> = reading_order(lines).into_iter().map(|l| l.text).collect();
         assert_eq!(order, ["a0", "a1", "a2", "a3", "a4", "a5"]);
     }
@@ -333,7 +391,11 @@ mod tests {
     #[test]
     fn manifest_is_pinned() {
         assert_eq!(model::total_bytes(FILES), 9_880_512 + 21_159_378 + 74_947);
-        assert!(FILES.iter().all(|f| f.remote.starts_with("https://github.com/GreatV/oar-ocr/releases/download/v0.7.0/") && f.sha256.len() == 64));
+        assert!(FILES.iter().all(|f| {
+            f.remote
+                .starts_with("https://github.com/GreatV/oar-ocr/releases/download/v0.7.0/")
+                && f.sha256.len() == 64
+        }));
     }
 
     /// A 200 x 100 pt page with its lower left corner at (10, 20), drawn at 2 px per point.

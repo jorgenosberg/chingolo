@@ -22,7 +22,9 @@ pub fn encode(v: &[f32]) -> Vec<u8> {
 }
 
 pub fn decode(b: &[u8]) -> Vec<f32> {
-    b.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect()
+    b.chunks_exact(4)
+        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .collect()
 }
 
 /// Drops vectors made by another model or revision, so a model change re-embeds everything.
@@ -34,7 +36,12 @@ pub fn purge_stale(conn: &Connection, model: &str, revision: &str) -> Result<usi
 }
 
 /// Passages of ready documents without a vector for this model. Oldest document first, then in reading order.
-pub fn pending_batch(conn: &Connection, model: &str, revision: &str, n: u32) -> Result<Vec<Pending>> {
+pub fn pending_batch(
+    conn: &Connection,
+    model: &str,
+    revision: &str,
+    n: u32,
+) -> Result<Vec<Pending>> {
     let mut stmt = conn.prepare(
         "SELECT p.id, p.document_id, p.text
            FROM passages p
@@ -46,7 +53,11 @@ pub fn pending_batch(conn: &Connection, model: &str, revision: &str, n: u32) -> 
           LIMIT ?3",
     )?;
     let rows = stmt.query_map(params![model, revision, n], |r| {
-        Ok(Pending { passage_id: r.get(0)?, document_id: r.get(1)?, text: r.get(2)? })
+        Ok(Pending {
+            passage_id: r.get(0)?,
+            document_id: r.get(1)?,
+            text: r.get(2)?,
+        })
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
@@ -165,10 +176,30 @@ mod tests {
         let passages: Vec<_> = texts
             .iter()
             .enumerate()
-            .map(|(i, t)| NewPassage { page_start: i as u32 + 1, page_end: i as u32 + 1, text: (*t).into(), boxes: None })
+            .map(|(i, t)| NewPassage {
+                page_start: i as u32 + 1,
+                page_end: i as u32 + 1,
+                text: (*t).into(),
+                boxes: None,
+            })
             .collect();
-        let pages = vec![NewPage { page_no: 1, width: 1.0, height: 1.0, quality: "ok", ocr: false }];
-        lib::store_content(conn, &d.id, &pages, &passages, &Extracted::default(), DocStatus::Ready, None).unwrap();
+        let pages = vec![NewPage {
+            page_no: 1,
+            width: 1.0,
+            height: 1.0,
+            quality: "ok",
+            ocr: false,
+        }];
+        lib::store_content(
+            conn,
+            &d.id,
+            &pages,
+            &passages,
+            &Extracted::default(),
+            DocStatus::Ready,
+            None,
+        )
+        .unwrap();
         let ids = conn
             .prepare("SELECT id FROM passages WHERE document_id = ?1 ORDER BY ordinal")
             .unwrap()
@@ -197,7 +228,10 @@ mod tests {
         let (_, b) = doc(&mut conn, "b", &["four"]);
         let pending = pending_batch(&conn, M, R, 10).unwrap();
         let ids: Vec<_> = pending.iter().map(|p| p.passage_id.clone()).collect();
-        assert_eq!(ids, [a[0].clone(), a[1].clone(), a[2].clone(), b[0].clone()]);
+        assert_eq!(
+            ids,
+            [a[0].clone(), a[1].clone(), a[2].clone(), b[0].clone()]
+        );
         assert_eq!(pending_batch(&conn, M, R, 2).unwrap().len(), 2);
 
         store_vectors(&mut conn, &[(a[0].clone(), vec![1.0])], M, R).unwrap();
@@ -209,7 +243,15 @@ mod tests {
     fn a_new_model_revision_makes_everything_pending_again() {
         let mut conn = test_conn();
         let (_, a) = doc(&mut conn, "a", &["one", "two"]);
-        store_vectors(&mut conn, &a.iter().map(|id| (id.clone(), vec![1.0])).collect::<Vec<_>>(), M, R).unwrap();
+        store_vectors(
+            &mut conn,
+            &a.iter()
+                .map(|id| (id.clone(), vec![1.0]))
+                .collect::<Vec<_>>(),
+            M,
+            R,
+        )
+        .unwrap();
         assert!(pending_batch(&conn, M, R, 10).unwrap().is_empty());
         assert_eq!(pending_batch(&conn, M, "r2", 10).unwrap().len(), 2);
         assert_eq!(purge_stale(&conn, M, "r2").unwrap(), 2);
@@ -229,20 +271,50 @@ mod tests {
         let mut conn = test_conn();
         let (d, a) = doc(&mut conn, "a", &["one"]);
         lib::delete_document(&conn, &d).unwrap();
-        assert_eq!(store_vectors(&mut conn, &[(a[0].clone(), vec![1.0])], M, R).unwrap(), 0);
+        assert_eq!(
+            store_vectors(&mut conn, &[(a[0].clone(), vec![1.0])], M, R).unwrap(),
+            0
+        );
     }
 
     #[test]
     fn vectors_go_with_their_document_and_with_a_re_read() {
         let mut conn = test_conn();
         let (d, a) = doc(&mut conn, "a", &["one", "two"]);
-        let all = |c: &Connection| c.query_row("SELECT count(*) FROM passage_vectors", [], |r| r.get::<_, i64>(0)).unwrap();
-        store_vectors(&mut conn, &a.iter().map(|id| (id.clone(), vec![1.0])).collect::<Vec<_>>(), M, R).unwrap();
+        let all = |c: &Connection| {
+            c.query_row("SELECT count(*) FROM passage_vectors", [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .unwrap()
+        };
+        store_vectors(
+            &mut conn,
+            &a.iter()
+                .map(|id| (id.clone(), vec![1.0]))
+                .collect::<Vec<_>>(),
+            M,
+            R,
+        )
+        .unwrap();
         assert_eq!(all(&conn), 2);
 
         // re-reading the file replaces the passages, so their vectors must go
-        let again = [NewPassage { page_start: 1, page_end: 1, text: "new".into(), boxes: None }];
-        lib::store_content(&mut conn, &d, &[], &again, &Extracted::default(), DocStatus::Ready, None).unwrap();
+        let again = [NewPassage {
+            page_start: 1,
+            page_end: 1,
+            text: "new".into(),
+            boxes: None,
+        }];
+        lib::store_content(
+            &mut conn,
+            &d,
+            &[],
+            &again,
+            &Extracted::default(),
+            DocStatus::Ready,
+            None,
+        )
+        .unwrap();
         assert_eq!(all(&conn), 0);
         assert_eq!(pending_batch(&conn, M, R, 10).unwrap().len(), 1);
 
@@ -270,13 +342,28 @@ mod tests {
         assert_eq!(order, [a[0].clone(), b[0].clone(), a[1].clone()]);
         assert!(hits[0].score > hits[1].score && hits[1].score > hits[2].score);
         assert_eq!(scan(&conn, &q, M, R, &DocFilter::All, 1).unwrap().len(), 1);
-        assert!(scan(&conn, &q, M, "other", &DocFilter::All, 10).unwrap().is_empty());
-        assert!(scan(&conn, &[1.0, 0.0, 0.0], M, R, &DocFilter::All, 10).unwrap().is_empty(), "wrong size is ignored");
+        assert!(
+            scan(&conn, &q, M, "other", &DocFilter::All, 10)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            scan(&conn, &[1.0, 0.0, 0.0], M, R, &DocFilter::All, 10)
+                .unwrap()
+                .is_empty(),
+            "wrong size is ignored"
+        );
 
         let p = projects::create_project(&conn, "P").unwrap();
         lib::attach(&conn, &p.id, &db).unwrap();
         let scoped = scan(&conn, &q, M, R, &DocFilter::Project(p.id.clone()), 10).unwrap();
-        assert_eq!(scoped.iter().map(|h| h.passage_id.clone()).collect::<Vec<_>>(), [b[0].clone()]);
+        assert_eq!(
+            scoped
+                .iter()
+                .map(|h| h.passage_id.clone())
+                .collect::<Vec<_>>(),
+            [b[0].clone()]
+        );
 
         lib::set_status(&conn, &da, DocStatus::Error, None).unwrap();
         assert_eq!(scan(&conn, &q, M, R, &DocFilter::All, 10).unwrap().len(), 1);
@@ -288,8 +375,14 @@ mod tests {
         let (_, a) = doc(&mut conn, "a", &["0", "1", "2", "3"]);
         let (_, b) = doc(&mut conn, "b", &["x", "y"]);
         assert_eq!(neighbours(&conn, &a[0], 1).unwrap(), [a[1].clone()]);
-        assert_eq!(neighbours(&conn, &a[2], 1).unwrap(), [a[1].clone(), a[3].clone()]);
-        assert_eq!(neighbours(&conn, &a[3], 2).unwrap(), [a[1].clone(), a[2].clone()]);
+        assert_eq!(
+            neighbours(&conn, &a[2], 1).unwrap(),
+            [a[1].clone(), a[3].clone()]
+        );
+        assert_eq!(
+            neighbours(&conn, &a[3], 2).unwrap(),
+            [a[1].clone(), a[2].clone()]
+        );
         assert_eq!(neighbours(&conn, &b[1], 5).unwrap(), [b[0].clone()]);
         assert!(neighbours(&conn, "missing", 1).unwrap().is_empty());
     }

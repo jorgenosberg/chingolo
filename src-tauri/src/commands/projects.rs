@@ -14,7 +14,10 @@ pub async fn list_projects(state: State<'_, AppState>) -> CmdResult<Vec<Project>
 #[tauri::command]
 #[specta::specta]
 pub async fn create_project(state: State<'_, AppState>, name: String) -> CmdResult<Project> {
-    Ok(state.db.call(move |c| repo::create_project(c, &name)).await?)
+    Ok(state
+        .db
+        .call(move |c| repo::create_project(c, &name))
+        .await?)
 }
 
 #[tauri::command]

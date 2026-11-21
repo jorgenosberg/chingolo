@@ -82,7 +82,9 @@ pub(super) fn normalize(mut v: Vec<f32>) -> Vec<f32> {
 fn real_loader() -> Loader {
     Arc::new(|backend, dir| match backend {
         Backend::Local => Ok(Box::new(Gemma(super::load_model(dir)?)) as Box<dyn Encoder>),
-        Backend::Gemini => Ok(Box::new(GeminiEncoder::new(Arc::new(|| security::get_key_blocking("gemini"))))),
+        Backend::Gemini => Ok(Box::new(GeminiEncoder::new(Arc::new(|| {
+            security::get_key_blocking("gemini")
+        })))),
     })
 }
 
@@ -92,7 +94,11 @@ fn initial_state(backend: Backend, cloud_accepted: bool, local_ready: bool) -> M
         Backend::Gemini => cloud_accepted,
         Backend::Local => local_ready,
     };
-    if ready { ModelState::Ready } else { ModelState::Missing }
+    if ready {
+        ModelState::Ready
+    } else {
+        ModelState::Missing
+    }
 }
 
 const QUERY_CACHE_SIZE: usize = 64;
@@ -135,8 +141,17 @@ impl Embedder {
         emit_doc: Emit,
     ) -> Result<Self> {
         let dir = model::model_dir(app_data);
-        let ready = initial_state(backend, cloud_accepted, model::is_complete(&dir, FILES)) == ModelState::Ready;
-        Self::start_with(db_path, dir, backend, ready, real_loader(), emit_status, emit_doc)
+        let ready = initial_state(backend, cloud_accepted, model::is_complete(&dir, FILES))
+            == ModelState::Ready;
+        Self::start_with(
+            db_path,
+            dir,
+            backend,
+            ready,
+            real_loader(),
+            emit_status,
+            emit_doc,
+        )
     }
 
     pub fn start_with(
@@ -153,7 +168,11 @@ impl Embedder {
         let inner = Arc::new(Inner {
             dir,
             backend: Mutex::new(backend),
-            state: Mutex::new(if ready { ModelState::Ready } else { ModelState::Missing }),
+            state: Mutex::new(if ready {
+                ModelState::Ready
+            } else {
+                ModelState::Missing
+            }),
             counts: Mutex::new((0, 0)),
             paused: AtomicBool::new(false),
             encoder: Mutex::new(None),
@@ -243,7 +262,10 @@ impl Embedder {
                 *state = if complete {
                     ModelState::Ready
                 } else {
-                    ModelState::Downloading { done: 0.0, total: model::total_bytes(FILES) as f64 }
+                    ModelState::Downloading {
+                        done: 0.0,
+                        total: model::total_bytes(FILES) as f64,
+                    }
                 };
             }
             downloading
@@ -261,9 +283,19 @@ impl Embedder {
             let client = model::http_client();
             let cancel = CancellationToken::new();
             let progress_for = me.clone();
-            let result = model::download(&client, REPO_URL, FILES, &me.0.dir, &cancel, &mut |done, total| {
-                progress_for.set_state(ModelState::Downloading { done: done as f64, total: total as f64 });
-            })
+            let result = model::download(
+                &client,
+                REPO_URL,
+                FILES,
+                &me.0.dir,
+                &cancel,
+                &mut |done, total| {
+                    progress_for.set_state(ModelState::Downloading {
+                        done: done as f64,
+                        total: total as f64,
+                    });
+                },
+            )
             .await;
             match result {
                 Ok(()) => {
@@ -271,7 +303,9 @@ impl Embedder {
                     me.wake();
                 }
                 Err(AppError::Cancelled) => me.set_state(ModelState::Missing),
-                Err(e) => me.set_state(ModelState::Failed { message: e.to_string() }),
+                Err(e) => me.set_state(ModelState::Failed {
+                    message: e.to_string(),
+                }),
             }
         });
     }
@@ -293,8 +327,15 @@ impl Embedder {
         }
         let backend = self.backend();
         // Case and spacing don't change what a search means, so they share one cached vector.
-        let key = query.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
-        if let Some((_, _, v)) = lock(&self.0.query_cache).iter().find(|(b, k, _)| *b == backend && *k == key) {
+        let key = query
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_lowercase();
+        if let Some((_, _, v)) = lock(&self.0.query_cache)
+            .iter()
+            .find(|(b, k, _)| *b == backend && *k == key)
+        {
             log::debug!("query vector from the cache");
             return Ok(Some(v.clone()));
         }
@@ -321,7 +362,12 @@ impl Embedder {
     }
 
     /// Runs the encoder and, for Gemini, records what the call used and how long it took.
-    fn encode_and_record(&self, kind: &str, texts: &[String], started: Instant) -> Result<Vec<Vec<f32>>> {
+    fn encode_and_record(
+        &self,
+        kind: &str,
+        texts: &[String],
+        started: Instant,
+    ) -> Result<Vec<Vec<f32>>> {
         let backend = self.backend();
         let out = self.with_encoder(|e| {
             let r = e.encode(texts);
@@ -361,7 +407,9 @@ impl Embedder {
 
     fn fail(&self, e: AppError) {
         log::error!("embedding stopped: {e}");
-        self.set_state(ModelState::Failed { message: e.to_string() });
+        self.set_state(ModelState::Failed {
+            message: e.to_string(),
+        });
     }
 
     /// Embeds pending passages until none are left, the model isn't ready or the user pauses.
@@ -381,15 +429,24 @@ impl Embedder {
             if !ready || self.0.paused.load(Ordering::SeqCst) {
                 break;
             }
-            let Ok(batch) = vectors::pending_batch(conn, model, revision, backend.batch()) else { break };
+            let Ok(batch) = vectors::pending_batch(conn, model, revision, backend.batch()) else {
+                break;
+            };
             if batch.is_empty() {
                 break;
             }
-            let texts: Vec<String> = batch.iter().map(|p| format!("{DOC_PREFIX}{}", p.text)).collect();
+            let texts: Vec<String> = batch
+                .iter()
+                .map(|p| format!("{DOC_PREFIX}{}", p.text))
+                .collect();
             let started = Instant::now();
             let vecs = match self.encode_and_record("embed_index", &texts, started) {
                 Ok(v) if v.len() == batch.len() => v,
-                Ok(_) => return self.fail(AppError::Internal("The search model returned the wrong number of vectors.".into())),
+                Ok(_) => {
+                    return self.fail(AppError::Internal(
+                        "The search model returned the wrong number of vectors.".into(),
+                    ));
+                }
                 Err(e) => return self.fail(e),
             };
             // The backend may have been switched while the batch was in flight. Those vectors
@@ -397,7 +454,11 @@ impl Embedder {
             if self.backend() != backend {
                 continue;
             }
-            let items: Vec<_> = batch.iter().map(|p| p.passage_id.clone()).zip(vecs).collect();
+            let items: Vec<_> = batch
+                .iter()
+                .map(|p| p.passage_id.clone())
+                .zip(vecs)
+                .collect();
             if let Err(e) = vectors::store_vectors(conn, &items, model, revision) {
                 return self.fail(e);
             }
@@ -415,7 +476,10 @@ impl Embedder {
                 }
                 seen.push(&p.document_id);
                 if let Ok(document) = repo::get_document(conn, &p.document_id) {
-                    (self.0.emit_doc)(DocumentChanged { document, progress: None });
+                    (self.0.emit_doc)(DocumentChanged {
+                        document,
+                        progress: None,
+                    });
                 }
             }
             // Let a waiting search have the model before the next batch.
@@ -465,7 +529,11 @@ mod tests {
                 .iter()
                 .map(|t| {
                     let a = t.len() as f32;
-                    normalize(vec![a, 1.0, t.bytes().map(|b| b as f32).sum::<f32>() % 7.0 + 1.0])
+                    normalize(vec![
+                        a,
+                        1.0,
+                        t.bytes().map(|b| b as f32).sum::<f32>() % 7.0 + 1.0,
+                    ])
                 })
                 .collect())
         }
@@ -495,7 +563,10 @@ mod tests {
             if load_fails {
                 return Err(AppError::Internal("no model".into()));
             }
-            Ok(Box::new(Fake { calls: c.clone(), fail_after }) as Box<dyn Encoder>)
+            Ok(Box::new(Fake {
+                calls: c.clone(),
+                fail_after,
+            }) as Box<dyn Encoder>)
         });
         let statuses = Arc::new(Mutex::new(Vec::new()));
         let docs = Arc::new(Mutex::new(Vec::new()));
@@ -510,16 +581,43 @@ mod tests {
             Arc::new(move |e| lock(&d).push(e)),
         )
         .unwrap();
-        Rig { _dir: dir, db, embedder, statuses, docs, calls }
+        Rig {
+            _dir: dir,
+            db,
+            embedder,
+            statuses,
+            docs,
+            calls,
+        }
     }
 
     fn add_doc(conn: &mut Connection, hash: &str, n: usize) -> crate::domain::Id {
         let d = repo::insert_document(conn, hash, &format!("{hash}.pdf"), DocKind::Pdf).unwrap();
         let passages: Vec<_> = (0..n)
-            .map(|i| NewPassage { page_start: 1, page_end: 1, text: format!("{hash} passage number {i}"), boxes: None })
+            .map(|i| NewPassage {
+                page_start: 1,
+                page_end: 1,
+                text: format!("{hash} passage number {i}"),
+                boxes: None,
+            })
             .collect();
-        let pages = vec![NewPage { page_no: 1, width: 1.0, height: 1.0, quality: "ok", ocr: false }];
-        repo::store_content(conn, &d.id, &pages, &passages, &Extracted::default(), DocStatus::Ready, None).unwrap();
+        let pages = vec![NewPage {
+            page_no: 1,
+            width: 1.0,
+            height: 1.0,
+            quality: "ok",
+            ocr: false,
+        }];
+        repo::store_content(
+            conn,
+            &d.id,
+            &pages,
+            &passages,
+            &Extracted::default(),
+            DocStatus::Ready,
+            None,
+        )
+        .unwrap();
         d.id
     }
 
@@ -550,12 +648,22 @@ mod tests {
 
         let last = r.embedder.status();
         assert_eq!((last.indexed, last.total, last.paused), (14, 14, false));
-        assert_eq!(r.calls.load(Ordering::SeqCst), 2, "11 + 3 passages in batches of 8, in document order");
+        assert_eq!(
+            r.calls.load(Ordering::SeqCst),
+            2,
+            "11 + 3 passages in batches of 8, in document order"
+        );
         let progress: Vec<u32> = lock(&r.statuses).iter().map(|s| s.indexed).collect();
         assert!(progress.windows(2).all(|w| w[0] <= w[1]) && progress.contains(&8));
         let docs = lock(&r.docs);
-        assert!(docs.iter().any(|d| d.document.id == a && d.document.embedded_count > 0));
-        assert!(docs.iter().any(|d| d.document.id == b && d.document.embedded_count == 3));
+        assert!(
+            docs.iter()
+                .any(|d| d.document.id == a && d.document.embedded_count > 0)
+        );
+        assert!(
+            docs.iter()
+                .any(|d| d.document.id == b && d.document.embedded_count == 3)
+        );
     }
 
     #[test]
@@ -589,8 +697,12 @@ mod tests {
         let mut r = rig(true, None, true);
         add_doc(&mut r.db, "a", 2);
         r.embedder.wake();
-        wait_for("failure", || matches!(r.embedder.status().model, ModelState::Failed { .. }));
-        let ModelState::Failed { message } = r.embedder.status().model else { unreachable!() };
+        wait_for("failure", || {
+            matches!(r.embedder.status().model, ModelState::Failed { .. })
+        });
+        let ModelState::Failed { message } = r.embedder.status().model else {
+            unreachable!()
+        };
         assert!(message.contains("no model"), "{message}");
         assert_eq!(totals(&r).0, 0);
     }
@@ -600,7 +712,9 @@ mod tests {
         let mut r = rig(true, Some(1), false);
         add_doc(&mut r.db, "a", 12);
         r.embedder.wake();
-        wait_for("failure", || matches!(r.embedder.status().model, ModelState::Failed { .. }));
+        wait_for("failure", || {
+            matches!(r.embedder.status().model, ModelState::Failed { .. })
+        });
         assert_eq!(totals(&r).0, 8, "the first batch was kept");
     }
 
@@ -613,7 +727,16 @@ mod tests {
         assert!((norm - 1.0).abs() < 1e-5);
         // the fake derives its first component from the text length, so the prefix is included
         let expect = ("coral".len() + QUERY_PREFIX.len()) as f32;
-        let direct = normalize(vec![expect, 1.0, format!("{QUERY_PREFIX}coral").bytes().map(|b| b as f32).sum::<f32>() % 7.0 + 1.0]);
+        let direct = normalize(vec![
+            expect,
+            1.0,
+            format!("{QUERY_PREFIX}coral")
+                .bytes()
+                .map(|b| b as f32)
+                .sum::<f32>()
+                % 7.0
+                + 1.0,
+        ]);
         assert_eq!(v, direct);
     }
 
@@ -623,7 +746,10 @@ mod tests {
         let first = r.embedder.embed_query("Coral  reefs").unwrap().unwrap();
         assert_eq!(r.calls.load(Ordering::SeqCst), 1);
         // Same words with other case and spacing hit the cache and make no call.
-        assert_eq!(r.embedder.embed_query(" coral reefs ").unwrap().unwrap(), first);
+        assert_eq!(
+            r.embedder.embed_query(" coral reefs ").unwrap().unwrap(),
+            first
+        );
         assert_eq!(r.calls.load(Ordering::SeqCst), 1);
         r.embedder.embed_query("kelp").unwrap();
         assert_eq!(r.calls.load(Ordering::SeqCst), 2);
@@ -657,12 +783,20 @@ mod tests {
         add_doc(&mut r.db, "a", 40);
         r.embedder.wake();
         std::thread::sleep(Duration::from_millis(100));
-        assert_eq!(r.calls.load(Ordering::SeqCst), 0, "no request before consent");
+        assert_eq!(
+            r.calls.load(Ordering::SeqCst),
+            0,
+            "no request before consent"
+        );
         assert_eq!(r.embedder.embed_query("coral").unwrap(), None);
 
         r.embedder.ensure_model();
         wait_for("embedding", || totals_for(&r, Backend::Gemini) == (40, 40));
-        assert_eq!(r.calls.load(Ordering::SeqCst), 2, "40 passages in batches of 32");
+        assert_eq!(
+            r.calls.load(Ordering::SeqCst),
+            2,
+            "40 passages in batches of 32"
+        );
         assert_eq!(r.embedder.status().backend, Backend::Gemini);
     }
 
@@ -671,14 +805,21 @@ mod tests {
         let mut r = rig_on(Backend::Local, true, None, false);
         add_doc(&mut r.db, "a", 5);
         r.embedder.wake();
-        wait_for("local embedding", || totals_for(&r, Backend::Local) == (5, 5));
+        wait_for("local embedding", || {
+            totals_for(&r, Backend::Local) == (5, 5)
+        });
 
         r.embedder.use_backend(Backend::Gemini, true);
-        wait_for("gemini embedding", || totals_for(&r, Backend::Gemini) == (5, 5));
+        wait_for("gemini embedding", || {
+            totals_for(&r, Backend::Gemini) == (5, 5)
+        });
         let (model, revision) = Backend::Local.identity();
-        let left: u32 = r
-            .db
-            .query_row("SELECT COUNT(*) FROM passage_vectors WHERE model = ?1 AND revision = ?2", [model, revision], |row| row.get(0))
+        let left: u32 =
+            r.db.query_row(
+                "SELECT COUNT(*) FROM passage_vectors WHERE model = ?1 AND revision = ?2",
+                [model, revision],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(left, 0, "vectors from the other model are gone");
     }
@@ -705,8 +846,12 @@ mod tests {
         use crate::services::ingestion::queue::Ingestor;
         use std::time::Instant;
 
-        let papers = std::path::PathBuf::from(std::env::var("CHINGOLO_TEST_PAPERS").expect("set CHINGOLO_TEST_PAPERS"));
-        let model_dir = std::path::PathBuf::from(std::env::var("CHINGOLO_EMBED_MODEL_DIR").expect("set CHINGOLO_EMBED_MODEL_DIR"));
+        let papers = std::path::PathBuf::from(
+            std::env::var("CHINGOLO_TEST_PAPERS").expect("set CHINGOLO_TEST_PAPERS"),
+        );
+        let model_dir = std::path::PathBuf::from(
+            std::env::var("CHINGOLO_EMBED_MODEL_DIR").expect("set CHINGOLO_EMBED_MODEL_DIR"),
+        );
         let tmp = tempfile::tempdir().unwrap();
         let db_path = match std::env::var("CHINGOLO_KEEP_DB") {
             Ok(p) => {
@@ -746,25 +891,42 @@ mod tests {
         .unwrap();
 
         let t = Instant::now();
-        import_paths(&db, &ingest, vec![papers], None).await.unwrap();
+        import_paths(&db, &ingest, vec![papers], None)
+            .await
+            .unwrap();
         loop {
             let docs = db.call(|c| repo::list_documents(c, None)).await.unwrap();
-            if docs.iter().all(|d| !matches!(d.status, DocStatus::Queued | DocStatus::Processing)) {
+            if docs
+                .iter()
+                .all(|d| !matches!(d.status, DocStatus::Queued | DocStatus::Processing))
+            {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(200)).await;
         }
-        println!("all documents read after {:.1}s, keyword search can be used from here", t.elapsed().as_secs_f32());
+        println!(
+            "all documents read after {:.1}s, keyword search can be used from here",
+            t.elapsed().as_secs_f32()
+        );
         embedder.wake();
         let started = Instant::now();
         let mut last = 0;
         loop {
             let st = embedder.status();
-            assert!(!matches!(st.model, ModelState::Failed { .. }), "{:?}", st.model);
+            assert!(
+                !matches!(st.model, ModelState::Failed { .. }),
+                "{:?}",
+                st.model
+            );
             if st.indexed != last {
                 last = st.indexed;
                 if last % 200 < 8 {
-                    println!("  indexed {} of {} ({:.0}s)", st.indexed, st.total, started.elapsed().as_secs_f32());
+                    println!(
+                        "  indexed {} of {} ({:.0}s)",
+                        st.indexed,
+                        st.total,
+                        started.elapsed().as_secs_f32()
+                    );
                 }
             }
             if st.total > 0 && st.indexed == st.total {
@@ -774,17 +936,40 @@ mod tests {
         }
         let secs = started.elapsed().as_secs_f32();
         let st = embedder.status();
-        println!("embedded {} passages in {secs:.0}s ({:.1}/s)", st.total, st.total as f32 / secs);
+        println!(
+            "embedded {} passages in {secs:.0}s ({:.1}/s)",
+            st.total,
+            st.total as f32 / secs
+        );
 
         // keyword search worked before and after; a quick meaning query for the record
-        let q = embedder.embed_query("why do some marine algae produce toxins").unwrap().unwrap();
+        let q = embedder
+            .embed_query("why do some marine algae produce toxins")
+            .unwrap()
+            .unwrap();
         let hits = db
-            .call(move |c| crate::services::retrieval::hybrid_search(c, "why do some marine algae produce toxins", &q, Backend::Local.identity(), &crate::domain::library::DocFilter::All, 5))
+            .call(move |c| {
+                crate::services::retrieval::hybrid_search(
+                    c,
+                    "why do some marine algae produce toxins",
+                    &q,
+                    Backend::Local.identity(),
+                    &crate::domain::library::DocFilter::All,
+                    5,
+                )
+            })
             .await
             .unwrap();
         for h in &hits {
-            println!("  {:?} {} p{}", h.matched_by, h.document_title.chars().take(40).collect::<String>(), h.page_start);
+            println!(
+                "  {:?} {} p{}",
+                h.matched_by,
+                h.document_title.chars().take(40).collect::<String>(),
+                h.page_start
+            );
         }
-        db.call(|c| Ok(c.pragma_update(None, "wal_checkpoint", "TRUNCATE")?)).await.ok();
+        db.call(|c| Ok(c.pragma_update(None, "wal_checkpoint", "TRUNCATE")?))
+            .await
+            .ok();
     }
 }

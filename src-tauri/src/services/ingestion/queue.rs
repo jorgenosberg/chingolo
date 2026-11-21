@@ -15,10 +15,10 @@ use tokio_util::sync::CancellationToken;
 
 use super::activity::Activity;
 use super::layout::{self, LayoutSlot};
-use super::tables::{self, TableSlot};
 use super::ocr::OcrSlot;
 use super::pdf::PdfReader;
 use super::segment::segment;
+use super::tables::{self, TableSlot};
 use super::{Extraction, docx};
 use crate::domain::Id;
 use crate::domain::library::{DocKind, DocStatus, Document};
@@ -88,14 +88,28 @@ pub struct Ingestor(Arc<Inner>);
 
 /// Where the managed copy of a file lives: `<library>/<first two hash chars>/<hash>.<ext>`.
 pub fn library_path(library_dir: &Path, hash: &str, kind: DocKind) -> PathBuf {
-    library_dir.join(&hash[..2]).join(format!("{hash}.{}", kind.as_str()))
+    library_dir
+        .join(&hash[..2])
+        .join(format!("{hash}.{}", kind.as_str()))
 }
 
 impl Ingestor {
     pub fn start(db_path: &Path, library_dir: PathBuf, emit: Emit) -> Result<Self> {
         let conn = Db::open_secondary(db_path)?;
         let (tx, rx) = mpsc::unbounded_channel();
-        let inner = Arc::new(Inner { tx, tokens: Mutex::new(HashMap::new()), library_dir, emit, ocr_dir: Mutex::new(None), layout_dir: Mutex::new(None), tables_dir: Mutex::new(None), on_layout: Mutex::new(None), layout_live: AtomicU32::new(0), tables_live: AtomicU32::new(0), activity: Mutex::new(None) });
+        let inner = Arc::new(Inner {
+            tx,
+            tokens: Mutex::new(HashMap::new()),
+            library_dir,
+            emit,
+            ocr_dir: Mutex::new(None),
+            layout_dir: Mutex::new(None),
+            tables_dir: Mutex::new(None),
+            on_layout: Mutex::new(None),
+            layout_live: AtomicU32::new(0),
+            tables_live: AtomicU32::new(0),
+            activity: Mutex::new(None),
+        });
         let worker = inner.clone();
         std::thread::Builder::new()
             .name("ingest".into())
@@ -133,19 +147,36 @@ impl Ingestor {
 
     /// Layout work: pages done and in all (pages with text of ready PDFs), and documents still waiting.
     pub async fn layout_progress(&self, db: &Db) -> Result<LayoutProgress> {
-        let ready = self.0.layout_dir.lock().ok().and_then(|d| d.clone()).is_some_and(|d| layout::is_ready(&d));
+        let ready = self
+            .0
+            .layout_dir
+            .lock()
+            .ok()
+            .and_then(|d| d.clone())
+            .is_some_and(|d| layout::is_ready(&d));
         if !ready {
             return Ok(LayoutProgress::default());
         }
         let (done, total, docs_left) = db.call(|c| repo::layout_counts(c)).await?;
-        let tables_ready = self.0.tables_dir.lock().ok().and_then(|d| d.clone()).is_some_and(|d| tables::is_ready(&d));
-        let (tables_done, tables_total) = if tables_ready { db.call(|c| repo::table_counts(c)).await? } else { (0, 0) };
+        let tables_ready = self
+            .0
+            .tables_dir
+            .lock()
+            .ok()
+            .and_then(|d| d.clone())
+            .is_some_and(|d| tables::is_ready(&d));
+        let (tables_done, tables_total) = if tables_ready {
+            db.call(|c| repo::table_counts(c)).await?
+        } else {
+            (0, 0)
+        };
         Ok(LayoutProgress {
             available: true,
             done: (done + self.0.layout_live.load(Ordering::Relaxed)).min(total),
             total,
             docs_left,
-            tables_done: (tables_done + self.0.tables_live.load(Ordering::Relaxed)).min(tables_total),
+            tables_done: (tables_done + self.0.tables_live.load(Ordering::Relaxed))
+                .min(tables_total),
             tables_total,
         })
     }
@@ -153,12 +184,25 @@ impl Ingestor {
     /// Queues layout for every ready PDF that has pages without it. Call at start and after the
     /// layout model finished downloading. Returns how many documents.
     pub async fn enqueue_layouts(&self, db: &Db) -> Result<usize> {
-        let ready = self.0.layout_dir.lock().ok().and_then(|d| d.clone()).is_some_and(|d| layout::is_ready(&d));
+        let ready = self
+            .0
+            .layout_dir
+            .lock()
+            .ok()
+            .and_then(|d| d.clone())
+            .is_some_and(|d| layout::is_ready(&d));
         if !ready {
             return Ok(0);
         }
         let mut docs = db.call(|c| repo::documents_without_layout(c)).await?;
-        if self.0.tables_dir.lock().ok().and_then(|d| d.clone()).is_some_and(|d| tables::is_ready(&d)) {
+        if self
+            .0
+            .tables_dir
+            .lock()
+            .ok()
+            .and_then(|d| d.clone())
+            .is_some_and(|d| tables::is_ready(&d))
+        {
             for d in db.call(|c| repo::documents_without_tables(c)).await? {
                 if !docs.iter().any(|x| x.id == d.id) {
                     docs.push(d);
@@ -239,17 +283,46 @@ fn worker_loop(mut conn: Connection, mut rx: mpsc::UnboundedReceiver<Job>, inner
         ocr.set_dir(inner.ocr_dir.lock().ok().and_then(|d| d.clone()));
         layout.set_dir(inner.layout_dir.lock().ok().and_then(|d| d.clone()));
         tables.set_dir(inner.tables_dir.lock().ok().and_then(|d| d.clone()));
-        let token = inner.tokens.lock().ok().and_then(|t| t.get(&doc.id).cloned()).unwrap_or_default();
+        let token = inner
+            .tokens
+            .lock()
+            .ok()
+            .and_then(|t| t.get(&doc.id).cloned())
+            .unwrap_or_default();
         let path = library_path(&inner.library_dir, &doc.content_hash, doc.kind);
-        let emit = |d: Document, p: Option<Progress>| (inner.emit)(DocumentChanged { document: d, progress: p });
+        let emit = |d: Document, p: Option<Progress>| {
+            (inner.emit)(DocumentChanged {
+                document: d,
+                progress: p,
+            })
+        };
         // A bug in a parser must not take the worker down with it.
         let ran = std::panic::catch_unwind(AssertUnwindSafe(|| match &job {
             Job::Read(_) => run_job(&mut conn, &mut pdf, &mut ocr, &path, &doc, &token, &emit),
             Job::Details(_) => run_details(&conn, &mut pdf, &mut ocr, &path, &doc, &emit),
             Job::Layout(_) => {
                 let live = (&inner.layout_live, &inner.tables_live);
-                let notify = |d: &Document| inner.on_layout.lock().ok().and_then(|h| h.clone()).iter().for_each(|f| f(d));
-                let out = run_layout(&mut conn, &mut pdf, &mut ocr, &mut layout, &mut tables, &path, &doc, &token, live, &notify);
+                let notify = |d: &Document| {
+                    inner
+                        .on_layout
+                        .lock()
+                        .ok()
+                        .and_then(|h| h.clone())
+                        .iter()
+                        .for_each(|f| f(d))
+                };
+                let out = run_layout(
+                    &mut conn,
+                    &mut pdf,
+                    &mut ocr,
+                    &mut layout,
+                    &mut tables,
+                    &path,
+                    &doc,
+                    &token,
+                    live,
+                    &notify,
+                );
                 live.0.store(0, Ordering::Relaxed);
                 live.1.store(0, Ordering::Relaxed);
                 out
@@ -258,9 +331,17 @@ fn worker_loop(mut conn: Connection, mut rx: mpsc::UnboundedReceiver<Job>, inner
         if ran.is_err() && matches!(job, Job::Details(_)) {
             log::warn!("reading the details of {} crashed", doc.original_name);
         } else if ran.is_err() && matches!(job, Job::Layout(_)) {
-            log::warn!("page layout of {} crashed, its passages are unchanged", doc.original_name);
+            log::warn!(
+                "page layout of {} crashed, its passages are unchanged",
+                doc.original_name
+            );
         } else if ran.is_err() {
-            if let Ok(d) = repo::set_status(&conn, &doc.id, DocStatus::Error, Some("Reading this file crashed. It may be damaged.")) {
+            if let Ok(d) = repo::set_status(
+                &conn,
+                &doc.id,
+                DocStatus::Error,
+                Some("Reading this file crashed. It may be damaged."),
+            ) {
                 emit(d, None);
             }
         }
@@ -274,7 +355,10 @@ fn worker_loop(mut conn: Connection, mut rx: mpsc::UnboundedReceiver<Job>, inner
                 t.remove(&doc.id);
             }
             // the document is searchable now, so layout can improve it in the background
-            if doc.kind == DocKind::Pdf && layout.get().is_some() && repo::get_document(&conn, &doc.id).is_ok_and(|d| d.status == DocStatus::Ready) {
+            if doc.kind == DocKind::Pdf
+                && layout.get().is_some()
+                && repo::get_document(&conn, &doc.id).is_ok_and(|d| d.status == DocStatus::Ready)
+            {
                 let _ = inner.tx.send(Job::Layout(doc.clone()));
             }
         }
@@ -303,7 +387,11 @@ pub fn run_details(
             log::info!(
                 "details refreshed for {}: found {} ({} edited fields kept), {} ms",
                 doc.original_name,
-                if fields.is_empty() { "nothing".to_string() } else { fields.join(", ") },
+                if fields.is_empty() {
+                    "nothing".to_string()
+                } else {
+                    fields.join(", ")
+                },
                 doc.meta_edited.len(),
                 started.elapsed().as_millis()
             );
@@ -342,18 +430,31 @@ fn run_layout(
         let new = if pages.is_empty() {
             vec![]
         } else {
-            r.detect_layout(path, &pages, model, &cancelled, &mut |done, _| live.0.store(done, Ordering::Relaxed))?
+            r.detect_layout(path, &pages, model, &cancelled, &mut |done, _| {
+                live.0.store(done, Ordering::Relaxed)
+            })?
         };
         // pages done by an earlier run keep their regions, so the rebuilt passages don't lose them
-        let mut found = repo::list_regions(conn, &doc.id)?.into_iter().fold(Vec::<layout::PageRegions>::new(), |mut acc, g| {
-            if acc.last().is_none_or(|p| p.page != g.page) {
-                acc.push(layout::PageRegions { page: g.page, regions: vec![] });
-            }
-            if let Some(p) = acc.last_mut() {
-                p.regions.push(layout::Region { label: g.label, rect: g.rect, score: g.score, order: g.ordinal });
-            }
-            acc
-        });
+        let mut found = repo::list_regions(conn, &doc.id)?.into_iter().fold(
+            Vec::<layout::PageRegions>::new(),
+            |mut acc, g| {
+                if acc.last().is_none_or(|p| p.page != g.page) {
+                    acc.push(layout::PageRegions {
+                        page: g.page,
+                        regions: vec![],
+                    });
+                }
+                if let Some(p) = acc.last_mut() {
+                    p.regions.push(layout::Region {
+                        label: g.label,
+                        rect: g.rect,
+                        score: g.score,
+                        order: g.ordinal,
+                    });
+                }
+                acc
+            },
+        );
         let done: Vec<u32> = new.iter().map(|p| p.page).collect();
         found.extend(new);
         found.sort_by_key(|p| p.page);
@@ -363,8 +464,17 @@ fn run_layout(
         let todo: Vec<(u32, u32, [f32; 4])> = match table_model {
             Some(_) => found
                 .iter()
-                .flat_map(|p| p.regions.iter().filter(|g| g.label == "table").map(move |g| (p.page, g.order, g.rect)))
-                .filter(|(page, ordinal, _)| !read.iter().any(|t| t.page_no == *page && t.ordinal == *ordinal))
+                .flat_map(|p| {
+                    p.regions
+                        .iter()
+                        .filter(|g| g.label == "table")
+                        .map(move |g| (p.page, g.order, g.rect))
+                })
+                .filter(|(page, ordinal, _)| {
+                    !read
+                        .iter()
+                        .any(|t| t.page_no == *page && t.ordinal == *ordinal)
+                })
                 .collect(),
             None => vec![],
         };
@@ -374,16 +484,38 @@ fn run_layout(
         let mut fresh = Vec::new();
         if let (Some(model), false) = (table_model, todo.is_empty()) {
             let regions: Vec<(u32, [f32; 4])> = todo.iter().map(|(p, _, r)| (*p, *r)).collect();
-            for (t, (page, ordinal, rect)) in r.read_tables(path, &regions, model, &cancelled, &mut |done, _| live.1.store(done, Ordering::Relaxed))?.into_iter().zip(&todo) {
+            for (t, (page, ordinal, rect)) in r
+                .read_tables(path, &regions, model, &cancelled, &mut |done, _| {
+                    live.1.store(done, Ordering::Relaxed)
+                })?
+                .into_iter()
+                .zip(&todo)
+            {
                 let (status, note, footer, cells) = match t.filled {
-                    Ok(f) if f.sound() && !tables::has_duplicate_positions(&f.cells) => ("ok", None, Some(f.notes).filter(|n| !n.is_empty()), f.cells),
+                    Ok(f) if f.sound() && !tables::has_duplicate_positions(&f.cells) => {
+                        ("ok", None, Some(f.notes).filter(|n| !n.is_empty()), f.cells)
+                    }
                     Ok(f) => {
-                        let why = format!("{} of {} characters in cells, {} beside, numbers {}", f.assigned, f.glyphs, f.noted, if f.numbers_ok { "match" } else { "differ" });
+                        let why = format!(
+                            "{} of {} characters in cells, {} beside, numbers {}",
+                            f.assigned,
+                            f.glyphs,
+                            f.noted,
+                            if f.numbers_ok { "match" } else { "differ" }
+                        );
                         ("unsure", Some(why), None, f.cells)
                     }
                     Err(e) => ("failed", Some(e), None, vec![]),
                 };
-                fresh.push(repo::TableRow { page_no: *page, ordinal: *ordinal, rect: *rect, status: status.into(), note, footer, cells });
+                fresh.push(repo::TableRow {
+                    page_no: *page,
+                    ordinal: *ordinal,
+                    rect: *rect,
+                    status: status.into(),
+                    note,
+                    footer,
+                    cells,
+                });
             }
             repo::store_tables(conn, &doc.id, &fresh)?;
             read.extend(fresh.iter().cloned());
@@ -391,20 +523,49 @@ fn run_layout(
 
         let ex = r.extract_with(path, ocr, &cancelled, &mut |_, _| {})?;
         let (blocks, stats) = layout::apply(ex.blocks, &found);
-        let grids: Vec<_> = read.iter().filter(|t| t.status == "ok").map(|t| (t.page_no, t.rect, tables::passages(t.page_no, t.rect, &t.cells, t.footer.as_deref()))).collect();
+        let grids: Vec<_> = read
+            .iter()
+            .filter(|t| t.status == "ok")
+            .map(|t| {
+                (
+                    t.page_no,
+                    t.rect,
+                    tables::passages(t.page_no, t.rect, &t.cells, t.footer.as_deref()),
+                )
+            })
+            .collect();
         let passages = layout::weave(&blocks, &found, &grids);
         if passages.is_empty() {
             return Ok(None);
         }
         let regions: Vec<_> = found
             .iter()
-            .flat_map(|p| p.regions.iter().map(|g| repo::NewRegion { page_no: p.page, ordinal: g.order, label: g.label.clone(), score: g.score, rect: g.rect }))
+            .flat_map(|p| {
+                p.regions.iter().map(|g| repo::NewRegion {
+                    page_no: p.page,
+                    ordinal: g.order,
+                    label: g.label.clone(),
+                    score: g.score,
+                    rect: g.rect,
+                })
+            })
             .collect();
         let d = repo::store_layout(conn, &doc.id, &done, &regions, &passages)?;
         let count = |s: &str| fresh.iter().filter(|t| t.status == s).count();
         log::info!(
             "layout for {}: {} pages, {} lines, {} dropped (headers, footers, numbers), {} unplaced, {} pages kept as they were, {} tables read ({} ok, {} unsure, {} failed), {} passages, {} ms",
-            doc.original_name, done.len(), stats.lines, stats.dropped, stats.unplaced, stats.pages_kept, fresh.len(), count("ok"), count("unsure"), count("failed"), passages.len(), started.elapsed().as_millis()
+            doc.original_name,
+            done.len(),
+            stats.lines,
+            stats.dropped,
+            stats.unplaced,
+            stats.pages_kept,
+            fresh.len(),
+            count("ok"),
+            count("unsure"),
+            count("failed"),
+            passages.len(),
+            started.elapsed().as_millis()
         );
         Ok(Some(d))
     })();
@@ -482,7 +643,15 @@ pub fn run_job(
     } else {
         (DocStatus::Ready, page_note(&ex, ocr.missing()))
     };
-    match repo::store_content(conn, &doc.id, &ex.pages, &passages, &ex.meta, status, note.as_deref()) {
+    match repo::store_content(
+        conn,
+        &doc.id,
+        &ex.pages,
+        &passages,
+        &ex.meta,
+        status,
+        note.as_deref(),
+    ) {
         Ok(d) => {
             log::info!(
                 "read {}: {} pages, {} passages, details found: {}",
@@ -494,7 +663,11 @@ pub fn run_job(
             emit(d, None)
         }
         Err(AppError::NotFound) => {}
-        Err(e) => finish(conn, DocStatus::Error, Some(&format!("Couldn't save the text: {e}"))),
+        Err(e) => finish(
+            conn,
+            DocStatus::Error,
+            Some(&format!("Couldn't save the text: {e}")),
+        ),
     }
 }
 
@@ -506,14 +679,18 @@ fn page_note(ex: &Extraction, ocr_missing: bool) -> Option<String> {
     let read = ex.pages.iter().filter(|p| p.ocr).count();
     let mut parts = vec![];
     if read > 0 {
-        parts.push(format!("{read} pages were read by text recognition and may have errors."));
+        parts.push(format!(
+            "{read} pages were read by text recognition and may have errors."
+        ));
     }
     if ex.unreadable_pages > 0 {
         parts.push(format!("{} pages could not be read.", ex.unreadable_pages));
     }
     let none_other = none.saturating_sub(ex.unreadable_pages as usize);
     if none_other > 0 {
-        parts.push(format!("{none_other} of {total} pages have no text (blank, images or scans)."));
+        parts.push(format!(
+            "{none_other} of {total} pages have no text (blank, images or scans)."
+        ));
         if ocr_missing {
             parts.push("Download the text recognition model in Settings and read it again to include scanned pages.".into());
         }
@@ -536,27 +713,65 @@ mod tests {
         let doc = repo::insert_document(&conn, hash, "t.docx", DocKind::Docx).unwrap();
         let path = dir.join("t.docx");
         let mut zip = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
-        zip.start_file("word/document.xml", zip::write::SimpleFileOptions::default()).unwrap();
-        let body: String = paragraphs.iter().map(|p| format!("<w:p><w:r><w:t>{p}</w:t></w:r></w:p>")).collect();
-        write!(zip, r#"<w:document xmlns:w="x"><w:body>{body}</w:body></w:document>"#).unwrap();
+        zip.start_file(
+            "word/document.xml",
+            zip::write::SimpleFileOptions::default(),
+        )
+        .unwrap();
+        let body: String = paragraphs
+            .iter()
+            .map(|p| format!("<w:p><w:r><w:t>{p}</w:t></w:r></w:p>"))
+            .collect();
+        write!(
+            zip,
+            r#"<w:document xmlns:w="x"><w:body>{body}</w:body></w:document>"#
+        )
+        .unwrap();
         zip.finish().unwrap();
         (doc, path, conn)
     }
 
-    fn run(conn: &mut Connection, path: &Path, doc: &Document, token: &CancellationToken) -> Vec<DocStatus> {
+    fn run(
+        conn: &mut Connection,
+        path: &Path,
+        doc: &Document,
+        token: &CancellationToken,
+    ) -> Vec<DocStatus> {
         let seen = std::cell::RefCell::new(vec![]);
-        run_job(conn, &mut None, &mut OcrSlot::default(), path, doc, token, &|d, _| seen.borrow_mut().push(d.status));
+        run_job(
+            conn,
+            &mut None,
+            &mut OcrSlot::default(),
+            path,
+            doc,
+            token,
+            &|d, _| seen.borrow_mut().push(d.status),
+        );
         seen.into_inner()
     }
 
     #[test]
     fn a_document_goes_from_processing_to_ready_and_becomes_searchable() {
         let dir = tempfile::tempdir().unwrap();
-        let (doc, path, mut conn) = docx_file(dir.path(), "h1", &["Plankton blooms follow iron enrichment in the Gulf of Alaska."]);
+        let (doc, path, mut conn) = docx_file(
+            dir.path(),
+            "h1",
+            &["Plankton blooms follow iron enrichment in the Gulf of Alaska."],
+        );
         let seen = run(&mut conn, &path, &doc, &CancellationToken::new());
         assert_eq!(seen, [DocStatus::Processing, DocStatus::Ready]);
-        let opts = repo::SearchOptions { filter: &crate::domain::library::DocFilter::All, all_terms: true, prefix_last: false, limit: 5 };
-        assert_eq!(repo::search_passages(&conn, "plankton iron", &opts).unwrap().len(), 1);
+        let opts = repo::SearchOptions {
+            filter: &crate::domain::library::DocFilter::All,
+            all_terms: true,
+            prefix_last: false,
+            limit: 5,
+        };
+        assert_eq!(
+            repo::search_passages(&conn, "plankton iron", &opts)
+                .unwrap()
+                .len(),
+            1
+        );
         assert_eq!(repo::get_document(&conn, &doc.id).unwrap().passage_count, 1);
     }
 
@@ -564,13 +779,28 @@ mod tests {
     fn empty_and_broken_files_end_in_a_clear_status() {
         let dir = tempfile::tempdir().unwrap();
         let (doc, path, mut conn) = docx_file(dir.path(), "h1", &[]);
-        assert_eq!(run(&mut conn, &path, &doc, &CancellationToken::new()), [DocStatus::Processing, DocStatus::NoText]);
-        assert!(repo::get_document(&conn, &doc.id).unwrap().error.unwrap().contains("No text"));
+        assert_eq!(
+            run(&mut conn, &path, &doc, &CancellationToken::new()),
+            [DocStatus::Processing, DocStatus::NoText]
+        );
+        assert!(
+            repo::get_document(&conn, &doc.id)
+                .unwrap()
+                .error
+                .unwrap()
+                .contains("No text")
+        );
 
         std::fs::write(&path, b"garbage").unwrap();
         let seen = run(&mut conn, &path, &doc, &CancellationToken::new());
         assert_eq!(seen.last(), Some(&DocStatus::Error));
-        assert!(repo::get_document(&conn, &doc.id).unwrap().error.unwrap().contains("Word document"));
+        assert!(
+            repo::get_document(&conn, &doc.id)
+                .unwrap()
+                .error
+                .unwrap()
+                .contains("Word document")
+        );
 
         let missing = dir.path().join("gone.docx");
         let seen = run(&mut conn, &missing, &doc, &CancellationToken::new());
@@ -580,7 +810,11 @@ mod tests {
     #[test]
     fn a_cancelled_job_is_not_read_and_keeps_no_content() {
         let dir = tempfile::tempdir().unwrap();
-        let (doc, path, mut conn) = docx_file(dir.path(), "h1", &["Some text that should never be indexed."]);
+        let (doc, path, mut conn) = docx_file(
+            dir.path(),
+            "h1",
+            &["Some text that should never be indexed."],
+        );
         let token = CancellationToken::new();
         token.cancel();
         assert_eq!(run(&mut conn, &path, &doc, &token), [DocStatus::Cancelled]);
@@ -590,7 +824,11 @@ mod tests {
     #[test]
     fn a_document_deleted_mid_job_is_ignored() {
         let dir = tempfile::tempdir().unwrap();
-        let (doc, path, mut conn) = docx_file(dir.path(), "h1", &["Text for a document that is about to vanish."]);
+        let (doc, path, mut conn) = docx_file(
+            dir.path(),
+            "h1",
+            &["Text for a document that is about to vanish."],
+        );
         repo::delete_document(&conn, &doc.id).unwrap();
         assert!(run(&mut conn, &path, &doc, &CancellationToken::new()).is_empty());
     }
@@ -598,15 +836,39 @@ mod tests {
     #[test]
     fn page_notes_describe_missing_text() {
         use crate::persistence::library::{Extracted, NewPage};
-        let page = |q| NewPage { page_no: 1, width: 1.0, height: 1.0, quality: q, ocr: false };
-        let ex = |pages, unreadable| Extraction { pages, blocks: vec![], meta: Extracted::default(), unreadable_pages: unreadable };
+        let page = |q| NewPage {
+            page_no: 1,
+            width: 1.0,
+            height: 1.0,
+            quality: q,
+            ocr: false,
+        };
+        let ex = |pages, unreadable| Extraction {
+            pages,
+            blocks: vec![],
+            meta: Extracted::default(),
+            unreadable_pages: unreadable,
+        };
         assert_eq!(page_note(&ex(vec![page("ok"), page("ok")], 0), false), None);
-        let n = page_note(&ex(vec![page("ok"), page("none"), page("low"), page("none")], 1), false).unwrap();
+        let n = page_note(
+            &ex(vec![page("ok"), page("none"), page("low"), page("none")], 1),
+            false,
+        )
+        .unwrap();
         let mut read = page("ok");
         read.ocr = true;
         let n2 = page_note(&ex(vec![read, page("none")], 0), true).unwrap();
-        assert!(n2.contains("1 pages were read by text recognition") && n2.contains("Download the text recognition model"), "{n2}");
-        assert!(n.contains("1 pages could not be read") && n.contains("1 of 4 pages have no text") && n.contains("1 pages have unreliable"), "{n}");
+        assert!(
+            n2.contains("1 pages were read by text recognition")
+                && n2.contains("Download the text recognition model"),
+            "{n2}"
+        );
+        assert!(
+            n.contains("1 pages could not be read")
+                && n.contains("1 of 4 pages have no text")
+                && n.contains("1 pages have unreliable"),
+            "{n}"
+        );
     }
 
     /// CHINGOLO_TEST_PAPERS=<folder> CHINGOLO_LAYOUT_DIR=<model folder> cargo test layout_job -- --ignored --nocapture
@@ -620,25 +882,72 @@ mod tests {
         let doc = repo::insert_document(&conn, "hnat", "nature02437.pdf", DocKind::Pdf).unwrap();
         let mut pdf = None;
         let mut ocr = OcrSlot::default();
-        run_job(&mut conn, &mut pdf, &mut ocr, &path, &doc, &CancellationToken::new(), &|_, _| {});
+        run_job(
+            &mut conn,
+            &mut pdf,
+            &mut ocr,
+            &path,
+            &doc,
+            &CancellationToken::new(),
+            &|_, _| {},
+        );
         let ids = |c: &Connection| -> Vec<String> {
-            let mut s = c.prepare("SELECT id FROM passages WHERE document_id = ?1").unwrap();
-            s.query_map([&doc.id], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect()
+            let mut s = c
+                .prepare("SELECT id FROM passages WHERE document_id = ?1")
+                .unwrap();
+            s.query_map([&doc.id], |r| r.get(0))
+                .unwrap()
+                .map(|r| r.unwrap())
+                .collect()
         };
         let before = ids(&conn);
         let mut slot = LayoutSlot::default();
         slot.set_dir(Some(model.into()));
         let seen = std::cell::Cell::new(0);
-        run_layout(&mut conn, &mut pdf, &mut ocr, &mut slot, &mut TableSlot::default(), &path, &doc, &CancellationToken::new(), (&AtomicU32::new(0), &AtomicU32::new(0)), &|_| seen.set(seen.get() + 1));
+        run_layout(
+            &mut conn,
+            &mut pdf,
+            &mut ocr,
+            &mut slot,
+            &mut TableSlot::default(),
+            &path,
+            &doc,
+            &CancellationToken::new(),
+            (&AtomicU32::new(0), &AtomicU32::new(0)),
+            &|_| seen.set(seen.get() + 1),
+        );
         let after = ids(&conn);
         let same = after.iter().filter(|a| before.contains(a)).count();
-        println!("passages {} -> {}, {} kept their id", before.len(), after.len(), same);
+        println!(
+            "passages {} -> {}, {} kept their id",
+            before.len(),
+            after.len(),
+            same
+        );
         assert_eq!(seen.get(), 1);
-        assert!(same > 0 && repo::pages_without_layout(&conn, &doc.id).unwrap().is_empty());
-        let regions: i64 = conn.query_row("SELECT count(*) FROM page_regions", [], |r| r.get(0)).unwrap();
+        assert!(
+            same > 0
+                && repo::pages_without_layout(&conn, &doc.id)
+                    .unwrap()
+                    .is_empty()
+        );
+        let regions: i64 = conn
+            .query_row("SELECT count(*) FROM page_regions", [], |r| r.get(0))
+            .unwrap();
         assert!(regions > 50);
         // a second run has nothing left to do
-        run_layout(&mut conn, &mut pdf, &mut ocr, &mut slot, &mut TableSlot::default(), &path, &doc, &CancellationToken::new(), (&AtomicU32::new(0), &AtomicU32::new(0)), &|_| seen.set(seen.get() + 1));
+        run_layout(
+            &mut conn,
+            &mut pdf,
+            &mut ocr,
+            &mut slot,
+            &mut TableSlot::default(),
+            &path,
+            &doc,
+            &CancellationToken::new(),
+            (&AtomicU32::new(0), &AtomicU32::new(0)),
+            &|_| seen.set(seen.get() + 1),
+        );
         assert_eq!(seen.get(), 1);
     }
 
@@ -655,26 +964,79 @@ mod tests {
         let doc = repo::insert_document(&conn, "htab", "nature02437.pdf", DocKind::Pdf).unwrap();
         let mut pdf = None;
         let mut ocr = OcrSlot::default();
-        run_job(&mut conn, &mut pdf, &mut ocr, &path, &doc, &CancellationToken::new(), &|_, _| {});
+        run_job(
+            &mut conn,
+            &mut pdf,
+            &mut ocr,
+            &path,
+            &doc,
+            &CancellationToken::new(),
+            &|_, _| {},
+        );
         let mut layout = LayoutSlot::default();
         layout.set_dir(Some(model.into()));
         let mut tables = TableSlot::default();
         tables.set_dir(Some(tables_dir.into()));
         let seen = std::cell::Cell::new(0);
-        let go = |conn: &mut Connection, pdf: &mut Option<PdfReader>, ocr: &mut OcrSlot, layout: &mut LayoutSlot, tables: &mut TableSlot| {
-            run_layout(conn, pdf, ocr, layout, tables, &path, &doc, &CancellationToken::new(), (&AtomicU32::new(0), &AtomicU32::new(0)), &|_| seen.set(seen.get() + 1));
+        let go = |conn: &mut Connection,
+                  pdf: &mut Option<PdfReader>,
+                  ocr: &mut OcrSlot,
+                  layout: &mut LayoutSlot,
+                  tables: &mut TableSlot| {
+            run_layout(
+                conn,
+                pdf,
+                ocr,
+                layout,
+                tables,
+                &path,
+                &doc,
+                &CancellationToken::new(),
+                (&AtomicU32::new(0), &AtomicU32::new(0)),
+                &|_| seen.set(seen.get() + 1),
+            );
         };
         go(&mut conn, &mut pdf, &mut ocr, &mut layout, &mut tables);
         let stored = repo::list_tables(&conn, &doc.id).unwrap();
-        let table_regions: i64 = conn.query_row("SELECT count(*) FROM page_regions WHERE label = 'table'", [], |r| r.get(0)).unwrap();
-        println!("{table_regions} table regions, table model ready: {}", tables.get().is_some());
+        let table_regions: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM page_regions WHERE label = 'table'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        println!(
+            "{table_regions} table regions, table model ready: {}",
+            tables.get().is_some()
+        );
         for t in &stored {
-            println!("page {} table {}: {} ({} cells) {:?}", t.page_no, t.ordinal, t.status, t.cells.len(), t.note);
+            println!(
+                "page {} table {}: {} ({} cells) {:?}",
+                t.page_no,
+                t.ordinal,
+                t.status,
+                t.cells.len(),
+                t.note
+            );
         }
         assert!(stored.iter().any(|t| t.status == "ok"), "no table was read");
-        let grids: i64 = conn.query_row("SELECT count(*) FROM passages WHERE text LIKE '| %'", [], |r| r.get(0)).unwrap();
+        let grids: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM passages WHERE text LIKE '| %'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         println!("{grids} table passages");
-        let unconfirmed: Vec<String> = conn.prepare("SELECT text FROM passages WHERE text LIKE '%Not confirmed by a second reading%'").unwrap().query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect();
+        let unconfirmed: Vec<String> = conn
+            .prepare(
+                "SELECT text FROM passages WHERE text LIKE '%Not confirmed by a second reading%'",
+            )
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
         println!("{} passages list unconfirmed cells", unconfirmed.len());
         if let Some(t) = unconfirmed.first() {
             println!("{t}");
@@ -692,28 +1054,43 @@ mod tests {
     #[ignore]
     async fn corpus_db() {
         use super::super::import::import_paths;
-        let papers = PathBuf::from(std::env::var("CHINGOLO_TEST_PAPERS").expect("set CHINGOLO_TEST_PAPERS"));
-        let db_path = PathBuf::from(std::env::var("CHINGOLO_KEEP_DB").expect("set CHINGOLO_KEEP_DB"));
+        let papers =
+            PathBuf::from(std::env::var("CHINGOLO_TEST_PAPERS").expect("set CHINGOLO_TEST_PAPERS"));
+        let db_path =
+            PathBuf::from(std::env::var("CHINGOLO_KEEP_DB").expect("set CHINGOLO_KEEP_DB"));
         for ext in ["", "-wal", "-shm"] {
             let _ = std::fs::remove_file(format!("{}{ext}", db_path.display()));
         }
         let tmp = tempfile::tempdir().unwrap();
         let db = Db::open(&db_path).unwrap();
-        let ingest = Ingestor::start(&db_path, tmp.path().join("library"), Arc::new(|_| {})).unwrap();
+        let ingest =
+            Ingestor::start(&db_path, tmp.path().join("library"), Arc::new(|_| {})).unwrap();
         let layout = std::env::var("CHINGOLO_LAYOUT_DIR").ok().map(PathBuf::from);
         ingest.set_layout_dir(layout.clone());
         let t = std::time::Instant::now();
-        import_paths(&db, &ingest, vec![papers], None).await.unwrap();
+        import_paths(&db, &ingest, vec![papers], None)
+            .await
+            .unwrap();
         loop {
             let docs = db.call(|c| repo::list_documents(c, None)).await.unwrap();
-            let busy = docs.iter().any(|d| matches!(d.status, DocStatus::Queued | DocStatus::Processing));
-            let waiting = layout.is_some() && !db.call(|c| repo::documents_without_layout(c)).await.unwrap().is_empty();
+            let busy = docs
+                .iter()
+                .any(|d| matches!(d.status, DocStatus::Queued | DocStatus::Processing));
+            let waiting = layout.is_some()
+                && !db
+                    .call(|c| repo::documents_without_layout(c))
+                    .await
+                    .unwrap()
+                    .is_empty();
             if !busy && !waiting {
                 break;
             }
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         }
-        let n: i64 = db.call(|c| Ok(c.query_row("SELECT count(*) FROM passages", [], |r| r.get(0))?)).await.unwrap();
+        let n: i64 = db
+            .call(|c| Ok(c.query_row("SELECT count(*) FROM passages", [], |r| r.get(0))?))
+            .await
+            .unwrap();
         println!("{n} passages after {:.0}s", t.elapsed().as_secs_f32());
     }
 

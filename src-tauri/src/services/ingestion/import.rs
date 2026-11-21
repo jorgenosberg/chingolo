@@ -38,11 +38,15 @@ pub struct ImportSummary {
 }
 
 fn name_of(p: &Path) -> String {
-    p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| p.display().to_string())
+    p.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| p.display().to_string())
 }
 
 fn kind_of(p: &Path) -> Option<DocKind> {
-    p.extension().and_then(|e| e.to_str()).and_then(DocKind::from_extension)
+    p.extension()
+        .and_then(|e| e.to_str())
+        .and_then(DocKind::from_extension)
 }
 
 /// Files to import from a mix of files and folders. Symlinks are not followed, hidden files are
@@ -54,7 +58,10 @@ pub fn collect_files(paths: Vec<PathBuf>) -> (Vec<PathBuf>, Vec<SkippedFile>) {
     while let Some((p, depth)) = stack.pop() {
         let name = name_of(&p);
         let Ok(meta) = fs::symlink_metadata(&p) else {
-            skipped.push(SkippedFile { name, reason: "Couldn't be read.".into() });
+            skipped.push(SkippedFile {
+                name,
+                reason: "Couldn't be read.".into(),
+            });
             continue;
         };
         if meta.file_type().is_symlink() {
@@ -62,7 +69,10 @@ pub fn collect_files(paths: Vec<PathBuf>) -> (Vec<PathBuf>, Vec<SkippedFile>) {
         }
         if meta.is_dir() {
             if depth >= MAX_DEPTH {
-                skipped.push(SkippedFile { name, reason: "Folder is nested too deeply.".into() });
+                skipped.push(SkippedFile {
+                    name,
+                    reason: "Folder is nested too deeply.".into(),
+                });
                 continue;
             }
             let mut children: Vec<PathBuf> = fs::read_dir(&p)
@@ -75,12 +85,21 @@ pub fn collect_files(paths: Vec<PathBuf>) -> (Vec<PathBuf>, Vec<SkippedFile>) {
         } else if kind_of(&p).is_none() {
             // Only report unsupported files that were chosen directly, not every file in a folder.
             if depth == 0 {
-                skipped.push(SkippedFile { name, reason: "Only PDF and Word (.docx) files can be imported.".into() });
+                skipped.push(SkippedFile {
+                    name,
+                    reason: "Only PDF and Word (.docx) files can be imported.".into(),
+                });
             }
         } else if meta.len() > MAX_FILE_BYTES {
-            skipped.push(SkippedFile { name, reason: "Larger than 1 GB.".into() });
+            skipped.push(SkippedFile {
+                name,
+                reason: "Larger than 1 GB.".into(),
+            });
         } else if files.len() >= MAX_FILES {
-            skipped.push(SkippedFile { name, reason: format!("Only the first {MAX_FILES} files are imported at once.") });
+            skipped.push(SkippedFile {
+                name,
+                reason: format!("Only the first {MAX_FILES} files are imported at once."),
+            });
         } else {
             files.push(p);
         }
@@ -99,7 +118,11 @@ pub fn hash_file(path: &Path) -> io::Result<String> {
         }
         hasher.update(&buf[..n]);
     }
-    Ok(hasher.finalize().iter().map(|b| format!("{b:02x}")).collect())
+    Ok(hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect())
 }
 
 /// Copies to the managed folder under a temporary name, then renames, so a crash never leaves a
@@ -126,7 +149,10 @@ pub async fn import_paths(
     let (files, skipped) = tokio::task::spawn_blocking(move || collect_files(paths))
         .await
         .map_err(|e| crate::error::AppError::Internal(e.to_string()))?;
-    let mut summary = ImportSummary { skipped, ..Default::default() };
+    let mut summary = ImportSummary {
+        skipped,
+        ..Default::default()
+    };
 
     for file in files {
         let name = name_of(&file);
@@ -136,7 +162,10 @@ pub async fn import_paths(
         let hash = match tokio::task::spawn_blocking(move || hash_file(&src)).await {
             Ok(Ok(h)) => h,
             _ => {
-                summary.skipped.push(SkippedFile { name, reason: "Couldn't be read.".into() });
+                summary.skipped.push(SkippedFile {
+                    name,
+                    reason: "Couldn't be read.".into(),
+                });
                 continue;
             }
         };
@@ -158,8 +187,14 @@ pub async fn import_paths(
 
         let dest = library_path(ingest.library_dir(), &hash, kind);
         let (src, d) = (file.clone(), dest.clone());
-        if tokio::task::spawn_blocking(move || copy_into_library(&src, &d)).await.map_or(true, |r| r.is_err()) {
-            summary.skipped.push(SkippedFile { name, reason: "Couldn't be copied into the library.".into() });
+        if tokio::task::spawn_blocking(move || copy_into_library(&src, &d))
+            .await
+            .map_or(true, |r| r.is_err())
+        {
+            summary.skipped.push(SkippedFile {
+                name,
+                reason: "Couldn't be copied into the library.".into(),
+            });
             continue;
         }
 
@@ -183,7 +218,10 @@ pub async fn import_paths(
             }
             Err(e) => {
                 let _ = fs::remove_file(&dest);
-                summary.skipped.push(SkippedFile { name, reason: format!("Couldn't be added: {e}") });
+                summary.skipped.push(SkippedFile {
+                    name,
+                    reason: format!("Couldn't be added: {e}"),
+                });
             }
         }
     }
@@ -221,7 +259,10 @@ mod tests {
         let (files, skipped) = collect_files(vec![r.to_path_buf()]);
         let names: Vec<_> = files.iter().map(|f| name_of(f)).collect();
         assert_eq!(names, ["a.pdf", "b.DOCX", "c.pdf"]);
-        assert!(skipped.is_empty(), "files inside folders are not reported: {skipped:?}");
+        assert!(
+            skipped.is_empty(),
+            "files inside folders are not reported: {skipped:?}"
+        );
 
         let (files, skipped) = collect_files(vec![r.join("notes.txt"), r.join("missing.pdf")]);
         assert!(files.is_empty());
@@ -251,7 +292,10 @@ mod tests {
         assert_eq!(h("a.pdf").len(), 64);
         // sha256 of "abc"
         touch(&d.path().join("abc"), b"abc");
-        assert_eq!(h("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+        assert_eq!(
+            h("abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
     }
 
     #[test]
@@ -262,7 +306,9 @@ mod tests {
         copy_into_library(&d.path().join("a.pdf"), &dest).unwrap();
         assert_eq!(fs::read(&dest).unwrap(), b"data");
         assert!(!dest.with_extension("part").exists());
-        assert!(copy_into_library(&d.path().join("nope.pdf"), &d.path().join("lib/ab/x.pdf")).is_err());
+        assert!(
+            copy_into_library(&d.path().join("nope.pdf"), &d.path().join("lib/ab/x.pdf")).is_err()
+        );
         assert!(!d.path().join("lib/ab/x.part").exists());
     }
 
@@ -279,7 +325,11 @@ mod tests {
     fn write_docx(path: &Path, text: &str) {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         let mut zip = zip::ZipWriter::new(File::create(path).unwrap());
-        zip.start_file("word/document.xml", zip::write::SimpleFileOptions::default()).unwrap();
+        zip.start_file(
+            "word/document.xml",
+            zip::write::SimpleFileOptions::default(),
+        )
+        .unwrap();
         write!(zip, r#"<w:document xmlns:w="x"><w:body><w:p><w:r><w:t>{text}</w:t></w:r></w:p></w:body></w:document>"#).unwrap();
         zip.finish().unwrap();
     }
@@ -288,10 +338,16 @@ mod tests {
         let t = Instant::now();
         loop {
             let docs = db.call(|c| repo::list_documents(c, None)).await.unwrap();
-            if docs.iter().all(|d| !matches!(d.status, DocStatus::Queued | DocStatus::Processing)) {
+            if docs
+                .iter()
+                .all(|d| !matches!(d.status, DocStatus::Queued | DocStatus::Processing))
+            {
                 return docs;
             }
-            assert!(t.elapsed() < Duration::from_secs(20), "documents never settled: {docs:?}");
+            assert!(
+                t.elapsed() < Duration::from_secs(20),
+                "documents never settled: {docs:?}"
+            );
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     }
@@ -303,39 +359,128 @@ mod tests {
         let db = Db::open(&db_path).unwrap();
         let events = Arc::new(std::sync::Mutex::new(Vec::new()));
         let sink = events.clone();
-        let ingest = Ingestor::start(&db_path, lib.clone(), Arc::new(move |e| sink.lock().unwrap().push(e.document.status))).unwrap();
+        let ingest = Ingestor::start(
+            &db_path,
+            lib.clone(),
+            Arc::new(move |e| sink.lock().unwrap().push(e.document.status)),
+        )
+        .unwrap();
 
         let src = dir.path().join("papers");
-        write_docx(&src.join("alpha.docx"), "Domoic acid was measured in Pseudo-nitzschia cells near Ærø.");
+        write_docx(
+            &src.join("alpha.docx"),
+            "Domoic acid was measured in Pseudo-nitzschia cells near Ærø.",
+        );
         fs::copy(src.join("alpha.docx"), src.join("alpha copy.docx")).unwrap();
-        write_docx(&src.join("sub/beta.docx"), "Iron enrichment doubled the abundance of diatoms.");
+        write_docx(
+            &src.join("sub/beta.docx"),
+            "Iron enrichment doubled the abundance of diatoms.",
+        );
         touch(&src.join("broken.pdf"), b"%PDF-1.4 not really");
         touch(&src.join("notes.txt"), b"x");
         let project = db.call(|c| projects::create_project(c, "P")).await.unwrap();
 
-        let summary = import_paths(&db, &ingest, vec![src.join("alpha.docx"), src.join("alpha copy.docx"), src.join("sub"), src.join("broken.pdf"), src.join("notes.txt")], Some(project.id.clone())).await.unwrap();
-        assert_eq!((summary.added.len(), summary.duplicates.len(), summary.skipped.len()), (3, 1, 1), "{summary:?}");
+        let summary = import_paths(
+            &db,
+            &ingest,
+            vec![
+                src.join("alpha.docx"),
+                src.join("alpha copy.docx"),
+                src.join("sub"),
+                src.join("broken.pdf"),
+                src.join("notes.txt"),
+            ],
+            Some(project.id.clone()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            (
+                summary.added.len(),
+                summary.duplicates.len(),
+                summary.skipped.len()
+            ),
+            (3, 1, 1),
+            "{summary:?}"
+        );
         assert_eq!(summary.duplicates[0].original_name, "alpha.docx");
 
         let docs = settled(&db).await;
         let status = |n: &str| docs.iter().find(|d| d.original_name == n).unwrap().status;
-        assert_eq!((status("alpha.docx"), status("beta.docx"), status("broken.pdf")), (DocStatus::Ready, DocStatus::Ready, DocStatus::Error), "{:?}", docs.iter().map(|d| (&d.original_name, &d.error)).collect::<Vec<_>>());
+        assert_eq!(
+            (
+                status("alpha.docx"),
+                status("beta.docx"),
+                status("broken.pdf")
+            ),
+            (DocStatus::Ready, DocStatus::Ready, DocStatus::Error),
+            "{:?}",
+            docs.iter()
+                .map(|d| (&d.original_name, &d.error))
+                .collect::<Vec<_>>()
+        );
         assert!(events.lock().unwrap().contains(&DocStatus::Processing));
         for d in &docs {
-            assert!(library_path(&lib, &d.content_hash, d.kind).exists(), "{} is stored once", d.original_name);
+            assert!(
+                library_path(&lib, &d.content_hash, d.kind).exists(),
+                "{} is stored once",
+                d.original_name
+            );
         }
-        assert_eq!(db.call(|c| repo::list_documents(c, None)).await.unwrap().len(), 3, "the copy was not added again");
+        assert_eq!(
+            db.call(|c| repo::list_documents(c, None))
+                .await
+                .unwrap()
+                .len(),
+            3,
+            "the copy was not added again"
+        );
 
         let pf = crate::domain::library::DocFilter::Project(project.id.clone());
-        let hits = db.call({ let pf = pf.clone(); move |c| repo::search_passages(c, "aero", &SearchOptions { filter: &pf, all_terms: true, prefix_last: false, limit: 5 }) }).await.unwrap();
+        let hits = db
+            .call({
+                let pf = pf.clone();
+                move |c| {
+                    repo::search_passages(
+                        c,
+                        "aero",
+                        &SearchOptions {
+                            filter: &pf,
+                            all_terms: true,
+                            prefix_last: false,
+                            limit: 5,
+                        },
+                    )
+                }
+            })
+            .await
+            .unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].document_title, "alpha.docx");
 
         // delete removes the row, the index entries and the managed file
-        let alpha = docs.iter().find(|d| d.original_name == "alpha.docx").unwrap().clone();
+        let alpha = docs
+            .iter()
+            .find(|d| d.original_name == "alpha.docx")
+            .unwrap()
+            .clone();
         delete_document(&db, &ingest, &alpha.id).await.unwrap();
         assert!(!library_path(&lib, &alpha.content_hash, alpha.kind).exists());
-        let none = db.call(|c| repo::search_passages(c, "domoic", &SearchOptions { filter: &crate::domain::library::DocFilter::All, all_terms: true, prefix_last: false, limit: 5 })).await.unwrap();
+        let none = db
+            .call(|c| {
+                repo::search_passages(
+                    c,
+                    "domoic",
+                    &SearchOptions {
+                        filter: &crate::domain::library::DocFilter::All,
+                        all_terms: true,
+                        prefix_last: false,
+                        limit: 5,
+                    },
+                )
+            })
+            .await
+            .unwrap();
         assert!(none.is_empty());
 
         // a document left "processing" by a crash is read again on the next start
@@ -354,7 +499,13 @@ mod tests {
         .unwrap();
         assert_eq!(ingest.resume(&db).await.unwrap(), 1);
         let docs = settled(&db).await;
-        assert_eq!(docs.iter().find(|d| d.original_name == "gamma.docx").unwrap().status, DocStatus::Ready);
+        assert_eq!(
+            docs.iter()
+                .find(|d| d.original_name == "gamma.docx")
+                .unwrap()
+                .status,
+            DocStatus::Ready
+        );
     }
 
     /// Imports every paper in $CHINGOLO_TEST_PAPERS through the real queue and prints the result.
@@ -362,24 +513,79 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn corpus_import() {
-        let papers = PathBuf::from(std::env::var("CHINGOLO_TEST_PAPERS").expect("set CHINGOLO_TEST_PAPERS"));
+        let papers =
+            PathBuf::from(std::env::var("CHINGOLO_TEST_PAPERS").expect("set CHINGOLO_TEST_PAPERS"));
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("t.sqlite");
         let db = Db::open(&db_path).unwrap();
-        let ingest = Ingestor::start(&db_path, dir.path().join("library"), Arc::new(|_| {})).unwrap();
+        let ingest =
+            Ingestor::start(&db_path, dir.path().join("library"), Arc::new(|_| {})).unwrap();
         let t = Instant::now();
-        let summary = import_paths(&db, &ingest, vec![papers], None).await.unwrap();
-        println!("queued {} files in {:.1}s, {} duplicates, skipped {:?}", summary.added.len(), t.elapsed().as_secs_f32(), summary.duplicates.len(), summary.skipped);
+        let summary = import_paths(&db, &ingest, vec![papers], None)
+            .await
+            .unwrap();
+        println!(
+            "queued {} files in {:.1}s, {} duplicates, skipped {:?}",
+            summary.added.len(),
+            t.elapsed().as_secs_f32(),
+            summary.duplicates.len(),
+            summary.skipped
+        );
         let docs = settled(&db).await;
         println!("all read after {:.1}s", t.elapsed().as_secs_f32());
         for d in &docs {
-            println!("{:>9?} {:>4}p {:>5} passages | {:?} | {}", d.status, d.page_count.unwrap_or(0), d.passage_count, d.error.as_deref().unwrap_or(""), d.original_name.chars().take(34).collect::<String>());
+            println!(
+                "{:>9?} {:>4}p {:>5} passages | {:?} | {}",
+                d.status,
+                d.page_count.unwrap_or(0),
+                d.passage_count,
+                d.error.as_deref().unwrap_or(""),
+                d.original_name.chars().take(34).collect::<String>()
+            );
         }
-        for q in ["domoic acid", "palmer maloney", "alcian blue gill", "Pseudo-nitzschia razor clams", "resilient"] {
-            let hits = db.call({ let q = q.to_string(); move |c| repo::search_passages(c, &q, &SearchOptions { filter: &crate::domain::library::DocFilter::All, all_terms: true, prefix_last: true, limit: 3 }) }).await.unwrap();
-            let top: Vec<_> = hits.iter().map(|h| format!("{} p{}", h.document_title.chars().take(22).collect::<String>(), h.page_start)).collect();
+        for q in [
+            "domoic acid",
+            "palmer maloney",
+            "alcian blue gill",
+            "Pseudo-nitzschia razor clams",
+            "resilient",
+        ] {
+            let hits = db
+                .call({
+                    let q = q.to_string();
+                    move |c| {
+                        repo::search_passages(
+                            c,
+                            &q,
+                            &SearchOptions {
+                                filter: &crate::domain::library::DocFilter::All,
+                                all_terms: true,
+                                prefix_last: true,
+                                limit: 3,
+                            },
+                        )
+                    }
+                })
+                .await
+                .unwrap();
+            let top: Vec<_> = hits
+                .iter()
+                .map(|h| {
+                    format!(
+                        "{} p{}",
+                        h.document_title.chars().take(22).collect::<String>(),
+                        h.page_start
+                    )
+                })
+                .collect();
             println!("search {q:?}: {top:?}");
         }
-        assert_eq!(docs.iter().filter(|d| d.status == DocStatus::NoText).count(), 2, "the two scans");
+        assert_eq!(
+            docs.iter()
+                .filter(|d| d.status == DocStatus::NoText)
+                .count(),
+            2,
+            "the two scans"
+        );
     }
 }

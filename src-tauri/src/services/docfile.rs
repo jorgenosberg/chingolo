@@ -35,7 +35,11 @@ pub fn parse_range(header: Option<&str>, len: u64) -> ByteRange {
         let (a, b) = spec.split_once('-')?;
         let (a, b) = (a.trim(), b.trim());
         let num = |s: &str| -> Option<Option<u64>> {
-            if s.is_empty() { Some(None) } else { s.parse().ok().map(Some) }
+            if s.is_empty() {
+                Some(None)
+            } else {
+                s.parse().ok().map(Some)
+            }
         };
         match (num(a)?, num(b)?) {
             (Some(start), end) => {
@@ -52,7 +56,9 @@ pub fn parse_range(header: Option<&str>, len: u64) -> ByteRange {
             _ => None,
         }
     }
-    header.and_then(|h| inner(h, len)).unwrap_or(ByteRange::Full)
+    header
+        .and_then(|h| inner(h, len))
+        .unwrap_or(ByteRange::Full)
 }
 
 fn mime(kind: DocKind) -> &'static str {
@@ -67,7 +73,10 @@ fn base(status: StatusCode) -> tauri::http::response::Builder {
         .status(status)
         .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
         .header(header::ACCESS_CONTROL_ALLOW_HEADERS, "range")
-        .header(header::ACCESS_CONTROL_EXPOSE_HEADERS, "content-range, accept-ranges, content-length")
+        .header(
+            header::ACCESS_CONTROL_EXPOSE_HEADERS,
+            "content-range, accept-ranges, content-length",
+        )
 }
 
 fn empty(status: StatusCode) -> Response<Vec<u8>> {
@@ -76,8 +85,12 @@ fn empty(status: StatusCode) -> Response<Vec<u8>> {
 
 /// Reads the requested bytes of a stored file and builds the reply.
 pub fn read_response(path: &Path, kind: DocKind, range: Option<&str>) -> Response<Vec<u8>> {
-    let Ok(mut file) = std::fs::File::open(path) else { return empty(StatusCode::NOT_FOUND) };
-    let Ok(len) = file.metadata().map(|m| m.len()) else { return empty(StatusCode::NOT_FOUND) };
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return empty(StatusCode::NOT_FOUND);
+    };
+    let Ok(len) = file.metadata().map(|m| m.len()) else {
+        return empty(StatusCode::NOT_FOUND);
+    };
 
     let (status, start, end) = match parse_range(range, len) {
         ByteRange::Full => (StatusCode::OK, 0, len.saturating_sub(1)),
@@ -91,7 +104,11 @@ pub fn read_response(path: &Path, kind: DocKind, range: Option<&str>) -> Respons
     };
     let size = if len == 0 { 0 } else { end - start + 1 };
     let mut body = vec![0u8; size as usize];
-    if file.seek(SeekFrom::Start(start)).and_then(|_| file.read_exact(&mut body)).is_err() {
+    if file
+        .seek(SeekFrom::Start(start))
+        .and_then(|_| file.read_exact(&mut body))
+        .is_err()
+    {
         return empty(StatusCode::INTERNAL_SERVER_ERROR);
     }
     let mut reply = base(status)
@@ -118,7 +135,11 @@ pub async fn handle(app: &AppHandle, request: Request<Vec<u8>>) -> Response<Vec<
         return empty(StatusCode::NOT_FOUND);
     };
     let path = library_path(state.ingest.library_dir(), &doc.content_hash, doc.kind);
-    let range = request.headers().get(header::RANGE).and_then(|v| v.to_str().ok()).map(str::to_owned);
+    let range = request
+        .headers()
+        .get(header::RANGE)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
     tauri::async_runtime::spawn_blocking(move || read_response(&path, doc.kind, range.as_deref()))
         .await
         .unwrap_or_else(|_| empty(StatusCode::INTERNAL_SERVER_ERROR))
@@ -152,7 +173,10 @@ mod tests {
         std::fs::write(&path, b"0123456789").unwrap();
 
         let all = read_response(&path, DocKind::Pdf, None);
-        assert_eq!((all.status(), all.body().as_slice()), (StatusCode::OK, &b"0123456789"[..]));
+        assert_eq!(
+            (all.status(), all.body().as_slice()),
+            (StatusCode::OK, &b"0123456789"[..])
+        );
 
         let part = read_response(&path, DocKind::Pdf, Some("bytes=2-4"));
         assert_eq!(part.status(), StatusCode::PARTIAL_CONTENT);

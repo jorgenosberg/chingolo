@@ -46,7 +46,12 @@ pub fn check(text: &str, sources: &HashMap<u32, Source>) -> Checked {
     for t in find_tokens(text) {
         out.push_str(&text[last..t.start]);
         last = t.end;
-        let valid: Vec<u32> = t.handles.iter().copied().filter(|h| sources.contains_key(h)).collect();
+        let valid: Vec<u32> = t
+            .handles
+            .iter()
+            .copied()
+            .filter(|h| sources.contains_key(h))
+            .collect();
         removed += t.handles.len() - valid.len();
         if valid.is_empty() {
             if out.ends_with(' ') {
@@ -64,10 +69,14 @@ pub fn check(text: &str, sources: &HashMap<u32, Source>) -> Checked {
             .map(|q| norm(q))
             .filter(|q| q.split(' ').count() >= MIN_QUOTE_WORDS)
             .collect();
-        let passages: Vec<(u32, String)> =
-            valid.iter().map(|h| (*h, format!(" {} ", norm(&sources[h].text)))).collect();
+        let passages: Vec<(u32, String)> = valid
+            .iter()
+            .map(|h| (*h, format!(" {} ", norm(&sources[h].text))))
+            .collect();
         let in_passage = |q: &str, p: &str| p.contains(&format!(" {q} "));
-        let all_quotes_found = quotes.iter().all(|q| passages.iter().any(|(_, p)| in_passage(q, p)));
+        let all_quotes_found = quotes
+            .iter()
+            .all(|q| passages.iter().any(|(_, p)| in_passage(q, p)));
         let claim_stems = stems(&claim);
 
         for (h, passage) in &passages {
@@ -75,11 +84,18 @@ pub fn check(text: &str, sources: &HashMap<u32, Source>) -> Checked {
                 (CitationStatus::QuoteMismatch, Some(false))
             } else {
                 let quoted_here = quotes.iter().any(|q| in_passage(q, passage));
-                let supported = claim_stems.len() < MIN_CLAIM_WORDS || language(&claim) != language(&sources[h].text) || {
-                    let theirs = stems(passage);
-                    claim_stems.intersection(&theirs).count() as f32 / claim_stems.len() as f32 >= WEAK_BELOW
+                let supported = claim_stems.len() < MIN_CLAIM_WORDS
+                    || language(&claim) != language(&sources[h].text)
+                    || {
+                        let theirs = stems(passage);
+                        claim_stems.intersection(&theirs).count() as f32 / claim_stems.len() as f32
+                            >= WEAK_BELOW
+                    };
+                let status = if supported {
+                    CitationStatus::Ok
+                } else {
+                    CitationStatus::Weak
                 };
-                let status = if supported { CitationStatus::Ok } else { CitationStatus::Weak };
                 (status, quoted_here.then_some(true))
             };
             let src = &sources[h];
@@ -109,7 +125,11 @@ pub fn check(text: &str, sources: &HashMap<u32, Source>) -> Checked {
         }
     }
     out.push_str(&text[last..]);
-    Checked { text: out, citations: order.into_iter().filter_map(|h| found.remove(&h)).collect(), removed }
+    Checked {
+        text: out,
+        citations: order.into_iter().filter_map(|h| found.remove(&h)).collect(),
+        removed,
+    }
 }
 
 fn severity(s: CitationStatus) -> u8 {
@@ -126,7 +146,9 @@ fn find_tokens(text: &str) -> Vec<Token> {
     let mut from = 0;
     while let Some(off) = text[from..].find('[') {
         let start = from + off;
-        let Some(close) = text[start + 1..].find(']') else { break };
+        let Some(close) = text[start + 1..].find(']') else {
+            break;
+        };
         let inner = &text[start + 1..start + 1 + close];
         match (inner.len() <= 40).then(|| parse_group(inner)).flatten() {
             Some(handles) => {
@@ -137,7 +159,11 @@ fn find_tokens(text: &str) -> Vec<Token> {
                         prev.end = end;
                         prev.handles.extend(handles);
                     }
-                    _ => out.push(Token { start, end, handles }),
+                    _ => out.push(Token {
+                        start,
+                        end,
+                        handles,
+                    }),
                 }
                 from = end;
             }
@@ -172,7 +198,8 @@ fn claim_before(text: &str, start: usize) -> String {
     let chars: Vec<(usize, char)> = head.char_indices().collect();
     let mut begin = 0;
     for (k, (idx, c)) in chars.iter().enumerate().rev() {
-        let sentence_end = matches!(c, '.' | '!' | '?') && chars.get(k + 1).is_some_and(|(_, n)| n.is_whitespace());
+        let sentence_end = matches!(c, '.' | '!' | '?')
+            && chars.get(k + 1).is_some_and(|(_, n)| n.is_whitespace());
         if *c == '\n' || sentence_end {
             begin = idx + c.len_utf8();
             break;
@@ -202,7 +229,10 @@ fn quoted_spans(s: &str) -> Vec<String> {
 /// Lowercase letters and digits separated by single spaces, so a quote still matches when the PDF
 /// text differs in punctuation, line breaks or hyphenation.
 fn norm(s: &str) -> String {
-    let s = s.replace("-\r\n", "").replace("-\n", "").replace('\u{ad}', "");
+    let s = s
+        .replace("-\r\n", "")
+        .replace("-\n", "")
+        .replace('\u{ad}', "");
     let mut out = String::with_capacity(s.len());
     for c in fold(&s).chars() {
         if matches!(c, '-' | '\'' | '’') {
@@ -226,11 +256,13 @@ enum Lang {
 }
 
 const NORWEGIAN_WORDS: &[&str] = &[
-    "og", "ikke", "som", "det", "til", "med", "av", "pa", "er", "for", "har", "kan", "den", "de", "om", "fra", "ved", "men", "mot", "blir",
-    "eller", "ogsa", "denne", "disse", "hvor", "ble", "ved", "sa", "seg",
+    "og", "ikke", "som", "det", "til", "med", "av", "pa", "er", "for", "har", "kan", "den", "de",
+    "om", "fra", "ved", "men", "mot", "blir", "eller", "ogsa", "denne", "disse", "hvor", "ble",
+    "ved", "sa", "seg",
 ];
 const ENGLISH_WORDS: &[&str] = &[
-    "the", "and", "of", "to", "is", "in", "that", "with", "as", "are", "was", "by", "on", "this", "which", "from", "be", "or", "it", "were", "have", "has",
+    "the", "and", "of", "to", "is", "in", "that", "with", "as", "are", "was", "by", "on", "this",
+    "which", "from", "be", "or", "it", "were", "have", "has",
 ];
 
 /// Norwegian or English by which common function words the text uses more. Too few of either is unknown.
@@ -286,23 +318,42 @@ mod tests {
 
     #[test]
     fn unknown_handles_are_removed_and_counted() {
-        let c = check("Iron limits growth [S1]. Nothing here [S9]. Also [S1, S9] and [S8].", &sources(&[IRON]));
-        assert_eq!(c.text, "Iron limits growth [S1]. Nothing here. Also [S1] and.");
+        let c = check(
+            "Iron limits growth [S1]. Nothing here [S9]. Also [S1, S9] and [S8].",
+            &sources(&[IRON]),
+        );
+        assert_eq!(
+            c.text,
+            "Iron limits growth [S1]. Nothing here. Also [S1] and."
+        );
         assert_eq!(c.removed, 3);
         assert_eq!(c.citations.len(), 1, "one entry per handle");
-        assert_eq!((c.citations[0].handle, c.citations[0].title.as_str(), c.citations[0].page), (1, "Paper 1", 3));
+        assert_eq!(
+            (
+                c.citations[0].handle,
+                c.citations[0].title.as_str(),
+                c.citations[0].page
+            ),
+            (1, "Paper 1", 3)
+        );
     }
 
     #[test]
     fn grouped_handles_are_written_as_separate_tokens() {
-        let c = check("Iron limits plankton growth [S1; S2].", &sources(&[IRON, IRON]));
+        let c = check(
+            "Iron limits plankton growth [S1; S2].",
+            &sources(&[IRON, IRON]),
+        );
         assert_eq!(c.text, "Iron limits plankton growth [S1][S2].");
         assert_eq!(c.removed, 0);
     }
 
     #[test]
     fn adjacent_tokens_are_one_group() {
-        let c = check("Iron limits plankton growth [S1] [S2].", &sources(&[IRON, IRON]));
+        let c = check(
+            "Iron limits plankton growth [S1] [S2].",
+            &sources(&[IRON, IRON]),
+        );
         assert_eq!(c.text, "Iron limits plankton growth [S1][S2].");
         let c = check("Nothing [S9][S9] here.", &sources(&[IRON]));
         assert_eq!((c.text.as_str(), c.removed), ("Nothing here.", 2));
@@ -319,15 +370,23 @@ mod tests {
 
     #[test]
     fn a_quote_in_the_passage_is_verified_across_hyphenation_and_case() {
-        let src = sources(&["The result was clear: geo-\nengineering is NOT a substitute for cutting emissions."]);
-        let c = check("The authors say \"geoengineering is not a substitute for cutting emissions\" [S1].", &src);
+        let src = sources(&[
+            "The result was clear: geo-\nengineering is NOT a substitute for cutting emissions.",
+        ]);
+        let c = check(
+            "The authors say \"geoengineering is not a substitute for cutting emissions\" [S1].",
+            &src,
+        );
         assert_eq!(c.citations[0].status, CitationStatus::Ok);
         assert_eq!(c.citations[0].quote_verified, Some(true));
     }
 
     #[test]
     fn a_quote_that_is_not_in_the_source_is_flagged() {
-        let c = check("They wrote “iron is the only thing that limits growth anywhere” [S1].", &sources(&[IRON]));
+        let c = check(
+            "They wrote “iron is the only thing that limits growth anywhere” [S1].",
+            &sources(&[IRON]),
+        );
         assert_eq!(c.citations[0].status, CitationStatus::QuoteMismatch);
         assert_eq!(c.citations[0].quote_verified, Some(false));
     }
@@ -336,9 +395,19 @@ mod tests {
     fn short_quotes_are_not_checked_and_one_source_can_carry_the_quote() {
         let c = check("It is \"iron limited\" [S1].", &sources(&[IRON]));
         assert_eq!(c.citations[0].quote_verified, None);
-        let c = check("They say \"controls plankton growth in open ocean\" [S1][S2].", &sources(&[IRON, "Unrelated text about plankton growth and ocean waters."]));
+        let c = check(
+            "They say \"controls plankton growth in open ocean\" [S1][S2].",
+            &sources(&[
+                IRON,
+                "Unrelated text about plankton growth and ocean waters.",
+            ]),
+        );
         assert_eq!(c.citations[0].quote_verified, Some(true));
-        assert_eq!(c.citations[1].status, CitationStatus::Ok, "the other source isn't blamed for a quote it doesn't hold");
+        assert_eq!(
+            c.citations[1].status,
+            CitationStatus::Ok,
+            "the other source isn't blamed for a quote it doesn't hold"
+        );
         assert_eq!(c.citations[1].quote_verified, None);
     }
 
@@ -348,7 +417,10 @@ mod tests {
         let c = check(&format!("{claim} [S1]."), &sources(&[IRON]));
         assert_eq!(c.citations[0].status, CitationStatus::Weak);
         assert!(c.text.contains("[S1]"), "flagged, not removed");
-        let c = check("Iron limitation controls plankton growth in open ocean waters [S1].", &sources(&[IRON]));
+        let c = check(
+            "Iron limitation controls plankton growth in open ocean waters [S1].",
+            &sources(&[IRON]),
+        );
         assert_eq!(c.citations[0].status, CitationStatus::Ok);
     }
 
@@ -363,7 +435,10 @@ mod tests {
     #[test]
     fn a_norwegian_claim_on_a_norwegian_passage_is_still_checked() {
         let passage = "Det er ikke kjent hvor mye laks som dør av algeoppblomstring i oppdrettsanlegg langs kysten, men det er en stor risiko for fisk i merd.";
-        let c = check("Blåskjell og kråkebolle er viktige arter som lever på havbunnen og som ikke har noe med dette å gjøre [S1].", &sources(&[passage]));
+        let c = check(
+            "Blåskjell og kråkebolle er viktige arter som lever på havbunnen og som ikke har noe med dette å gjøre [S1].",
+            &sources(&[passage]),
+        );
         assert_eq!(c.citations[0].status, CitationStatus::Weak);
     }
 
@@ -376,16 +451,33 @@ mod tests {
     #[test]
     fn a_citation_after_the_full_stop_belongs_to_the_sentence_before() {
         let src = sources(&[IRON]);
-        let c = check("Earlier text is unrelated to anything. Iron limitation controls plankton growth in waters. [S1]", &src);
-        assert_eq!(c.citations[0].status, CitationStatus::Ok, "judged on the sentence before the stop");
-        let c = check("- Iron limitation controls plankton growth in waters [S1]\n- Salmon farms cage many fish in fjords [S1]", &src);
-        assert_eq!(c.citations[0].status, CitationStatus::Weak, "a list line is its own claim and the worst result wins");
+        let c = check(
+            "Earlier text is unrelated to anything. Iron limitation controls plankton growth in waters. [S1]",
+            &src,
+        );
+        assert_eq!(
+            c.citations[0].status,
+            CitationStatus::Ok,
+            "judged on the sentence before the stop"
+        );
+        let c = check(
+            "- Iron limitation controls plankton growth in waters [S1]\n- Salmon farms cage many fish in fjords [S1]",
+            &src,
+        );
+        assert_eq!(
+            c.citations[0].status,
+            CitationStatus::Weak,
+            "a list line is its own claim and the worst result wins"
+        );
     }
 
     #[test]
     fn norwegian_letters_fold_when_comparing() {
         let src = sources(&["Næringssalter begrenser veksten av planteplankton i åpent hav."]);
-        let c = check("Forfatterne skriver \"næringssalter begrenser veksten av planteplankton\" [S1].", &src);
+        let c = check(
+            "Forfatterne skriver \"næringssalter begrenser veksten av planteplankton\" [S1].",
+            &src,
+        );
         assert_eq!(c.citations[0].quote_verified, Some(true));
     }
 }

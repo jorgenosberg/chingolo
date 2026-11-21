@@ -50,8 +50,12 @@ fn prompt(query: &str, hits: &[SearchHit]) -> String {
 
 /// The passage numbers from the model's reply, in its order, without repeats or numbers out of range.
 fn parse_order(reply: &str, n: usize) -> Vec<usize> {
-    let (Some(a), Some(b)) = (reply.find('{'), reply.rfind('}')) else { return vec![] };
-    let Ok(v) = serde_json::from_str::<Value>(&reply[a..=b]) else { return vec![] };
+    let (Some(a), Some(b)) = (reply.find('{'), reply.rfind('}')) else {
+        return vec![];
+    };
+    let Ok(v) = serde_json::from_str::<Value>(&reply[a..=b]) else {
+        return vec![];
+    };
     let mut out: Vec<usize> = vec![];
     for x in v["order"].as_array().into_iter().flatten() {
         if let Some(i) = x.as_u64().map(|i| i as usize).filter(|i| *i < n) {
@@ -85,9 +89,15 @@ pub async fn rerank(ctx: &RerankCtx, query: &str, hits: Vec<SearchHit>) -> Resul
     let order = parse_order(&reply, hits.len());
     let latency_ms = started.elapsed().as_millis() as u32;
     if order.is_empty() {
-        return Err(AppError::Invalid("The rerank reply had no usable order.".into()));
+        return Err(AppError::Invalid(
+            "The rerank reply had no usable order.".into(),
+        ));
     }
-    Ok(Reranked { hits: apply(&order, hits), tokens, latency_ms })
+    Ok(Reranked {
+        hits: apply(&order, hits),
+        tokens,
+        latency_ms,
+    })
 }
 
 #[cfg(test)]
@@ -110,7 +120,10 @@ mod tests {
 
     #[test]
     fn the_order_is_read_from_json_with_fences_and_noise() {
-        assert_eq!(parse_order("```json\n{\"order\": [2, 0, 2, 9, 1]}\n```", 3), vec![2, 0, 1]);
+        assert_eq!(
+            parse_order("```json\n{\"order\": [2, 0, 2, 9, 1]}\n```", 3),
+            vec![2, 0, 1]
+        );
         assert!(parse_order("no idea", 3).is_empty());
         assert!(parse_order("{\"order\": \"x\"}", 3).is_empty());
     }
@@ -136,33 +149,58 @@ mod tests {
             "canned"
         }
         fn capabilities(&self) -> crate::services::ai::Capabilities {
-            crate::services::ai::Capabilities { tools: true, implicit_caching: false, vision: false }
+            crate::services::ai::Capabilities {
+                tools: true,
+                implicit_caching: false,
+                vision: false,
+            }
         }
-        fn list_models<'a>(&'a self, _: &'a str) -> futures_util::future::BoxFuture<'a, Result<Vec<crate::domain::ModelInfo>>> {
+        fn list_models<'a>(
+            &'a self,
+            _: &'a str,
+        ) -> futures_util::future::BoxFuture<'a, Result<Vec<crate::domain::ModelInfo>>> {
             Box::pin(async { Ok(vec![]) })
         }
-        fn generate(&self, _key: String, _request: GenerationRequest) -> crate::services::ai::EventStream {
+        fn generate(
+            &self,
+            _key: String,
+            _request: GenerationRequest,
+        ) -> crate::services::ai::EventStream {
             let events = vec![
                 GenerationEvent::Text(self.0.to_string()),
-                GenerationEvent::Usage { input_tokens: 900, output_tokens: 12, cached_tokens: 0 },
+                GenerationEvent::Usage {
+                    input_tokens: 900,
+                    output_tokens: 12,
+                    cached_tokens: 0,
+                },
             ];
             Box::pin(futures_util::stream::iter(events.into_iter().map(Ok)))
         }
     }
 
     fn ctx(reply: &'static str) -> RerankCtx {
-        RerankCtx { provider: Arc::new(Canned(reply)), api_key: "k".into(), model: "m".into() }
+        RerankCtx {
+            provider: Arc::new(Canned(reply)),
+            api_key: "k".into(),
+            model: "m".into(),
+        }
     }
 
     #[tokio::test]
     async fn a_good_reply_reorders_and_reports_tokens() {
-        let r = rerank(&ctx("{\"order\": [1]}"), "q", vec![hit("a"), hit("b")]).await.unwrap();
+        let r = rerank(&ctx("{\"order\": [1]}"), "q", vec![hit("a"), hit("b")])
+            .await
+            .unwrap();
         assert_eq!(r.hits[0].passage_id, "b");
         assert_eq!(r.tokens, (900, 12, 0));
     }
 
     #[tokio::test]
     async fn a_reply_without_an_order_is_an_error_so_the_caller_keeps_the_old_order() {
-        assert!(rerank(&ctx("Sorry, I can't."), "q", vec![hit("a"), hit("b")]).await.is_err());
+        assert!(
+            rerank(&ctx("Sorry, I can't."), "q", vec![hit("a"), hit("b")])
+                .await
+                .is_err()
+        );
     }
 }

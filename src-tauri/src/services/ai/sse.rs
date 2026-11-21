@@ -8,7 +8,10 @@ pub struct SseParser {
 
 fn find_boundary(buf: &[u8]) -> Option<(usize, usize)> {
     let lf = buf.windows(2).position(|w| w == b"\n\n").map(|i| (i, 2));
-    let crlf = buf.windows(4).position(|w| w == b"\r\n\r\n").map(|i| (i, 4));
+    let crlf = buf
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .map(|i| (i, 4));
     match (lf, crlf) {
         (Some(a), Some(b)) => Some(if a.0 <= b.0 { a } else { b }),
         (a, b) => a.or(b),
@@ -52,7 +55,10 @@ mod tests {
     fn parses_events_split_across_chunks() {
         let mut p = SseParser::default();
         assert!(p.push(b"data: {\"a\":").is_empty());
-        assert_eq!(p.push(b"1}\n\ndata: {\"b\":2}\n\n"), ["{\"a\":1}", "{\"b\":2}"]);
+        assert_eq!(
+            p.push(b"1}\n\ndata: {\"b\":2}\n\n"),
+            ["{\"a\":1}", "{\"b\":2}"]
+        );
     }
 
     #[test]

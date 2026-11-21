@@ -22,7 +22,11 @@ fn main() {
                 let stem = path.file_stem().unwrap().to_string_lossy().to_string();
                 let out = out_dir.join(format!("{stem}.json"));
                 std::fs::write(&out, serde_json::to_vec(&doc).unwrap()).unwrap();
-                println!("{summary} | {:.1}s | {}", started.elapsed().as_secs_f32(), path.file_name().unwrap().to_string_lossy());
+                println!(
+                    "{summary} | {:.1}s | {}",
+                    started.elapsed().as_secs_f32(),
+                    path.file_name().unwrap().to_string_lossy()
+                );
             }
             Err(e) => println!("ERROR {e} | {}", path.display()),
         }
@@ -45,7 +49,9 @@ fn extract(pdfium: &Pdfium, path: &Path) -> Result<(serde_json::Value, String), 
         let mut chars_on_page = 0usize;
         let mut odd = 0usize;
 
-        let mut flush = |cur: &mut String, rect: &mut Option<[f32; 4]>, lines: &mut Vec<serde_json::Value>| {
+        let mut flush = |cur: &mut String,
+                         rect: &mut Option<[f32; 4]>,
+                         lines: &mut Vec<serde_json::Value>| {
             if let (false, Some(r)) = (cur.trim().is_empty(), *rect) {
                 lines.push(json!({ "text": cur.trim_end(), "rect": [r4(r[0]), r4(r[1]), r4(r[2]), r4(r[3])] }));
             }
@@ -67,10 +73,17 @@ fn extract(pdfium: &Pdfium, path: &Path) -> Result<(serde_json::Value, String), 
             {
                 // pdfium joins hyphenated breaks ("geo-" + "engineering") into one run with no
                 // newline. Start a new line when the char's centre leaves the current line's band.
-                let (cx, cy) = ((b.left().value + b.right().value) / 2.0, (b.bottom().value + b.top().value) / 2.0);
+                let (cx, cy) = (
+                    (b.left().value + b.right().value) / 2.0,
+                    (b.bottom().value + b.top().value) / 2.0,
+                );
                 let angle = ch.angle_degrees().unwrap_or(0.0).abs() % 180.0;
                 let vertical = (angle - 90.0).abs() < 20.0;
-                let same_line = if vertical { cx >= r[0] && cx <= r[2] } else { cy >= r[1] && cy <= r[3] };
+                let same_line = if vertical {
+                    cx >= r[0] && cx <= r[2]
+                } else {
+                    cy >= r[1] && cy <= r[3]
+                };
                 if !same_line {
                     flush(&mut cur, &mut rect, &mut lines);
                 }
@@ -82,7 +95,12 @@ fn extract(pdfium: &Pdfium, path: &Path) -> Result<(serde_json::Value, String), 
                     odd += 1;
                 }
                 if let Ok(b) = ch.loose_bounds() {
-                    let (l, bo, ri, t) = (b.left().value, b.bottom().value, b.right().value, b.top().value);
+                    let (l, bo, ri, t) = (
+                        b.left().value,
+                        b.bottom().value,
+                        b.right().value,
+                        b.top().value,
+                    );
                     rect = Some(match rect {
                         None => [l, bo, ri, t],
                         Some(r) => [r[0].min(l), r[1].min(bo), r[2].max(ri), r[3].max(t)],
@@ -106,7 +124,16 @@ fn extract(pdfium: &Pdfium, path: &Path) -> Result<(serde_json::Value, String), 
 
         let media = page.boundaries().media().map(|b| b.bounds).ok();
         let crop = page.boundaries().crop().map(|b| b.bounds).ok();
-        let bx = |b: Option<PdfRect>| b.map(|b| json!([r4(b.left().value), r4(b.bottom().value), r4(b.right().value), r4(b.top().value)]));
+        let bx = |b: Option<PdfRect>| {
+            b.map(|b| {
+                json!([
+                    r4(b.left().value),
+                    r4(b.bottom().value),
+                    r4(b.right().value),
+                    r4(b.top().value)
+                ])
+            })
+        };
         pages.push(json!({
             "page": i + 1,
             "width": r4(page.width().value),
@@ -123,5 +150,8 @@ fn extract(pdfium: &Pdfium, path: &Path) -> Result<(serde_json::Value, String), 
     let n = pages.len();
     let doc_json = json!({ "file": path.file_name().unwrap().to_string_lossy(), "pages": pages });
     let verdict = if total_chars == 0 { "NO TEXT" } else { "text" };
-    Ok((doc_json, format!("{verdict:7} {n:4}p {total_chars:7} chars, {empty_pages} empty, {low_pages} low")))
+    Ok((
+        doc_json,
+        format!("{verdict:7} {n:4}p {total_chars:7} chars, {empty_pages} empty, {low_pages} low"),
+    ))
 }

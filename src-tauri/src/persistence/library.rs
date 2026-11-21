@@ -67,14 +67,19 @@ pub fn get_document(conn: &Connection, id: &str) -> Result<Document> {
 /// Records that the details lookups finished (`None`) or failed, and why.
 pub fn mark_enriched(conn: &Connection, id: &str, failure: Option<&str>) -> Result<()> {
     let done = failure.is_none().then(now_ms);
-    conn.execute("UPDATE documents SET enriched_at = ?1, enrich_error = ?2 WHERE id = ?3", params![done, failure, id])?;
+    conn.execute(
+        "UPDATE documents SET enriched_at = ?1, enrich_error = ?2 WHERE id = ?3",
+        params![done, failure, id],
+    )?;
     Ok(())
 }
 
 /// Ready documents whose lookups never finished (the app closed, or one failed), or all of them.
 pub fn unenriched(conn: &Connection, all: bool) -> Result<Vec<Id>> {
     let mut stmt = conn.prepare("SELECT id FROM documents WHERE status = 'ready' AND (?1 OR enriched_at IS NULL) ORDER BY created_at, id")?;
-    Ok(stmt.query_map([all], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?)
+    Ok(stmt
+        .query_map([all], |r| r.get(0))?
+        .collect::<rusqlite::Result<_>>()?)
 }
 
 pub fn find_by_hash(conn: &Connection, hash: &str) -> Result<Option<Document>> {
@@ -100,12 +105,16 @@ pub fn scope_clause(filter: &DocFilter, col: &str, first: usize) -> (String, Vec
     match filter {
         DocFilter::All => (String::new(), vec![]),
         DocFilter::Project(p) => (
-            format!("AND {col} IN (SELECT document_id FROM project_documents WHERE project_id = ?{first})"),
+            format!(
+                "AND {col} IN (SELECT document_id FROM project_documents WHERE project_id = ?{first})"
+            ),
             vec![p.clone()],
         ),
         DocFilter::Documents(ids) if ids.is_empty() => ("AND 0".to_string(), vec![]),
         DocFilter::Documents(ids) => {
-            let marks: Vec<String> = (first..first + ids.len()).map(|n| format!("?{n}")).collect();
+            let marks: Vec<String> = (first..first + ids.len())
+                .map(|n| format!("?{n}"))
+                .collect();
             (format!("AND {col} IN ({})", marks.join(", ")), ids.clone())
         }
     }
@@ -119,7 +128,9 @@ pub fn list_documents(conn: &Connection, project_id: Option<&str>) -> Result<Vec
 /// Documents inside a filter, newest first. Includes documents that aren't ready.
 pub fn list_documents_in(conn: &Connection, filter: &DocFilter) -> Result<Vec<Document>> {
     let (clause, args) = scope_clause(filter, "id", 1);
-    let sql = format!("SELECT {DOC_COLS} FROM documents WHERE 1 = 1 {clause} ORDER BY created_at DESC, id DESC");
+    let sql = format!(
+        "SELECT {DOC_COLS} FROM documents WHERE 1 = 1 {clause} ORDER BY created_at DESC, id DESC"
+    );
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(params_from_iter(args.iter()), document_from_row)?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -171,21 +182,32 @@ pub fn detach(conn: &Connection, project_id: &str, document_id: &str) -> Result<
 /// The text of the passages that start on the first `pages` pages, in order. Used to check that a
 /// lookup result belongs to this document.
 pub fn head_text(conn: &Connection, id: &str, pages: u32) -> Result<String> {
-    let mut stmt = conn.prepare("SELECT text FROM passages WHERE document_id = ?1 AND page_start <= ?2 ORDER BY ordinal")?;
+    let mut stmt = conn.prepare(
+        "SELECT text FROM passages WHERE document_id = ?1 AND page_start <= ?2 ORDER BY ordinal",
+    )?;
     let rows = stmt.query_map(params![id, pages], |r| r.get::<_, String>(0))?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?.join(" "))
 }
 
 /// Passages that start on pages 5 to 10 or on the last two pages: where a report's imprint (ISBN,
 /// publisher, edition) sits when the title pages don't show it.
-pub fn imprint_passages(conn: &Connection, id: &str, page_count: Option<u32>) -> Result<Vec<String>> {
+pub fn imprint_passages(
+    conn: &Connection,
+    id: &str,
+    page_count: Option<u32>,
+) -> Result<Vec<String>> {
     let tail = page_count.unwrap_or(0).saturating_sub(1).max(11);
     let mut stmt = conn.prepare("SELECT text FROM passages WHERE document_id = ?1 AND ((page_start BETWEEN 5 AND 10) OR page_start >= ?2) ORDER BY ordinal")?;
     let rows = stmt.query_map(params![id, tail], |r| r.get::<_, String>(0))?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
-pub fn set_status(conn: &Connection, id: &str, status: DocStatus, error: Option<&str>) -> Result<Document> {
+pub fn set_status(
+    conn: &Connection,
+    id: &str,
+    status: DocStatus,
+    error: Option<&str>,
+) -> Result<Document> {
     let n = conn.execute(
         "UPDATE documents SET status = ?1, error = ?2, updated_at = ?3 WHERE id = ?4",
         params![status.as_str(), error, now_ms(), id],
@@ -206,7 +228,13 @@ pub fn delete_document(conn: &Connection, id: &str) -> Result<(String, DocKind)>
 
 pub fn update_metadata(conn: &Connection, id: &str, patch: &MetadataPatch) -> Result<Document> {
     let doc = get_document(conn, id)?;
-    let blank = |s: &str| if s.trim().is_empty() { None } else { Some(s.trim().to_string()) };
+    let blank = |s: &str| {
+        if s.trim().is_empty() {
+            None
+        } else {
+            Some(s.trim().to_string())
+        }
+    };
     let mut edited = doc.meta_edited;
     let mut source = doc.meta_source;
     let mut mark = |field: &str| {
@@ -221,21 +249,34 @@ pub fn update_metadata(conn: &Connection, id: &str, patch: &MetadataPatch) -> Re
     {
         return Err(AppError::Invalid("That year doesn't look right.".into()));
     }
-    let title = patch.title.as_deref().map(|t| blank(t).map(|t| clean_name(&t, "Title")).transpose()).transpose()?;
+    let title = patch
+        .title
+        .as_deref()
+        .map(|t| blank(t).map(|t| clean_name(&t, "Title")).transpose())
+        .transpose()?;
     if let Some(t) = title {
-        conn.execute("UPDATE documents SET title = ?1 WHERE id = ?2", params![t, id])?;
+        conn.execute(
+            "UPDATE documents SET title = ?1 WHERE id = ?2",
+            params![t, id],
+        )?;
         mark("title");
     }
     if let Some(a) = &patch.authors {
         let a: Vec<String> = a.iter().filter_map(|s| blank(s)).collect();
         conn.execute(
             "UPDATE documents SET authors = ?1 WHERE id = ?2",
-            params![serde_json::to_string(&a).unwrap_or_else(|_| "[]".into()), id],
+            params![
+                serde_json::to_string(&a).unwrap_or_else(|_| "[]".into()),
+                id
+            ],
         )?;
         mark("authors");
     }
     if let Some(y) = patch.year {
-        conn.execute("UPDATE documents SET year = ?1 WHERE id = ?2", params![(y != 0).then_some(y), id])?;
+        conn.execute(
+            "UPDATE documents SET year = ?1 WHERE id = ?2",
+            params![(y != 0).then_some(y), id],
+        )?;
         mark("year");
     }
     let text_fields = [
@@ -252,7 +293,10 @@ pub fn update_metadata(conn: &Connection, id: &str, patch: &MetadataPatch) -> Re
     for (col, value) in text_fields {
         if let Some(v) = value {
             // The column names above are constants, never user input.
-            conn.execute(&format!("UPDATE documents SET {col} = ?1 WHERE id = ?2"), params![blank(v), id])?;
+            conn.execute(
+                &format!("UPDATE documents SET {col} = ?1 WHERE id = ?2"),
+                params![blank(v), id],
+            )?;
             mark(col);
         }
     }
@@ -347,14 +391,26 @@ impl Extracted {
 /// `source` ("file", "crossref", "doi", "datacite", "nb", "openlibrary" or "ai") is recorded for every field
 /// written. A fresh read never changes what an online record gave (the publisher's or library's
 /// own data) and never clears what a model found.
-pub fn apply_metadata(conn: &Connection, id: &str, m: &Extracted, source: &str, replace: bool) -> Result<()> {
+pub fn apply_metadata(
+    conn: &Connection,
+    id: &str,
+    m: &Extracted,
+    source: &str,
+    replace: bool,
+) -> Result<()> {
     let doc = get_document(conn, id)?;
     let mut sources = doc.meta_source;
     let text = |v: &Option<String>| v.as_ref().map(|s| rusqlite::types::Value::Text(s.clone()));
     let fields: [(&str, Option<rusqlite::types::Value>); 12] = [
         ("title", text(&m.title)),
-        ("authors", (!m.authors.is_empty()).then(|| rusqlite::types::Value::Text(to_json(&m.authors)))),
-        ("year", m.year.map(|y| rusqlite::types::Value::Integer(y.into()))),
+        (
+            "authors",
+            (!m.authors.is_empty()).then(|| rusqlite::types::Value::Text(to_json(&m.authors))),
+        ),
+        (
+            "year",
+            m.year.map(|y| rusqlite::types::Value::Integer(y.into())),
+        ),
         ("doi", text(&m.doi)),
         ("journal", text(&m.journal)),
         ("publisher", text(&m.publisher)),
@@ -367,7 +423,11 @@ pub fn apply_metadata(conn: &Connection, id: &str, m: &Extracted, source: &str, 
     ];
     for (col, value) in fields {
         let from = sources.get(col).map(String::as_str);
-        let kept = replace && (matches!(from, Some("crossref" | "doi" | "datacite" | "nb" | "openlibrary")) || (from == Some("ai") && value.is_none()));
+        let kept = replace
+            && (matches!(
+                from,
+                Some("crossref" | "doi" | "datacite" | "nb" | "openlibrary")
+            ) || (from == Some("ai") && value.is_none()));
         if doc.meta_edited.iter().any(|f| f == col) || (value.is_none() && !replace) || kept {
             continue;
         }
@@ -376,14 +436,22 @@ pub fn apply_metadata(conn: &Connection, id: &str, m: &Extracted, source: &str, 
             (v, _) => v,
         };
         match &value {
-            Some(rusqlite::types::Value::Text(t)) if col == "authors" && t == "[]" => sources.remove(col),
+            Some(rusqlite::types::Value::Text(t)) if col == "authors" && t == "[]" => {
+                sources.remove(col)
+            }
             Some(_) => sources.insert(col.to_string(), source.to_string()),
             None => sources.remove(col),
         };
         // The column names above are constants, never user input.
-        conn.execute(&format!("UPDATE documents SET {col} = ?1 WHERE id = ?2"), params![value, id])?;
+        conn.execute(
+            &format!("UPDATE documents SET {col} = ?1 WHERE id = ?2"),
+            params![value, id],
+        )?;
     }
-    conn.execute("UPDATE documents SET meta_source = ?1, updated_at = ?2 WHERE id = ?3", params![to_json(&sources), now_ms(), id])?;
+    conn.execute(
+        "UPDATE documents SET meta_source = ?1, updated_at = ?2 WHERE id = ?3",
+        params![to_json(&sources), now_ms(), id],
+    )?;
     Ok(())
 }
 
@@ -457,19 +525,29 @@ pub fn store_layout(
     }
     let at = now_ms();
     for p in layout_pages {
-        tx.execute("UPDATE pages SET layout_at = ?1 WHERE document_id = ?2 AND page_no = ?3", params![at, id, p])?;
+        tx.execute(
+            "UPDATE pages SET layout_at = ?1 WHERE document_id = ?2 AND page_no = ?3",
+            params![at, id, p],
+        )?;
     }
 
     let mut old: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
     {
-        let mut stmt = tx.prepare("SELECT id, text FROM passages WHERE document_id = ?1 ORDER BY ordinal DESC")?;
-        for row in stmt.query_map([id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
+        let mut stmt = tx.prepare(
+            "SELECT id, text FROM passages WHERE document_id = ?1 ORDER BY ordinal DESC",
+        )?;
+        for row in stmt.query_map([id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })? {
             let (pid, text) = row?;
             old.entry(text).or_default().push(pid);
         }
     }
     // clear the unique (document, ordinal) slots before renumbering
-    tx.execute("UPDATE passages SET ordinal = ordinal + 1000000 WHERE document_id = ?1", [id])?;
+    tx.execute(
+        "UPDATE passages SET ordinal = ordinal + 1000000 WHERE document_id = ?1",
+        [id],
+    )?;
     let mut kept = std::collections::HashSet::new();
     for (i, p) in passages.iter().enumerate() {
         match old.get_mut(&p.text).and_then(Vec::pop) {
@@ -493,13 +571,22 @@ pub fn store_layout(
         tx.execute("DELETE FROM passages WHERE id = ?1", [pid])?;
     }
     // final ordinals: the negative placeholders become 0, 1, 2...
-    tx.execute("UPDATE passages SET ordinal = -ordinal - 1 WHERE document_id = ?1 AND ordinal < 0", [id])?;
-    tx.execute("UPDATE documents SET updated_at = ?1 WHERE id = ?2", params![at, id])?;
+    tx.execute(
+        "UPDATE passages SET ordinal = -ordinal - 1 WHERE document_id = ?1 AND ordinal < 0",
+        [id],
+    )?;
+    tx.execute(
+        "UPDATE documents SET updated_at = ?1 WHERE id = ?2",
+        params![at, id],
+    )?;
     tx.commit()?;
     get_document(conn, id)
 }
 
-pub fn list_regions(conn: &Connection, id: &str) -> Result<Vec<crate::domain::library::PageRegion>> {
+pub fn list_regions(
+    conn: &Connection,
+    id: &str,
+) -> Result<Vec<crate::domain::library::PageRegion>> {
     let mut stmt = conn.prepare(
         "SELECT page_no, ordinal, label, score, left, bottom, right, top FROM page_regions WHERE document_id = ?1 ORDER BY page_no, ordinal",
     )?;
@@ -550,7 +637,9 @@ pub fn table_counts(conn: &Connection) -> Result<(u32, u32)> {
 
 /// Pages of a document without layout yet, text or not (figure pages have none).
 pub fn pages_without_layout(conn: &Connection, id: &str) -> Result<Vec<u32>> {
-    let mut stmt = conn.prepare("SELECT page_no FROM pages WHERE document_id = ?1 AND layout_at IS NULL ORDER BY page_no")?;
+    let mut stmt = conn.prepare(
+        "SELECT page_no FROM pages WHERE document_id = ?1 AND layout_at IS NULL ORDER BY page_no",
+    )?;
     let rows = stmt.query_map([id], |r| r.get(0))?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
@@ -574,9 +663,22 @@ pub fn store_tables(conn: &mut Connection, id: &str, tables: &[TableRow]) -> Res
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
     get_document(&tx, id)?;
     for t in tables {
-        tx.execute("DELETE FROM tables WHERE document_id = ?1 AND page_no = ?2 AND ordinal = ?3", params![id, t.page_no, t.ordinal])?;
-        let rows = t.cells.iter().map(|c| c.row + c.row_span).max().unwrap_or(0);
-        let cols = t.cells.iter().map(|c| c.col + c.col_span).max().unwrap_or(0);
+        tx.execute(
+            "DELETE FROM tables WHERE document_id = ?1 AND page_no = ?2 AND ordinal = ?3",
+            params![id, t.page_no, t.ordinal],
+        )?;
+        let rows = t
+            .cells
+            .iter()
+            .map(|c| c.row + c.row_span)
+            .max()
+            .unwrap_or(0);
+        let cols = t
+            .cells
+            .iter()
+            .map(|c| c.col + c.col_span)
+            .max()
+            .unwrap_or(0);
         tx.execute(
             "INSERT INTO tables (document_id, page_no, ordinal, status, note, footer, rows, cols, left, bottom, right, top)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
@@ -599,7 +701,15 @@ pub fn list_tables(conn: &Connection, id: &str) -> Result<Vec<TableRow>> {
     let mut stmt = conn.prepare("SELECT page_no, ordinal, status, note, left, bottom, right, top, footer FROM tables WHERE document_id = ?1 ORDER BY page_no, ordinal")?;
     let mut out: Vec<TableRow> = stmt
         .query_map([id], |r| {
-            Ok(TableRow { page_no: r.get(0)?, ordinal: r.get(1)?, status: r.get(2)?, note: r.get(3)?, rect: [r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?], footer: r.get(8)?, cells: vec![] })
+            Ok(TableRow {
+                page_no: r.get(0)?,
+                ordinal: r.get(1)?,
+                status: r.get(2)?,
+                note: r.get(3)?,
+                rect: [r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?],
+                footer: r.get(8)?,
+                cells: vec![],
+            })
         })?
         .collect::<rusqlite::Result<_>>()?;
     let mut stmt = conn.prepare(
@@ -624,7 +734,10 @@ pub fn list_tables(conn: &Connection, id: &str) -> Result<Vec<TableRow>> {
     })?;
     for c in cells {
         let (page, ordinal, cell) = c?;
-        if let Some(t) = out.iter_mut().find(|t| t.page_no == page && t.ordinal == ordinal) {
+        if let Some(t) = out
+            .iter_mut()
+            .find(|t| t.page_no == page && t.ordinal == ordinal)
+        {
             t.cells.push(cell);
         }
     }
@@ -646,14 +759,15 @@ pub fn documents_without_tables(conn: &Connection) -> Result<Vec<Document>> {
 /// Words too common to help in a question, English and Norwegian (folded). Same list the
 /// retrieval benchmark used, plus a few Norwegian ones.
 pub(crate) const COMMON: &[&str] = &[
-    "the", "and", "for", "are", "was", "were", "what", "how", "when", "why", "which", "who", "does", "did", "has",
-    "have", "had", "that", "this", "with", "from", "into", "than", "then", "them", "they", "their", "there",
-    "these", "those", "can", "could", "would", "should", "about", "over", "under", "after", "before", "between",
-    "during", "each", "other", "some", "such", "only", "also", "not", "but", "out", "any", "all", "its", "our",
-    "your", "you", "his", "her", "she", "him", "where", "whose", "been", "being", "more", "most", "very", "much",
-    "many", "may", "might", "own", "same", "too", "via", "per", "og", "som", "det", "til", "med", "den", "det",
-    "ikke", "har", "var", "kan", "vil", "hva", "hvordan", "hvorfor", "hvilke", "hvilken", "hvem", "fra", "etter",
-    "mellom", "om",
+    "the", "and", "for", "are", "was", "were", "what", "how", "when", "why", "which", "who",
+    "does", "did", "has", "have", "had", "that", "this", "with", "from", "into", "than", "then",
+    "them", "they", "their", "there", "these", "those", "can", "could", "would", "should", "about",
+    "over", "under", "after", "before", "between", "during", "each", "other", "some", "such",
+    "only", "also", "not", "but", "out", "any", "all", "its", "our", "your", "you", "his", "her",
+    "she", "him", "where", "whose", "been", "being", "more", "most", "very", "much", "many", "may",
+    "might", "own", "same", "too", "via", "per", "og", "som", "det", "til", "med", "den", "det",
+    "ikke", "har", "var", "kan", "vil", "hva", "hvordan", "hvorfor", "hvilke", "hvilken", "hvem",
+    "fra", "etter", "mellom", "om",
 ];
 
 /// One FTS5 query from free text. Every term is quoted, so user input can't use FTS syntax.
@@ -672,7 +786,11 @@ fn match_expr(query: &str, all_terms: bool, prefix_last: bool) -> Option<String>
     let terms: Vec<&str> = if all_terms {
         terms
     } else {
-        let kept: Vec<&str> = terms.iter().copied().filter(|t| t.chars().count() > 2 && !COMMON.contains(t)).collect();
+        let kept: Vec<&str> = terms
+            .iter()
+            .copied()
+            .filter(|t| t.chars().count() > 2 && !COMMON.contains(t))
+            .collect();
         if kept.is_empty() { terms } else { kept }
     };
     let last = terms.len() - 1;
@@ -699,12 +817,23 @@ pub struct SearchOptions<'a> {
 }
 
 /// Keyword search over passages of documents that are ready, best match first.
-pub fn search_passages(conn: &Connection, query: &str, opts: &SearchOptions) -> Result<Vec<SearchHit>> {
-    Ok(search_passages_scored(conn, query, opts)?.into_iter().map(|(h, _)| h).collect())
+pub fn search_passages(
+    conn: &Connection,
+    query: &str,
+    opts: &SearchOptions,
+) -> Result<Vec<SearchHit>> {
+    Ok(search_passages_scored(conn, query, opts)?
+        .into_iter()
+        .map(|(h, _)| h)
+        .collect())
 }
 
 /// Like `search_passages`, with each hit's BM25 score (higher is better).
-pub fn search_passages_scored(conn: &Connection, query: &str, opts: &SearchOptions) -> Result<Vec<(SearchHit, f32)>> {
+pub fn search_passages_scored(
+    conn: &Connection,
+    query: &str,
+    opts: &SearchOptions,
+) -> Result<Vec<(SearchHit, f32)>> {
     let Some(expr) = match_expr(query, opts.all_terms, opts.prefix_last) else {
         return Ok(vec![]);
     };
@@ -733,12 +862,18 @@ pub fn search_passages_scored(conn: &Connection, query: &str, opts: &SearchOptio
     };
     let mut args: Vec<&dyn rusqlite::ToSql> = vec![&expr, &opts.limit];
     args.extend(scope_args.iter().map(|a| a as &dyn rusqlite::ToSql));
-    let rows = stmt.query_map(params_from_iter(args), map)?.collect::<rusqlite::Result<Vec<_>>>()?;
+    let rows = stmt
+        .query_map(params_from_iter(args), map)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(rows)
 }
 
 /// Search hits for these passage ids, in the order given. Ids that no longer exist are skipped.
-pub fn hits_for_ids(conn: &Connection, ids: &[Id], matched_by: MatchKind) -> Result<Vec<SearchHit>> {
+pub fn hits_for_ids(
+    conn: &Connection,
+    ids: &[Id],
+    matched_by: MatchKind,
+) -> Result<Vec<SearchHit>> {
     let mut stmt = conn.prepare(
         "SELECT p.id, d.id, COALESCE(NULLIF(d.title, ''), d.original_name), p.page_start, p.page_end, p.text
            FROM passages p JOIN documents d ON d.id = p.document_id
@@ -788,7 +923,12 @@ fn hit_from_row(r: &Row, matched_by: MatchKind) -> rusqlite::Result<SearchHit> {
 
 /// The passage and up to `before` and `after` neighbours in reading order. Empty if the passage
 /// no longer exists (the file was read again).
-pub fn passages_around(conn: &Connection, passage_id: &str, before: u32, after: u32) -> Result<Vec<SearchHit>> {
+pub fn passages_around(
+    conn: &Connection,
+    passage_id: &str,
+    before: u32,
+    after: u32,
+) -> Result<Vec<SearchHit>> {
     let mut stmt = conn.prepare(
         "SELECT p.id, d.id, COALESCE(NULLIF(d.title, ''), d.original_name), p.page_start, p.page_end, p.text
            FROM passages p JOIN documents d ON d.id = p.document_id
@@ -797,19 +937,28 @@ pub fn passages_around(conn: &Connection, passage_id: &str, before: u32, after: 
                               AND (SELECT ordinal FROM passages WHERE id = ?1) + ?3
           ORDER BY p.ordinal",
     )?;
-    let rows = stmt.query_map(params![passage_id, before, after], |r| hit_from_row(r, MatchKind::Context))?;
+    let rows = stmt.query_map(params![passage_id, before, after], |r| {
+        hit_from_row(r, MatchKind::Context)
+    })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
 /// Passages that touch this page, in reading order.
-pub fn passages_on_page(conn: &Connection, document_id: &str, page: u32, limit: u32) -> Result<Vec<SearchHit>> {
+pub fn passages_on_page(
+    conn: &Connection,
+    document_id: &str,
+    page: u32,
+    limit: u32,
+) -> Result<Vec<SearchHit>> {
     let mut stmt = conn.prepare(
         "SELECT p.id, d.id, COALESCE(NULLIF(d.title, ''), d.original_name), p.page_start, p.page_end, p.text
            FROM passages p JOIN documents d ON d.id = p.document_id
           WHERE p.document_id = ?1 AND p.page_start <= ?2 AND p.page_end >= ?2
           ORDER BY p.ordinal LIMIT ?3",
     )?;
-    let rows = stmt.query_map(params![document_id, page, limit], |r| hit_from_row(r, MatchKind::Context))?;
+    let rows = stmt.query_map(params![document_id, page, limit], |r| {
+        hit_from_row(r, MatchKind::Context)
+    })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
@@ -847,48 +996,137 @@ mod tests {
     use crate::persistence::{projects, test_conn};
 
     fn passage(page: u32, text: &str) -> NewPassage {
-        NewPassage { page_start: page, page_end: page, text: text.into(), boxes: None }
+        NewPassage {
+            page_start: page,
+            page_end: page,
+            text: text.into(),
+            boxes: None,
+        }
     }
 
     fn ready_doc(conn: &mut Connection, hash: &str, name: &str, texts: &[&str]) -> Document {
         let d = insert_document(conn, hash, name, DocKind::Pdf).unwrap();
-        let passages: Vec<_> = texts.iter().enumerate().map(|(i, t)| passage(i as u32 + 1, t)).collect();
-        let pages = vec![NewPage { page_no: 1, width: 600.0, height: 800.0, quality: "ok", ocr: false }];
-        store_content(conn, &d.id, &pages, &passages, &Extracted::default(), DocStatus::Ready, None).unwrap()
+        let passages: Vec<_> = texts
+            .iter()
+            .enumerate()
+            .map(|(i, t)| passage(i as u32 + 1, t))
+            .collect();
+        let pages = vec![NewPage {
+            page_no: 1,
+            width: 600.0,
+            height: 800.0,
+            quality: "ok",
+            ocr: false,
+        }];
+        store_content(
+            conn,
+            &d.id,
+            &pages,
+            &passages,
+            &Extracted::default(),
+            DocStatus::Ready,
+            None,
+        )
+        .unwrap()
     }
 
     fn opts() -> SearchOptions<'static> {
-        SearchOptions { filter: &crate::domain::library::DocFilter::All, all_terms: true, prefix_last: false, limit: 10 }
+        SearchOptions {
+            filter: &crate::domain::library::DocFilter::All,
+            all_terms: true,
+            prefix_last: false,
+            limit: 10,
+        }
     }
 
     #[test]
     fn layout_keeps_ids_of_unchanged_passages_and_swaps_the_rest() {
         let mut conn = test_conn();
-        let d = ready_doc(&mut conn, "h1", "a.pdf", &["Plankton blooms follow iron", "Running head 2025", "Diatoms dominate"]);
+        let d = ready_doc(
+            &mut conn,
+            "h1",
+            "a.pdf",
+            &[
+                "Plankton blooms follow iron",
+                "Running head 2025",
+                "Diatoms dominate",
+            ],
+        );
         let ids = |c: &Connection| -> Vec<(String, String)> {
-            let mut s = c.prepare("SELECT id, text FROM passages WHERE document_id = ?1 ORDER BY ordinal").unwrap();
-            s.query_map([&d.id], |r| Ok((r.get(0)?, r.get(1)?))).unwrap().map(|r| r.unwrap()).collect()
+            let mut s = c
+                .prepare("SELECT id, text FROM passages WHERE document_id = ?1 ORDER BY ordinal")
+                .unwrap();
+            s.query_map([&d.id], |r| Ok((r.get(0)?, r.get(1)?)))
+                .unwrap()
+                .map(|r| r.unwrap())
+                .collect()
         };
         let before = ids(&conn);
-        let new = [passage(1, "Diatoms dominate"), passage(1, "Plankton blooms follow iron"), passage(1, "A table of numbers")];
-        let region = NewRegion { page_no: 1, ordinal: 0, label: "text".into(), score: 0.9, rect: [0.0, 0.0, 1.0, 1.0] };
+        let new = [
+            passage(1, "Diatoms dominate"),
+            passage(1, "Plankton blooms follow iron"),
+            passage(1, "A table of numbers"),
+        ];
+        let region = NewRegion {
+            page_no: 1,
+            ordinal: 0,
+            label: "text".into(),
+            score: 0.9,
+            rect: [0.0, 0.0, 1.0, 1.0],
+        };
         store_layout(&mut conn, &d.id, &[1], &[region], &new).unwrap();
         let after = ids(&conn);
-        assert_eq!(after.iter().map(|p| p.1.as_str()).collect::<Vec<_>>(), ["Diatoms dominate", "Plankton blooms follow iron", "A table of numbers"]);
+        assert_eq!(
+            after.iter().map(|p| p.1.as_str()).collect::<Vec<_>>(),
+            [
+                "Diatoms dominate",
+                "Plankton blooms follow iron",
+                "A table of numbers"
+            ]
+        );
         assert_eq!(after[0].0, before[2].0);
         assert_eq!(after[1].0, before[0].0);
-        assert!(before.iter().all(|b| b.1 != "Running head 2025" || !after.iter().any(|a| a.0 == b.0)));
-        let n: i64 = conn.query_row("SELECT count(*) FROM passages_fts WHERE passages_fts MATCH 'running'", [], |r| r.get(0)).unwrap();
+        assert!(
+            before
+                .iter()
+                .all(|b| b.1 != "Running head 2025" || !after.iter().any(|a| a.0 == b.0))
+        );
+        let n: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM passages_fts WHERE passages_fts MATCH 'running'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(n, 0, "the dropped passage left the search index");
-        assert_eq!(pages_without_layout(&conn, &d.id).unwrap(), Vec::<u32>::new());
+        assert_eq!(
+            pages_without_layout(&conn, &d.id).unwrap(),
+            Vec::<u32>::new()
+        );
     }
 
     #[test]
     fn search_folds_norwegian_and_ignores_fts_syntax() {
         let mut conn = test_conn();
-        ready_doc(&mut conn, "h1", "a.pdf", &["Økosystemet ved Ærø er sårbart", "Plankton and iron"]);
-        for q in ["okosystemet", "ØKOSYSTEMET", "aero", "Ærø", "sarbart", "sårbart"] {
-            assert_eq!(search_passages(&conn, q, &opts()).unwrap().len(), 1, "query {q}");
+        ready_doc(
+            &mut conn,
+            "h1",
+            "a.pdf",
+            &["Økosystemet ved Ærø er sårbart", "Plankton and iron"],
+        );
+        for q in [
+            "okosystemet",
+            "ØKOSYSTEMET",
+            "aero",
+            "Ærø",
+            "sarbart",
+            "sårbart",
+        ] {
+            assert_eq!(
+                search_passages(&conn, q, &opts()).unwrap().len(),
+                1,
+                "query {q}"
+            );
         }
         // quotes, operators and a trailing star are plain text, not FTS syntax
         assert!(search_passages(&conn, "\"iron\" NOT plankton*", &opts()).is_ok());
@@ -898,11 +1136,30 @@ mod tests {
     #[test]
     fn all_terms_vs_any_term_and_prefix() {
         let mut conn = test_conn();
-        ready_doc(&mut conn, "h1", "a.pdf", &["domoic acid in diatoms", "iron limits growth"]);
-        assert_eq!(search_passages(&conn, "domoic iron", &opts()).unwrap().len(), 0);
-        let any = SearchOptions { all_terms: false, ..opts() };
-        assert_eq!(search_passages(&conn, "domoic iron", &any).unwrap().len(), 2);
-        let prefix = SearchOptions { prefix_last: true, ..opts() };
+        ready_doc(
+            &mut conn,
+            "h1",
+            "a.pdf",
+            &["domoic acid in diatoms", "iron limits growth"],
+        );
+        assert_eq!(
+            search_passages(&conn, "domoic iron", &opts())
+                .unwrap()
+                .len(),
+            0
+        );
+        let any = SearchOptions {
+            all_terms: false,
+            ..opts()
+        };
+        assert_eq!(
+            search_passages(&conn, "domoic iron", &any).unwrap().len(),
+            2
+        );
+        let prefix = SearchOptions {
+            prefix_last: true,
+            ..opts()
+        };
         assert_eq!(search_passages(&conn, "diat", &prefix).unwrap().len(), 1);
         assert_eq!(search_passages(&conn, "diat", &opts()).unwrap().len(), 0);
     }
@@ -916,9 +1173,15 @@ mod tests {
         attach(&conn, &p.id, &a.id).unwrap();
         assert_eq!(search_passages(&conn, "shared", &opts()).unwrap().len(), 2);
         let pf = DocFilter::Project(p.id.clone());
-        let scoped = SearchOptions { filter: &pf, ..opts() };
+        let scoped = SearchOptions {
+            filter: &pf,
+            ..opts()
+        };
         let hits = search_passages(&conn, "shared", &scoped).unwrap();
-        assert_eq!((hits.len(), hits[0].document_id.as_str()), (1, a.id.as_str()));
+        assert_eq!(
+            (hits.len(), hits[0].document_id.as_str()),
+            (1, a.id.as_str())
+        );
 
         set_status(&conn, &b.id, DocStatus::Error, Some("bad")).unwrap();
         assert_eq!(search_passages(&conn, "shared", &opts()).unwrap().len(), 1);
@@ -930,16 +1193,29 @@ mod tests {
         let a = ready_doc(&mut conn, "h1", "a.pdf", &["findable text"]);
         let p = projects::create_project(&conn, "P").unwrap();
         attach(&conn, &p.id, &a.id).unwrap();
-        assert_eq!(get_document(&conn, &a.id).unwrap().project_ids, vec![p.id.clone()]);
+        assert_eq!(
+            get_document(&conn, &a.id).unwrap().project_ids,
+            vec![p.id.clone()]
+        );
         projects::delete_project(&conn, &p.id).unwrap();
         assert!(get_document(&conn, &a.id).unwrap().project_ids.is_empty());
-        assert_eq!(list_documents(&conn, None).unwrap().len(), 1, "documents outlive projects");
+        assert_eq!(
+            list_documents(&conn, None).unwrap().len(),
+            1,
+            "documents outlive projects"
+        );
         assert!(list_documents(&conn, Some(&p.id)).unwrap().is_empty());
 
         let (hash, kind) = delete_document(&conn, &a.id).unwrap();
         assert_eq!((hash.as_str(), kind), ("h1", DocKind::Pdf));
-        assert!(search_passages(&conn, "findable", &opts()).unwrap().is_empty());
-        let rows: i64 = conn.query_row("SELECT count(*) FROM passages", [], |r| r.get(0)).unwrap();
+        assert!(
+            search_passages(&conn, "findable", &opts())
+                .unwrap()
+                .is_empty()
+        );
+        let rows: i64 = conn
+            .query_row("SELECT count(*) FROM passages", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(rows, 0);
     }
 
@@ -956,7 +1232,15 @@ mod tests {
     fn extracted_metadata_never_overwrites_user_edits() {
         let mut conn = test_conn();
         let d = insert_document(&conn, "h1", "a.pdf", DocKind::Pdf).unwrap();
-        update_metadata(&conn, &d.id, &MetadataPatch { title: Some("My title".into()), ..Default::default() }).unwrap();
+        update_metadata(
+            &conn,
+            &d.id,
+            &MetadataPatch {
+                title: Some("My title".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let meta = Extracted {
             title: Some("Extracted title".into()),
             authors: vec!["A. Author".into()],
@@ -965,12 +1249,27 @@ mod tests {
             journal: Some("Nature".into()),
             ..Default::default()
         };
-        let out = store_content(&mut conn, &d.id, &[], &[], &meta, DocStatus::NoText, Some("scan")).unwrap();
+        let out = store_content(
+            &mut conn,
+            &d.id,
+            &[],
+            &[],
+            &meta,
+            DocStatus::NoText,
+            Some("scan"),
+        )
+        .unwrap();
         assert_eq!(out.title.as_deref(), Some("My title"));
-        assert_eq!((out.authors.as_slice(), out.year, out.doi.as_deref()), (&["A. Author".to_string()][..], Some(2004), Some("10.1/x")));
+        assert_eq!(
+            (out.authors.as_slice(), out.year, out.doi.as_deref()),
+            (&["A. Author".to_string()][..], Some(2004), Some("10.1/x"))
+        );
         assert_eq!((out.status, out.page_count), (DocStatus::NoText, None));
         assert_eq!(out.meta_edited, ["title"]);
-        assert_eq!(out.meta_source.get("journal").map(String::as_str), Some("file"));
+        assert_eq!(
+            out.meta_source.get("journal").map(String::as_str),
+            Some("file")
+        );
         assert!(!out.meta_source.contains_key("title"));
     }
 
@@ -978,44 +1277,145 @@ mod tests {
     fn a_fresh_read_replaces_stale_details_but_merging_only_adds() {
         let conn = test_conn();
         let d = insert_document(&conn, "h1", "a.pdf", DocKind::Pdf).unwrap();
-        let first = Extracted { title: Some("Old".into()), authors: vec!["X".into()], year: Some(1990), ..Default::default() };
+        let first = Extracted {
+            title: Some("Old".into()),
+            authors: vec!["X".into()],
+            year: Some(1990),
+            ..Default::default()
+        };
         apply_metadata(&conn, &d.id, &first, "file", true).unwrap();
         // a read that finds a new title and nothing else clears the rest
-        let again = Extracted { title: Some("New".into()), ..Default::default() };
+        let again = Extracted {
+            title: Some("New".into()),
+            ..Default::default()
+        };
         apply_metadata(&conn, &d.id, &again, "file", true).unwrap();
         let out = get_document(&conn, &d.id).unwrap();
-        assert_eq!((out.title.as_deref(), out.authors.len(), out.year), (Some("New"), 0, None));
+        assert_eq!(
+            (out.title.as_deref(), out.authors.len(), out.year),
+            (Some("New"), 0, None)
+        );
         assert!(!out.meta_source.contains_key("year") && !out.meta_source.contains_key("authors"));
         // a lookup that only knows the year and journal adds them and keeps the title
-        let more = Extracted { year: Some(2004), journal: Some("Nature".into()), ..Default::default() };
+        let more = Extracted {
+            year: Some(2004),
+            journal: Some("Nature".into()),
+            ..Default::default()
+        };
         apply_metadata(&conn, &d.id, &more, "crossref", false).unwrap();
         let out = get_document(&conn, &d.id).unwrap();
-        assert_eq!((out.title.as_deref(), out.year, out.journal.as_deref()), (Some("New"), Some(2004), Some("Nature")));
-        assert_eq!(out.meta_source.get("year").map(String::as_str), Some("crossref"));
-        assert_eq!(out.meta_source.get("title").map(String::as_str), Some("file"));
+        assert_eq!(
+            (out.title.as_deref(), out.year, out.journal.as_deref()),
+            (Some("New"), Some(2004), Some("Nature"))
+        );
+        assert_eq!(
+            out.meta_source.get("year").map(String::as_str),
+            Some("crossref")
+        );
+        assert_eq!(
+            out.meta_source.get("title").map(String::as_str),
+            Some("file")
+        );
     }
 
     #[test]
     fn a_fresh_read_keeps_what_crossref_gave_and_what_a_model_found() {
         let conn = test_conn();
         let d = insert_document(&conn, "h1", "a.pdf", DocKind::Pdf).unwrap();
-        apply_metadata(&conn, &d.id, &Extracted { title: Some("File".into()), year: Some(1990), ..Default::default() }, "file", true).unwrap();
-        apply_metadata(&conn, &d.id, &Extracted { title: Some("Crossref".into()), journal: Some("Nature".into()), ..Default::default() }, "crossref", false).unwrap();
-        apply_metadata(&conn, &d.id, &Extracted { series: Some("S".into()), ..Default::default() }, "ai", false).unwrap();
-        let read = Extracted { title: Some("Other".into()), year: Some(1991), ..Default::default() };
+        apply_metadata(
+            &conn,
+            &d.id,
+            &Extracted {
+                title: Some("File".into()),
+                year: Some(1990),
+                ..Default::default()
+            },
+            "file",
+            true,
+        )
+        .unwrap();
+        apply_metadata(
+            &conn,
+            &d.id,
+            &Extracted {
+                title: Some("Crossref".into()),
+                journal: Some("Nature".into()),
+                ..Default::default()
+            },
+            "crossref",
+            false,
+        )
+        .unwrap();
+        apply_metadata(
+            &conn,
+            &d.id,
+            &Extracted {
+                series: Some("S".into()),
+                ..Default::default()
+            },
+            "ai",
+            false,
+        )
+        .unwrap();
+        let read = Extracted {
+            title: Some("Other".into()),
+            year: Some(1991),
+            ..Default::default()
+        };
         apply_metadata(&conn, &d.id, &read, "file", true).unwrap();
         let out = get_document(&conn, &d.id).unwrap();
-        assert_eq!((out.title.as_deref(), out.journal.as_deref(), out.series.as_deref(), out.year), (Some("Crossref"), Some("Nature"), Some("S"), Some(1991)));
+        assert_eq!(
+            (
+                out.title.as_deref(),
+                out.journal.as_deref(),
+                out.series.as_deref(),
+                out.year
+            ),
+            (Some("Crossref"), Some("Nature"), Some("S"), Some(1991))
+        );
     }
 
     #[test]
     fn clearing_a_field_counts_as_an_edit_and_survives_a_refresh() {
         let conn = test_conn();
         let d = insert_document(&conn, "h1", "a.pdf", DocKind::Pdf).unwrap();
-        apply_metadata(&conn, &d.id, &Extracted { year: Some(1990), isbn: Some("978".into()), ..Default::default() }, "file", true).unwrap();
-        let cleared = update_metadata(&conn, &d.id, &MetadataPatch { year: Some(0), ..Default::default() }).unwrap();
-        assert_eq!((cleared.year, cleared.meta_edited.as_slice()), (None, &["year".to_string()][..]));
-        apply_metadata(&conn, &d.id, &Extracted { year: Some(2001), isbn: Some("979".into()), ..Default::default() }, "file", true).unwrap();
+        apply_metadata(
+            &conn,
+            &d.id,
+            &Extracted {
+                year: Some(1990),
+                isbn: Some("978".into()),
+                ..Default::default()
+            },
+            "file",
+            true,
+        )
+        .unwrap();
+        let cleared = update_metadata(
+            &conn,
+            &d.id,
+            &MetadataPatch {
+                year: Some(0),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            (cleared.year, cleared.meta_edited.as_slice()),
+            (None, &["year".to_string()][..])
+        );
+        apply_metadata(
+            &conn,
+            &d.id,
+            &Extracted {
+                year: Some(2001),
+                isbn: Some("979".into()),
+                ..Default::default()
+            },
+            "file",
+            true,
+        )
+        .unwrap();
         let out = get_document(&conn, &d.id).unwrap();
         assert_eq!((out.year, out.isbn.as_deref()), (None, Some("979")));
     }
@@ -1024,13 +1424,37 @@ mod tests {
     fn metadata_patch_validates_and_clears() {
         let conn = test_conn();
         let d = insert_document(&conn, "h1", "a.pdf", DocKind::Pdf).unwrap();
-        let set = MetadataPatch { title: Some(" T ".into()), authors: Some(vec![" A ".into(), "".into()]), year: Some(1999), doi: Some("10.1/x".into()), ..Default::default() };
+        let set = MetadataPatch {
+            title: Some(" T ".into()),
+            authors: Some(vec![" A ".into(), "".into()]),
+            year: Some(1999),
+            doi: Some("10.1/x".into()),
+            ..Default::default()
+        };
         let out = update_metadata(&conn, &d.id, &set).unwrap();
-        assert_eq!((out.title.as_deref(), out.authors.len(), out.year), (Some("T"), 1, Some(1999)));
-        let clear = MetadataPatch { title: Some("".into()), year: Some(0), doi: Some("".into()), ..Default::default() };
+        assert_eq!(
+            (out.title.as_deref(), out.authors.len(), out.year),
+            (Some("T"), 1, Some(1999))
+        );
+        let clear = MetadataPatch {
+            title: Some("".into()),
+            year: Some(0),
+            doi: Some("".into()),
+            ..Default::default()
+        };
         let out = update_metadata(&conn, &d.id, &clear).unwrap();
         assert_eq!((out.title, out.year, out.doi), (None, None, None));
-        assert!(update_metadata(&conn, &d.id, &MetadataPatch { year: Some(12), ..Default::default() }).is_err());
+        assert!(
+            update_metadata(
+                &conn,
+                &d.id,
+                &MetadataPatch {
+                    year: Some(12),
+                    ..Default::default()
+                }
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -1050,7 +1474,16 @@ mod tests {
     fn storing_again_replaces_old_passages() {
         let mut conn = test_conn();
         let d = ready_doc(&mut conn, "h1", "a.pdf", &["old words here"]);
-        store_content(&mut conn, &d.id, &[], &[passage(1, "new words")], &Extracted::default(), DocStatus::Ready, None).unwrap();
+        store_content(
+            &mut conn,
+            &d.id,
+            &[],
+            &[passage(1, "new words")],
+            &Extracted::default(),
+            DocStatus::Ready,
+            None,
+        )
+        .unwrap();
         assert!(search_passages(&conn, "old", &opts()).unwrap().is_empty());
         assert_eq!(search_passages(&conn, "new", &opts()).unwrap().len(), 1);
         assert_eq!(get_document(&conn, &d.id).unwrap().passage_count, 1);

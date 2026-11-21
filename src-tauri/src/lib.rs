@@ -11,85 +11,91 @@ use std::sync::{Arc, Mutex};
 use tauri::{DragDropEvent, Manager, WindowEvent};
 use tauri_specta::{Builder, Event, collect_commands, collect_events};
 
-use crate::persistence::Db;
 use crate::commands::library::DropHover;
+use crate::domain::library::DocStatus;
+use crate::persistence::Db;
 use crate::services::ai::Providers;
 use crate::services::docfile;
-use crate::domain::library::DocStatus;
 use crate::services::embedding::Backend;
 use crate::services::embedding::engine::{Embedder, EmbeddingStatus, StatusEmit};
-use crate::services::ingestion::import::{ImportSummary, import_paths};
 use crate::services::ingestion::activity::{Activity, DetailsActivity};
+use crate::services::ingestion::import::{ImportSummary, import_paths};
 use crate::services::ingestion::queue::{DocumentChanged, Emit, Ingestor};
 use crate::state::{AppState, Generations};
 
 fn specta_builder() -> Builder<tauri::Wry> {
     Builder::<tauri::Wry>::new()
         .disable_serde_phases()
-        .events(collect_events![DocumentChanged, DetailsActivity, ImportSummary, DropHover, EmbeddingStatus])
+        .events(collect_events![
+            DocumentChanged,
+            DetailsActivity,
+            ImportSummary,
+            DropHover,
+            EmbeddingStatus
+        ])
         .commands(collect_commands![
-        commands::projects::list_projects,
-        commands::projects::create_project,
-        commands::projects::rename_project,
-        commands::projects::delete_project,
-        commands::projects::list_chapters,
-        commands::projects::create_chapter,
-        commands::projects::rename_chapter,
-        commands::projects::delete_chapter,
-        commands::chat::list_conversations,
-        commands::chat::search_messages,
-        commands::chat::create_conversation,
-        commands::chat::rename_conversation,
-        commands::chat::archive_conversation,
-        commands::chat::set_conversation_model,
-        commands::chat::set_conversation_scope,
-        commands::chat::delete_conversation,
-        commands::chat::list_messages,
-        commands::chat::send_message,
-        commands::chat::cancel_generation,
-        commands::chat::fork_conversation,
-        commands::chat::summarize_for_handoff,
-        commands::settings::get_settings,
-        commands::settings::update_settings,
-        commands::settings::save_api_key,
-        commands::settings::delete_api_key,
-        commands::settings::list_models,
-        commands::settings::list_all_models,
-        commands::library::pick_and_import,
-        commands::library::set_import_target,
-        commands::library::list_documents,
-        commands::library::update_document_metadata,
-        commands::library::delete_document,
-        commands::library::cancel_import,
-        commands::library::retry_import,
-        commands::library::refresh_details,
-        commands::library::refresh_all_details,
-        commands::library::attach_document,
-        commands::library::detach_document,
-        commands::library::search_library,
-        commands::library::get_passage,
-        commands::library::get_layout,
-        commands::library::get_source,
-        commands::update::check_for_update,
-        commands::update::install_update,
-        commands::ocr::ocr_status,
-        commands::ocr::download_ocr_model,
-        commands::ocr::layout_status,
-        commands::ocr::layout_progress,
-        commands::ocr::download_layout_model,
-        commands::ocr::tables_status,
-        commands::ocr::download_tables_model,
-        commands::embedding::embedding_status,
-        commands::embedding::download_embedding_model,
-        commands::embedding::allow_cloud_embedding,
-        commands::embedding::set_embedding_backend,
-        commands::usage::get_usage,
-        commands::usage::get_conversation_cost,
-        commands::usage::set_prices_auto_update,
-        commands::usage::update_prices_now,
-        commands::usage::show_logs,
-        commands::embedding::set_embedding_paused,
-    ])
+            commands::projects::list_projects,
+            commands::projects::create_project,
+            commands::projects::rename_project,
+            commands::projects::delete_project,
+            commands::projects::list_chapters,
+            commands::projects::create_chapter,
+            commands::projects::rename_chapter,
+            commands::projects::delete_chapter,
+            commands::chat::list_conversations,
+            commands::chat::search_messages,
+            commands::chat::create_conversation,
+            commands::chat::rename_conversation,
+            commands::chat::archive_conversation,
+            commands::chat::set_conversation_model,
+            commands::chat::set_conversation_scope,
+            commands::chat::delete_conversation,
+            commands::chat::list_messages,
+            commands::chat::send_message,
+            commands::chat::cancel_generation,
+            commands::chat::fork_conversation,
+            commands::chat::summarize_for_handoff,
+            commands::settings::get_settings,
+            commands::settings::update_settings,
+            commands::settings::save_api_key,
+            commands::settings::delete_api_key,
+            commands::settings::list_models,
+            commands::settings::list_all_models,
+            commands::library::pick_and_import,
+            commands::library::set_import_target,
+            commands::library::list_documents,
+            commands::library::update_document_metadata,
+            commands::library::delete_document,
+            commands::library::cancel_import,
+            commands::library::retry_import,
+            commands::library::refresh_details,
+            commands::library::refresh_all_details,
+            commands::library::attach_document,
+            commands::library::detach_document,
+            commands::library::search_library,
+            commands::library::get_passage,
+            commands::library::get_layout,
+            commands::library::get_source,
+            commands::update::check_for_update,
+            commands::update::install_update,
+            commands::ocr::ocr_status,
+            commands::ocr::download_ocr_model,
+            commands::ocr::layout_status,
+            commands::ocr::layout_progress,
+            commands::ocr::download_layout_model,
+            commands::ocr::tables_status,
+            commands::ocr::download_tables_model,
+            commands::embedding::embedding_status,
+            commands::embedding::download_embedding_model,
+            commands::embedding::allow_cloud_embedding,
+            commands::embedding::set_embedding_backend,
+            commands::usage::get_usage,
+            commands::usage::get_conversation_cost,
+            commands::usage::set_prices_auto_update,
+            commands::usage::update_prices_now,
+            commands::usage::show_logs,
+            commands::embedding::set_embedding_paused,
+        ])
 }
 
 #[cfg(test)]
@@ -98,14 +104,19 @@ mod tests {
     #[test]
     fn export_bindings() {
         super::specta_builder()
-            .export(specta_typescript::Typescript::default(), "../src/lib/bindings.ts")
+            .export(
+                specta_typescript::Typescript::default(),
+                "../src/lib/bindings.ts",
+            )
             .expect("failed to export TypeScript bindings");
     }
 }
 
 /// Files dropped on the window are imported here, so their paths never reach the webview.
 fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
-    let WindowEvent::DragDrop(drag) = event else { return };
+    let WindowEvent::DragDrop(drag) = event else {
+        return;
+    };
     match drag {
         DragDropEvent::Enter { .. } => {
             let _ = DropHover { active: true }.emit(window);
@@ -136,11 +147,17 @@ fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
 fn logging() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     use tauri_plugin_log::{RotationStrategy, Target, TargetKind};
     // Our own code logs at debug level in dev builds. Dependencies stay at info, they are chatty.
-    let ours = if cfg!(debug_assertions) { log::LevelFilter::Debug } else { log::LevelFilter::Info };
+    let ours = if cfg!(debug_assertions) {
+        log::LevelFilter::Debug
+    } else {
+        log::LevelFilter::Info
+    };
     tauri_plugin_log::Builder::new()
         .targets([
             Target::new(TargetKind::Stdout),
-            Target::new(TargetKind::LogDir { file_name: Some("chingolo".into()) }),
+            Target::new(TargetKind::LogDir {
+                file_name: Some("chingolo".into()),
+            }),
         ])
         .level(log::LevelFilter::Info)
         .level_for("chingolo_lib", ours)
@@ -155,7 +172,10 @@ pub fn run() {
 
     #[cfg(debug_assertions)]
     builder
-        .export(specta_typescript::Typescript::default(), "../src/lib/bindings.ts")
+        .export(
+            specta_typescript::Typescript::default(),
+            "../src/lib/bindings.ts",
+        )
         .expect("failed to export TypeScript bindings");
 
     tauri::Builder::default()
@@ -179,7 +199,10 @@ pub fn run() {
             let db_path = dir.join("chingolo.sqlite");
             let db = Db::open(&db_path)?;
             crate::services::pricing::load_saved(&dir);
-            tauri::async_runtime::spawn(crate::services::pricing::keep_fresh(db.clone(), dir.clone()));
+            tauri::async_runtime::spawn(crate::services::pricing::keep_fresh(
+                db.clone(),
+                dir.clone(),
+            ));
             let handle = app.handle().clone();
             let emit: Emit = Arc::new(move |e| {
                 let _ = e.emit(&handle);
@@ -192,10 +215,20 @@ pub fn run() {
                 let conn = Db::open_secondary(&db_path)?;
                 (
                     commands::embedding::saved_backend(&conn)?,
-                    crate::persistence::settings::get_bool(&conn, commands::embedding::CLOUD_ACCEPTED)?,
+                    crate::persistence::settings::get_bool(
+                        &conn,
+                        commands::embedding::CLOUD_ACCEPTED,
+                    )?,
                 )
             };
-            let embedder = Embedder::start(&db_path, &dir, backend, cloud_accepted, status_emit, emit.clone())?;
+            let embedder = Embedder::start(
+                &db_path,
+                &dir,
+                backend,
+                cloud_accepted,
+                status_emit,
+                emit.clone(),
+            )?;
             // A document that becomes ready wakes the embedding worker. The worker's own
             // document events skip this, so it doesn't wake itself.
             // It also queues the document for a details lookup, which has its own emit.
@@ -204,7 +237,12 @@ pub fn run() {
             let activity = Activity::new(move |e| {
                 let _ = e.emit(&activity_handle);
             });
-            let enricher = crate::services::ingestion::enrich::Enricher::start(db.clone(), emit.clone(), providers.clone(), activity.clone());
+            let enricher = crate::services::ingestion::enrich::Enricher::start(
+                db.clone(),
+                emit.clone(),
+                providers.clone(),
+                activity.clone(),
+            );
             let after_layout = (embedder.clone(), emit.clone());
             let (wake, raw_emit, queue) = (embedder.clone(), emit, enricher.clone());
             let ingest_emit: Emit = Arc::new(move |e| {
@@ -225,7 +263,10 @@ pub fn run() {
             let tables = crate::services::ingestion::tables::model(&dir);
             ingest.set_tables_dir(Some(tables.dir().to_path_buf()));
             ingest.set_on_layout(Arc::new(move |d| {
-                after_layout.1(crate::services::ingestion::queue::DocumentChanged { document: d.clone(), progress: None });
+                after_layout.1(crate::services::ingestion::queue::DocumentChanged {
+                    document: d.clone(),
+                    progress: None,
+                });
                 after_layout.0.wake();
             }));
             // Documents that were still being read when the app last stopped.
@@ -239,7 +280,12 @@ pub fn run() {
                 let (model_db, model_embedder) = (db.clone(), embedder.clone());
                 tauri::async_runtime::spawn(async move {
                     let accepted = model_db
-                        .call(|c| crate::persistence::settings::get_bool(c, commands::embedding::DOWNLOAD_ACCEPTED))
+                        .call(|c| {
+                            crate::persistence::settings::get_bool(
+                                c,
+                                commands::embedding::DOWNLOAD_ACCEPTED,
+                            )
+                        })
                         .await
                         .unwrap_or(false);
                     if accepted {

@@ -6,7 +6,9 @@ use std::path::{Path, PathBuf};
 
 use oar_ocr::core::traits::adapter::{AdapterBuilder, ModelAdapter};
 use oar_ocr::core::traits::task::ImageTaskInput;
-use oar_ocr::domain::adapters::{LayoutDetectionAdapter, LayoutDetectionAdapterBuilder, LayoutModelConfig};
+use oar_ocr::domain::adapters::{
+    LayoutDetectionAdapter, LayoutDetectionAdapterBuilder, LayoutModelConfig,
+};
 use oar_ocr::domain::tasks::LayoutDetectionConfig;
 
 use super::ocr::OcrModel;
@@ -45,7 +47,10 @@ pub struct Region {
 impl Region {
     /// Running heads, page numbers and the like: not part of what the document says.
     pub fn is_furniture(&self) -> bool {
-        matches!(self.label.as_str(), "header" | "header_image" | "footer" | "footer_image" | "number")
+        matches!(
+            self.label.as_str(),
+            "header" | "header_image" | "footer" | "footer_image" | "number"
+        )
     }
 }
 
@@ -105,14 +110,22 @@ impl Layout {
     /// Regions in reading order, from the layout model alone (no text recognition, no table models,
     /// which fail a whole page when the wired table model is missing).
     pub fn detect(&self, img: image::RgbImage) -> Result<Vec<Region>> {
-        let out = self.adapter.execute(ImageTaskInput::new(vec![img]), None).map_err(fail)?;
+        let out = self
+            .adapter
+            .execute(ImageTaskInput::new(vec![img]), None)
+            .map_err(fail)?;
         let elements = out.elements.into_iter().next().unwrap_or_default();
         Ok(elements
             .into_iter()
             .enumerate()
             .map(|(i, e)| Region {
                 label: e.element_type.to_lowercase(),
-                rect: [e.bbox.x_min(), e.bbox.y_min(), e.bbox.x_max(), e.bbox.y_max()],
+                rect: [
+                    e.bbox.x_min(),
+                    e.bbox.y_min(),
+                    e.bbox.x_max(),
+                    e.bbox.y_max(),
+                ],
                 score: e.score,
                 order: i as u32,
             })
@@ -158,7 +171,12 @@ fn area(r: &[f32; 4]) -> f32 {
 }
 
 fn overlap(a: &[f32; 4], b: &[f32; 4]) -> f32 {
-    area(&[a[0].max(b[0]), a[1].max(b[1]), a[2].min(b[2]), a[3].min(b[3])])
+    area(&[
+        a[0].max(b[0]),
+        a[1].max(b[1]),
+        a[2].min(b[2]),
+        a[3].min(b[3]),
+    ])
 }
 
 /// The region a line belongs to: the smallest one holding most of it. Inline formula boxes sit
@@ -193,12 +211,22 @@ pub fn apply(blocks: Vec<Block>, pages: &[PageRegions]) -> (Vec<Block>, ApplySta
     let mut i = 0;
     while i < blocks.len() {
         let page = blocks[i].page;
-        let end = blocks[i..].iter().position(|b| b.page != page).map_or(blocks.len(), |n| i + n);
+        let end = blocks[i..]
+            .iter()
+            .position(|b| b.page != page)
+            .map_or(blocks.len(), |n| i + n);
         let lines = &blocks[i..end];
         i = end;
         stats.lines += lines.len();
-        let regions = pages.iter().find(|p| p.page == page).map(|p| p.regions.as_slice()).unwrap_or(&[]);
-        let placed: Vec<Option<usize>> = lines.iter().map(|b| b.rect.and_then(|r| region_of(&r, regions))).collect();
+        let regions = pages
+            .iter()
+            .find(|p| p.page == page)
+            .map(|p| p.regions.as_slice())
+            .unwrap_or(&[]);
+        let placed: Vec<Option<usize>> = lines
+            .iter()
+            .map(|b| b.rect.and_then(|r| region_of(&r, regions)))
+            .collect();
         let found = placed.iter().filter(|p| p.is_some()).count();
         if regions.is_empty() || (found as f32) < MIN_COVERAGE * lines.len() as f32 {
             out.extend_from_slice(lines);
@@ -207,7 +235,12 @@ pub fn apply(blocks: Vec<Block>, pages: &[PageRegions]) -> (Vec<Block>, ApplySta
         }
         // lines stay in the order they came in within a region; regions go in the model's order
         let mut order: Vec<usize> = (0..lines.len()).collect();
-        order.sort_by_key(|&j| (placed[j].map_or(usize::MAX, |r| regions[r].order as usize), j));
+        order.sort_by_key(|&j| {
+            (
+                placed[j].map_or(usize::MAX, |r| regions[r].order as usize),
+                j,
+            )
+        });
         let mut prev: Option<Kind> = None;
         for j in order {
             let Some(r) = placed[j].map(|r| &regions[r]) else {
@@ -233,13 +266,29 @@ pub fn apply(blocks: Vec<Block>, pages: &[PageRegions]) -> (Vec<Block>, ApplySta
 
 /// Passages from the lines `apply` kept, with each read table's grid passages put where its first
 /// line stood. The table's own lines are left out. `tables` are (page, region box, passages).
-pub fn weave(blocks: &[Block], pages: &[PageRegions], tables: &[(u32, [f32; 4], Vec<NewPassage>)]) -> Vec<NewPassage> {
+pub fn weave(
+    blocks: &[Block],
+    pages: &[PageRegions],
+    tables: &[(u32, [f32; 4], Vec<NewPassage>)],
+) -> Vec<NewPassage> {
     let mut out = Vec::new();
     let mut run: Vec<Block> = Vec::new();
     let mut placed = vec![false; tables.len()];
     for b in blocks {
-        let regions = pages.iter().find(|p| p.page == b.page).map(|p| p.regions.as_slice()).unwrap_or(&[]);
-        let hit = b.rect.and_then(|r| region_of(&r, regions)).map(|i| regions[i].rect).and_then(|rect| tables.iter().position(|(p, t, _)| *p == b.page && *t == rect));
+        let regions = pages
+            .iter()
+            .find(|p| p.page == b.page)
+            .map(|p| p.regions.as_slice())
+            .unwrap_or(&[]);
+        let hit = b
+            .rect
+            .and_then(|r| region_of(&r, regions))
+            .map(|i| regions[i].rect)
+            .and_then(|rect| {
+                tables
+                    .iter()
+                    .position(|(p, t, _)| *p == b.page && *t == rect)
+            });
         match hit {
             Some(t) => {
                 if !placed[t] {
@@ -261,11 +310,22 @@ mod tests {
     use super::*;
 
     fn region(label: &str, order: u32, rect: [f32; 4]) -> Region {
-        Region { label: label.into(), rect, score: 0.9, order }
+        Region {
+            label: label.into(),
+            rect,
+            score: 0.9,
+            order,
+        }
     }
 
     fn line(text: &str, rect: [f32; 4]) -> Block {
-        Block { page: 1, text: text.into(), rect: Some(rect), font_size: 10.0, join: Join::Space }
+        Block {
+            page: 1,
+            text: text.into(),
+            rect: Some(rect),
+            font_size: 10.0,
+            join: Join::Space,
+        }
     }
 
     fn page(regions: Vec<Region>) -> Vec<PageRegions> {
@@ -289,7 +349,10 @@ mod tests {
             line("12", [95.0, 5.0, 105.0, 15.0]),
         ];
         let (out, stats) = apply(blocks, &regions);
-        assert_eq!(out.iter().map(|b| b.text.as_str()).collect::<Vec<_>>(), ["left 1", "left 2", "right 1"]);
+        assert_eq!(
+            out.iter().map(|b| b.text.as_str()).collect::<Vec<_>>(),
+            ["left 1", "left 2", "right 1"]
+        );
         assert_eq!((stats.dropped, stats.unplaced, stats.pages_kept), (2, 0, 0));
     }
 
@@ -323,14 +386,33 @@ mod tests {
             line("cell two", [10.0, 130.0, 90.0, 140.0]),
             line("The text after the table.", [10.0, 50.0, 90.0, 60.0]),
         ];
-        let table = NewPassage { page_start: 1, page_end: 1, text: "| a | b |".into(), boxes: None };
-        let out = weave(&blocks, &regions, &[(1, [0.0, 100.0, 200.0, 190.0], vec![table])]);
-        assert_eq!(out.iter().map(|p| p.text.as_str()).collect::<Vec<_>>(), ["The text before the table.", "| a | b |", "The text after the table."]);
+        let table = NewPassage {
+            page_start: 1,
+            page_end: 1,
+            text: "| a | b |".into(),
+            boxes: None,
+        };
+        let out = weave(
+            &blocks,
+            &regions,
+            &[(1, [0.0, 100.0, 200.0, 190.0], vec![table])],
+        );
+        assert_eq!(
+            out.iter().map(|p| p.text.as_str()).collect::<Vec<_>>(),
+            [
+                "The text before the table.",
+                "| a | b |",
+                "The text after the table."
+            ]
+        );
     }
 
     #[test]
     fn low_coverage_or_no_regions_leaves_the_page_alone() {
-        let blocks = vec![line("a", [10.0, 10.0, 50.0, 20.0]), line("b", [10.0, 30.0, 50.0, 40.0])];
+        let blocks = vec![
+            line("a", [10.0, 10.0, 50.0, 20.0]),
+            line("b", [10.0, 30.0, 50.0, 40.0]),
+        ];
         let (out, stats) = apply(blocks.clone(), &page(vec![]));
         assert_eq!((out.len(), stats.pages_kept), (2, 1));
         let far = page(vec![region("text", 0, [500.0, 500.0, 600.0, 600.0])]);
@@ -342,7 +424,10 @@ mod tests {
     fn weak_furniture_and_inline_formulas_do_not_remove_text() {
         let mut head = region("header", 0, [0.0, 100.0, 200.0, 200.0]);
         head.score = 0.3;
-        let regions = page(vec![head, region("inline_formula", 1, [10.0, 140.0, 40.0, 160.0])]);
+        let regions = page(vec![
+            head,
+            region("inline_formula", 1, [10.0, 140.0, 40.0, 160.0]),
+        ]);
         let (out, stats) = apply(vec![line("kept", [10.0, 145.0, 90.0, 155.0])], &regions);
         assert_eq!((out.len(), stats.dropped), (1, 0));
     }

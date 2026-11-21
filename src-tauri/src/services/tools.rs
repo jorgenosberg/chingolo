@@ -8,10 +8,10 @@ use serde_json::{Value, json};
 use crate::domain::Conversation;
 use crate::domain::library::{DocFilter, DocStatus, Scope, SearchHit};
 use crate::error::{AppError, Result};
+use crate::persistence::Db;
 use crate::persistence::library::{self as repo, SearchOptions};
 use crate::persistence::sources::{self, NewSource};
 use crate::persistence::usage::{self, NewUsage};
-use crate::persistence::Db;
 use crate::services::ai::ToolSpec;
 use crate::services::embedding::engine::Embedder;
 use crate::services::ingestion::tables;
@@ -120,8 +120,15 @@ pub fn specs() -> Vec<ToolSpec> {
 /// A short line for the UI while a tool runs.
 pub fn summary(name: &str, args: &Value) -> String {
     match name {
-        "search_library" => match args["query"].as_str().map(str::trim).filter(|q| !q.is_empty()) {
-            Some(q) => format!("Searching your library for \"{}\"", q.chars().take(80).collect::<String>()),
+        "search_library" => match args["query"]
+            .as_str()
+            .map(str::trim)
+            .filter(|q| !q.is_empty())
+        {
+            Some(q) => format!(
+                "Searching your library for \"{}\"",
+                q.chars().take(80).collect::<String>()
+            ),
             None => "Searching your library".into(),
         },
         "list_documents" => "Listing your documents".into(),
@@ -139,7 +146,9 @@ pub async fn run(ctx: &ToolCtx, name: &str, args: &Value) -> Value {
         "list_documents" => list_documents(ctx).await,
         "read_section" => read_section(ctx, args).await,
         "get_page" => get_page(ctx, args).await,
-        other => Err(AppError::Invalid(format!("There is no tool called {other}."))),
+        other => Err(AppError::Invalid(format!(
+            "There is no tool called {other}."
+        ))),
     };
     result.unwrap_or_else(|e| {
         log::warn!("tool {name} failed: {e}");
@@ -153,33 +162,46 @@ async fn search(ctx: &ToolCtx, args: &Value) -> Result<Value> {
         .map(|q| q.trim().to_string())
         .filter(|q| !q.is_empty())
         .ok_or_else(|| AppError::Invalid("query is required.".into()))?;
-    let limit = (args["limit"].as_u64().unwrap_or(SEARCH_LIMIT_DEFAULT as u64) as u32).clamp(1, SEARCH_LIMIT_MAX);
+    let limit = (args["limit"]
+        .as_u64()
+        .unwrap_or(SEARCH_LIMIT_DEFAULT as u64) as u32)
+        .clamp(1, SEARCH_LIMIT_MAX);
 
     let embedder = ctx.embedder.clone();
     let text = query.clone();
-    let vector = match tauri::async_runtime::spawn_blocking(move || embedder.embed_query(&text)).await {
-        Ok(Ok(v)) => v,
-        Ok(Err(e)) => {
-            log::warn!("tool search: query embedding failed, using keywords only: {e}");
-            None
-        }
-        Err(e) => {
-            log::warn!("tool search: query embedding task failed, using keywords only: {e}");
-            None
-        }
-    };
+    let vector =
+        match tauri::async_runtime::spawn_blocking(move || embedder.embed_query(&text)).await {
+            Ok(Ok(v)) => v,
+            Ok(Err(e)) => {
+                log::warn!("tool search: query embedding failed, using keywords only: {e}");
+                None
+            }
+            Err(e) => {
+                log::warn!("tool search: query embedding task failed, using keywords only: {e}");
+                None
+            }
+        };
     let by_meaning = vector.is_some();
     let identity = ctx.embedder.backend().identity();
     let filter = ctx.filter.clone();
     // With reranking on, the model sees a wider pool and the best `limit` of it come back.
-    let pool = if ctx.rerank.is_some() { rerank::CANDIDATES.max(limit) } else { limit };
+    let pool = if ctx.rerank.is_some() {
+        rerank::CANDIDATES.max(limit)
+    } else {
+        limit
+    };
     let text = query.clone();
     let mut hits = ctx
         .db
         .call(move |c| match vector {
             Some(v) => retrieval::hybrid_search(c, &text, &v, identity, &filter, pool),
             None => {
-                let opts = SearchOptions { filter: &filter, all_terms: false, prefix_last: false, limit: pool };
+                let opts = SearchOptions {
+                    filter: &filter,
+                    all_terms: false,
+                    prefix_last: false,
+                    limit: pool,
+                };
                 repo::search_passages(c, &text, &opts)
             }
         })
@@ -197,7 +219,11 @@ async fn search(ctx: &ToolCtx, args: &Value) -> Result<Value> {
         if let Ok(x) = result {
             hits = x.hits;
         }
-        let (provider, model, conv) = (r.provider.id(), r.model.clone(), ctx.conversation_id.clone());
+        let (provider, model, conv) = (
+            r.provider.id(),
+            r.model.clone(),
+            ctx.conversation_id.clone(),
+        );
         let recorded = ctx
             .db
             .call(move |c| {
@@ -255,7 +281,12 @@ fn list_documents_sync(conn: &Connection, filter: &DocFilter) -> Result<Value> {
         .iter()
         .take(LIST_MAX)
         .map(|d| {
-            let title = d.title.as_deref().map(str::trim).filter(|t| !t.is_empty()).unwrap_or(&d.original_name);
+            let title = d
+                .title
+                .as_deref()
+                .map(str::trim)
+                .filter(|t| !t.is_empty())
+                .unwrap_or(&d.original_name);
             let status = match d.status {
                 DocStatus::Ready => "ready",
                 DocStatus::Queued | DocStatus::Processing => "still being read, not searchable yet",
@@ -287,17 +318,27 @@ async fn read_section(ctx: &ToolCtx, args: &Value) -> Result<Value> {
     let before = (args["before"].as_u64().unwrap_or(1) as u32).min(NEIGHBOURS_MAX);
     let after = (args["after"].as_u64().unwrap_or(1) as u32).min(NEIGHBOURS_MAX);
     let conversation_id = ctx.conversation_id.clone();
-    ctx.db.call(move |c| read_section_sync(c, &conversation_id, handle, before, after)).await
+    ctx.db
+        .call(move |c| read_section_sync(c, &conversation_id, handle, before, after))
+        .await
 }
 
 async fn get_page(ctx: &ToolCtx, args: &Value) -> Result<Value> {
     let handle = parse_handle(&args["handle"])?;
     let page = args["page"].as_u64().map(|p| p as u32);
     let conversation_id = ctx.conversation_id.clone();
-    ctx.db.call(move |c| get_page_sync(c, &conversation_id, handle, page)).await
+    ctx.db
+        .call(move |c| get_page_sync(c, &conversation_id, handle, page))
+        .await
 }
 
-fn read_section_sync(conn: &mut Connection, conversation_id: &str, handle: u32, before: u32, after: u32) -> Result<Value> {
+fn read_section_sync(
+    conn: &mut Connection,
+    conversation_id: &str,
+    handle: u32,
+    before: u32,
+    after: u32,
+) -> Result<Value> {
     let src = known_source(conn, conversation_id, handle)?;
     let hits = repo::passages_around(conn, &src.passage_id, before, after)?;
     if hits.is_empty() {
@@ -308,15 +349,24 @@ fn read_section_sync(conn: &mut Connection, conversation_id: &str, handle: u32, 
     results_json(conn, conversation_id, &hits)
 }
 
-fn get_page_sync(conn: &mut Connection, conversation_id: &str, handle: u32, page: Option<u32>) -> Result<Value> {
+fn get_page_sync(
+    conn: &mut Connection,
+    conversation_id: &str,
+    handle: u32,
+    page: Option<u32>,
+) -> Result<Value> {
     let src = known_source(conn, conversation_id, handle)?;
     let page = page.unwrap_or(src.page);
     if page == 0 {
-        return Err(AppError::Invalid("This document has no pages. Use read_section instead.".into()));
+        return Err(AppError::Invalid(
+            "This document has no pages. Use read_section instead.".into(),
+        ));
     }
     let hits = repo::passages_on_page(conn, &src.document_id, page, PAGE_LIMIT)?;
     if hits.is_empty() {
-        return Err(AppError::Invalid(format!("There is no text on page {page} of that document.")));
+        return Err(AppError::Invalid(format!(
+            "There is no text on page {page} of that document."
+        )));
     }
     results_json(conn, conversation_id, &hits)
 }
@@ -334,7 +384,12 @@ const TABLE_NOTE: &str = "A table. The numbers were read from the PDF's text. Wh
 fn parse_handle(v: &Value) -> Result<u32> {
     let parsed = match v {
         Value::Number(n) => n.as_u64().and_then(|n| u32::try_from(n).ok()),
-        Value::String(s) => s.trim().trim_matches(['[', ']']).trim_start_matches(['S', 's']).parse().ok(),
+        Value::String(s) => s
+            .trim()
+            .trim_matches(['[', ']'])
+            .trim_start_matches(['S', 's'])
+            .parse()
+            .ok(),
         _ => None,
     };
     parsed.ok_or_else(|| AppError::Invalid("handle must look like S3.".into()))
@@ -343,7 +398,11 @@ fn parse_handle(v: &Value) -> Result<u32> {
 /// What the model sees for a passage: who wrote it and when, the title and the pages, such as
 /// `Boyd et al. 2004, "The decline and fate...", p. 3`.
 fn source_label(h: &SearchHit, label: &str) -> String {
-    let named = if label.is_empty() { h.document_title.clone() } else { format!("{label}, \"{}\"", h.document_title) };
+    let named = if label.is_empty() {
+        h.document_title.clone()
+    } else {
+        format!("{label}, \"{}\"", h.document_title)
+    };
     match (h.page_start, h.page_end) {
         (0, _) => named,
         (a, b) if a == b => format!("{named}, p. {a}"),
@@ -358,7 +417,9 @@ fn results_json(conn: &mut Connection, conversation_id: &str, hits: &[SearchHit]
     let mut labels: std::collections::HashMap<&str, String> = std::collections::HashMap::new();
     for h in hits {
         if !labels.contains_key(h.document_id.as_str()) {
-            let label = repo::get_document(&tx, &h.document_id).map(|d| d.label()).unwrap_or_default();
+            let label = repo::get_document(&tx, &h.document_id)
+                .map(|d| d.label())
+                .unwrap_or_default();
             labels.insert(&h.document_id, label);
         }
         let label = labels[h.document_id.as_str()].as_str();
@@ -393,13 +454,25 @@ mod tests {
     use crate::persistence::test_conn;
 
     fn doc(conn: &mut Connection, hash: &str, name: &str, pages: &[u32]) -> String {
-        let d = repo::insert_document(conn, hash, name, crate::domain::library::DocKind::Pdf).unwrap();
+        let d =
+            repo::insert_document(conn, hash, name, crate::domain::library::DocKind::Pdf).unwrap();
         let passages: Vec<_> = pages
             .iter()
             .enumerate()
-            .map(|(i, p)| NewPassage { page_start: *p, page_end: *p, text: format!("{name} passage {i}"), boxes: None })
+            .map(|(i, p)| NewPassage {
+                page_start: *p,
+                page_end: *p,
+                text: format!("{name} passage {i}"),
+                boxes: None,
+            })
             .collect();
-        let pages = vec![NewPage { page_no: 1, width: 600.0, height: 800.0, quality: "ok", ocr: false }];
+        let pages = vec![NewPage {
+            page_no: 1,
+            width: 600.0,
+            height: 800.0,
+            quality: "ok",
+            ocr: false,
+        }];
         repo::store_content(
             conn,
             &d.id,
@@ -435,10 +508,16 @@ mod tests {
         assert_eq!(first["results"][0]["handle"], "S1");
         assert_eq!(first["results"][1]["handle"], "S2");
         assert_eq!(first["results"][1]["source"], "Alpha, p. 2");
-        assert!(!first.to_string().contains(&all[0].passage_id), "the model never sees a passage id");
+        assert!(
+            !first.to_string().contains(&all[0].passage_id),
+            "the model never sees a passage id"
+        );
 
         let again = results_json(&mut conn, &conv.id, &all[1..]).unwrap();
-        assert_eq!(again["results"][0]["handle"], "S2", "a passage keeps its handle");
+        assert_eq!(
+            again["results"][0]["handle"], "S2",
+            "a passage keeps its handle"
+        );
         assert_eq!(again["results"][1]["handle"], "S3");
     }
 
@@ -446,15 +525,41 @@ mod tests {
     fn a_table_passage_is_marked_as_a_table_read_by_a_model() {
         let mut conn = test_conn();
         let conv = chat::create_conversation(&conn, None, None, "gemini", Some("m")).unwrap();
-        let d = repo::insert_document(&conn, "ht", "Beta", crate::domain::library::DocKind::Pdf).unwrap();
+        let d = repo::insert_document(&conn, "ht", "Beta", crate::domain::library::DocKind::Pdf)
+            .unwrap();
         let grid = "| Site | Chl a |\n| --- | --- |\n| A | 12.5 |";
-        let passages = [grid, "Plain text about the sites in the study."].map(|t| NewPassage { page_start: 1, page_end: 1, text: t.into(), boxes: None });
-        let pages = vec![NewPage { page_no: 1, width: 600.0, height: 800.0, quality: "ok", ocr: false }];
-        repo::store_content(&mut conn, &d.id, &pages, &passages, &Default::default(), crate::domain::library::DocStatus::Ready, None).unwrap();
+        let passages = [grid, "Plain text about the sites in the study."].map(|t| NewPassage {
+            page_start: 1,
+            page_end: 1,
+            text: t.into(),
+            boxes: None,
+        });
+        let pages = vec![NewPage {
+            page_no: 1,
+            width: 600.0,
+            height: 800.0,
+            quality: "ok",
+            ocr: false,
+        }];
+        repo::store_content(
+            &mut conn,
+            &d.id,
+            &pages,
+            &passages,
+            &Default::default(),
+            crate::domain::library::DocStatus::Ready,
+            None,
+        )
+        .unwrap();
         let all = hits(&conn, &d.id);
         let out = results_json(&mut conn, &conv.id, &all).unwrap();
         assert_eq!(out["results"][0]["kind"], "table");
-        assert!(out["results"][0]["note"].as_str().unwrap().contains("worked out by a model"));
+        assert!(
+            out["results"][0]["note"]
+                .as_str()
+                .unwrap()
+                .contains("worked out by a model")
+        );
         assert!(out["results"][1].get("kind").is_none());
     }
 
@@ -464,16 +569,31 @@ mod tests {
         let mut conn = test_conn();
         let conv = chat::create_conversation(&conn, None, None, "gemini", Some("m")).unwrap();
         let d = doc(&mut conn, "h1", "Alpha", &[1, 2]);
-        let m = Extracted { authors: vec!["Philip W. Boyd".into(), "Tim Jickells".into(), "Cliff Law".into()], year: Some(2004), journal: Some("Nature".into()), ..Default::default() };
+        let m = Extracted {
+            authors: vec![
+                "Philip W. Boyd".into(),
+                "Tim Jickells".into(),
+                "Cliff Law".into(),
+            ],
+            year: Some(2004),
+            journal: Some("Nature".into()),
+            ..Default::default()
+        };
         apply_metadata(&conn, &d, &m, "file", true).unwrap();
         let all = hits(&conn, &d);
         let out = results_json(&mut conn, &conv.id, &all[1..2]).unwrap();
-        assert_eq!(out["results"][0]["source"], "Boyd et al. 2004, \"Alpha\", p. 2");
+        assert_eq!(
+            out["results"][0]["source"],
+            "Boyd et al. 2004, \"Alpha\", p. 2"
+        );
         let saved = sources::get(&conn, &conv.id, 1).unwrap().unwrap();
         assert_eq!(saved.label, "Boyd et al. 2004");
         let listed = list_documents_sync(&conn, &DocFilter::All).unwrap();
         let first = &listed["documents"][0];
-        assert_eq!((first["cite_as"].as_str(), first["journal"].as_str()), (Some("Boyd et al. 2004"), Some("Nature")));
+        assert_eq!(
+            (first["cite_as"].as_str(), first["journal"].as_str()),
+            (Some("Boyd et al. 2004"), Some("Nature"))
+        );
         assert_eq!(first["authors"].as_array().unwrap().len(), 3);
     }
 
@@ -486,15 +606,30 @@ mod tests {
         results_json(&mut conn, &conv.id, &all[2..3]).unwrap(); // S1 is the page 2 passage
 
         let around = read_section_sync(&mut conn, &conv.id, 1, 1, 1).unwrap();
-        let texts: Vec<_> = around["results"].as_array().unwrap().iter().map(|r| r["text"].as_str().unwrap().to_string()).collect();
-        assert_eq!(texts, ["Alpha passage 1", "Alpha passage 2", "Alpha passage 3"], "reading order, with the neighbours");
+        let texts: Vec<_> = around["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["text"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(
+            texts,
+            ["Alpha passage 1", "Alpha passage 2", "Alpha passage 3"],
+            "reading order, with the neighbours"
+        );
 
         let page = get_page_sync(&mut conn, &conv.id, 1, Some(1)).unwrap();
         assert_eq!(page["results"].as_array().unwrap().len(), 2);
         let default_page = get_page_sync(&mut conn, &conv.id, 1, None).unwrap();
-        assert_eq!(default_page["results"].as_array().unwrap().len(), 1, "defaults to the handle's page");
+        assert_eq!(
+            default_page["results"].as_array().unwrap().len(),
+            1,
+            "defaults to the handle's page"
+        );
 
-        let unknown = read_section_sync(&mut conn, &conv.id, 9, 1, 1).unwrap_err().to_string();
+        let unknown = read_section_sync(&mut conn, &conv.id, 9, 1, 1)
+            .unwrap_err()
+            .to_string();
         assert!(unknown.contains("S9"), "{unknown}");
         assert!(get_page_sync(&mut conn, &conv.id, 1, Some(40)).is_err());
         assert!(get_page_sync(&mut conn, &conv.id, 1, Some(0)).is_err());
@@ -502,7 +637,13 @@ mod tests {
 
     #[test]
     fn handles_are_read_in_any_common_spelling() {
-        for v in [json!("S12"), json!("[S12]"), json!("s12"), json!(12), json!(" S12 ")] {
+        for v in [
+            json!("S12"),
+            json!("[S12]"),
+            json!("s12"),
+            json!(12),
+            json!(" S12 "),
+        ] {
             assert_eq!(parse_handle(&v).unwrap(), 12, "{v}");
         }
         for v in [json!("abc"), json!(null), json!(-1), json!("S")] {
@@ -521,12 +662,27 @@ mod tests {
         let p = crate::persistence::projects::create_project(&conn, "P").unwrap();
         let loose = conv_with(&conn, None, None);
         let in_p = conv_with(&conn, Some(&p.id), None);
-        assert_eq!(scope_for(&conn, &loose).unwrap(), None, "nothing to read yet");
+        assert_eq!(
+            scope_for(&conn, &loose).unwrap(),
+            None,
+            "nothing to read yet"
+        );
         let d = doc(&mut conn, "h1", "Alpha", &[1]);
-        assert_eq!(scope_for(&conn, &in_p).unwrap(), Some(DocFilter::All), "an empty project falls back to the library");
+        assert_eq!(
+            scope_for(&conn, &in_p).unwrap(),
+            Some(DocFilter::All),
+            "an empty project falls back to the library"
+        );
         assert_eq!(scope_for(&conn, &loose).unwrap(), Some(DocFilter::All));
-        conn.execute("INSERT INTO project_documents (project_id, document_id, added_at) VALUES (?1, ?2, 0)", [&p.id, &d]).unwrap();
-        assert_eq!(scope_for(&conn, &in_p).unwrap(), Some(DocFilter::Project(p.id.clone())));
+        conn.execute(
+            "INSERT INTO project_documents (project_id, document_id, added_at) VALUES (?1, ?2, 0)",
+            [&p.id, &d],
+        )
+        .unwrap();
+        assert_eq!(
+            scope_for(&conn, &in_p).unwrap(),
+            Some(DocFilter::Project(p.id.clone()))
+        );
     }
 
     #[test]
@@ -534,20 +690,51 @@ mod tests {
         let mut conn = test_conn();
         let p = crate::persistence::projects::create_project(&conn, "P").unwrap();
         let a = doc(&mut conn, "h1", "Alpha", &[1]);
-        let queued = repo::insert_document(&conn, "h2", "q.pdf", crate::domain::library::DocKind::Pdf).unwrap();
+        let queued =
+            repo::insert_document(&conn, "h2", "q.pdf", crate::domain::library::DocKind::Pdf)
+                .unwrap();
 
         let library = conv_with(&conn, Some(&p.id), Some(Scope::Library));
         assert_eq!(scope_for(&conn, &library).unwrap(), Some(DocFilter::All));
         let empty_project = conv_with(&conn, Some(&p.id), Some(Scope::Project));
-        assert_eq!(scope_for(&conn, &empty_project).unwrap(), None, "the project is empty, the library is not used instead");
+        assert_eq!(
+            scope_for(&conn, &empty_project).unwrap(),
+            None,
+            "the project is empty, the library is not used instead"
+        );
         let no_project = conv_with(&conn, None, Some(Scope::Project));
         assert_eq!(scope_for(&conn, &no_project).unwrap(), None);
 
-        let chosen = conv_with(&conn, None, Some(Scope::Documents { ids: vec![a.clone()] }));
-        assert_eq!(scope_for(&conn, &chosen).unwrap(), Some(DocFilter::Documents(vec![a.clone()])));
-        let not_ready = conv_with(&conn, None, Some(Scope::Documents { ids: vec![queued.id] }));
-        assert_eq!(scope_for(&conn, &not_ready).unwrap(), None, "a document still being read gives no tools");
-        let gone = conv_with(&conn, None, Some(Scope::Documents { ids: vec!["deleted".into()] }));
+        let chosen = conv_with(
+            &conn,
+            None,
+            Some(Scope::Documents {
+                ids: vec![a.clone()],
+            }),
+        );
+        assert_eq!(
+            scope_for(&conn, &chosen).unwrap(),
+            Some(DocFilter::Documents(vec![a.clone()]))
+        );
+        let not_ready = conv_with(
+            &conn,
+            None,
+            Some(Scope::Documents {
+                ids: vec![queued.id],
+            }),
+        );
+        assert_eq!(
+            scope_for(&conn, &not_ready).unwrap(),
+            None,
+            "a document still being read gives no tools"
+        );
+        let gone = conv_with(
+            &conn,
+            None,
+            Some(Scope::Documents {
+                ids: vec!["deleted".into()],
+            }),
+        );
         assert_eq!(scope_for(&conn, &gone).unwrap(), None);
     }
 
@@ -556,16 +743,31 @@ mod tests {
         let mut conn = test_conn();
         let a = doc(&mut conn, "h1", "Alpha", &[1]);
         let b = doc(&mut conn, "h2", "Beta", &[1]);
-        repo::insert_document(&conn, "h3", "waiting.pdf", crate::domain::library::DocKind::Pdf).unwrap();
+        repo::insert_document(
+            &conn,
+            "h3",
+            "waiting.pdf",
+            crate::domain::library::DocKind::Pdf,
+        )
+        .unwrap();
 
         let all = list_documents_sync(&conn, &DocFilter::All).unwrap();
-        assert_eq!((all["total"].as_u64(), all["ready"].as_u64()), (Some(3), Some(2)));
-        assert!(all.to_string().contains("not searchable yet"), "an unread document is reported as such");
+        assert_eq!(
+            (all["total"].as_u64(), all["ready"].as_u64()),
+            (Some(3), Some(2))
+        );
+        assert!(
+            all.to_string().contains("not searchable yet"),
+            "an unread document is reported as such"
+        );
 
         let one = list_documents_sync(&conn, &DocFilter::Documents(vec![b.clone()])).unwrap();
         assert_eq!(one["total"], 1);
         assert_eq!(one["documents"][0]["title"], "Beta");
         let text = one.to_string();
-        assert!(!text.contains(&a) && !text.contains(&b), "no document ids reach the model");
+        assert!(
+            !text.contains(&a) && !text.contains(&b),
+            "no document ids reach the model"
+        );
     }
 }

@@ -73,7 +73,9 @@ pub fn handle_for(conn: &Connection, conversation_id: &str, s: &NewSource) -> Re
 pub fn get(conn: &Connection, conversation_id: &str, handle: u32) -> Result<Option<Source>> {
     Ok(conn
         .query_row(
-            &format!("SELECT {COLS} FROM conversation_sources WHERE conversation_id = ?1 AND handle = ?2"),
+            &format!(
+                "SELECT {COLS} FROM conversation_sources WHERE conversation_id = ?1 AND handle = ?2"
+            ),
             params![conversation_id, handle],
             from_row,
         )
@@ -106,7 +108,14 @@ mod tests {
     use crate::persistence::{chat, test_conn};
 
     fn src<'a>(passage: &'a str, text: &'a str) -> NewSource<'a> {
-        NewSource { passage_id: passage, document_id: "d1", title: "A paper", label: "Boyd 2004", page: 3, text }
+        NewSource {
+            passage_id: passage,
+            document_id: "d1",
+            title: "A paper",
+            label: "Boyd 2004",
+            page: 3,
+            text,
+        }
     }
 
     #[test]
@@ -116,8 +125,16 @@ mod tests {
         let b = chat::create_conversation(&conn, None, None, "gemini", Some("m")).unwrap();
         assert_eq!(handle_for(&conn, &a.id, &src("p1", "one")).unwrap(), 1);
         assert_eq!(handle_for(&conn, &a.id, &src("p2", "two")).unwrap(), 2);
-        assert_eq!(handle_for(&conn, &a.id, &src("p1", "changed")).unwrap(), 1, "same passage, same handle");
-        assert_eq!(handle_for(&conn, &b.id, &src("p2", "two")).unwrap(), 1, "numbering is per conversation");
+        assert_eq!(
+            handle_for(&conn, &a.id, &src("p1", "changed")).unwrap(),
+            1,
+            "same passage, same handle"
+        );
+        assert_eq!(
+            handle_for(&conn, &b.id, &src("p2", "two")).unwrap(),
+            1,
+            "numbering is per conversation"
+        );
         let first = get(&conn, &a.id, 1).unwrap().unwrap();
         assert_eq!(first.text, "one", "the snapshot is not overwritten");
         assert_eq!((first.title.as_str(), first.page), ("A paper", 3));
@@ -134,7 +151,11 @@ mod tests {
         let b = chat::create_conversation(&conn, None, None, "gemini", Some("m")).unwrap();
         copy_all(&conn, &a.id, &b.id).unwrap();
         assert_eq!(list(&conn, &b.id).unwrap(), list(&conn, &a.id).unwrap());
-        assert_eq!(handle_for(&conn, &b.id, &src("p3", "three")).unwrap(), 3, "numbering continues in the copy");
+        assert_eq!(
+            handle_for(&conn, &b.id, &src("p3", "three")).unwrap(),
+            3,
+            "numbering continues in the copy"
+        );
 
         chat::delete_conversation(&conn, &a.id).unwrap();
         assert!(list(&conn, &a.id).unwrap().is_empty());

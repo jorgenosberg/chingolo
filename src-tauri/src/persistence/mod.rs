@@ -3,10 +3,10 @@
 
 pub mod chat;
 pub mod library;
-pub mod usage;
 pub mod projects;
 pub mod settings;
 pub mod sources;
+pub mod usage;
 pub mod vectors;
 
 use std::path::{Path, PathBuf};
@@ -78,7 +78,10 @@ fn back_up_before_migrating(conn: &Connection, path: &Path, latest: usize) -> Re
     if version == 0 || version >= latest {
         return Ok(());
     }
-    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("database");
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("database");
     let target = path.with_file_name(format!("{name}.bak-v{version}"));
     if target.exists() {
         std::fs::remove_file(&target)
@@ -86,7 +89,10 @@ fn back_up_before_migrating(conn: &Connection, path: &Path, latest: usize) -> Re
     }
     // VACUUM INTO writes a consistent copy that includes what is still in the WAL.
     conn.execute("VACUUM INTO ?1", [target.to_string_lossy().as_ref()])?;
-    log::info!("database backed up to {} before migrating from version {version}", target.display());
+    log::info!(
+        "database backed up to {} before migrating from version {version}",
+        target.display()
+    );
     prune_backups(path, name);
     Ok(())
 }
@@ -99,7 +105,12 @@ fn prune_backups(path: &Path, name: &str) {
         .flatten()
         .flatten()
         .filter_map(|e| {
-            let v = e.file_name().to_str()?.strip_prefix(&prefix)?.parse().ok()?;
+            let v = e
+                .file_name()
+                .to_str()?
+                .strip_prefix(&prefix)?
+                .parse()
+                .ok()?;
             Some((v, e.path()))
         })
         .collect();
@@ -156,7 +167,8 @@ mod tests {
         let mut conn = Connection::open(&path).unwrap();
         conn.pragma_update(None, "journal_mode", "WAL").unwrap();
         migrate(&mut conn).unwrap();
-        conn.execute("INSERT INTO settings (key, value) VALUES ('k', 'v')", []).unwrap();
+        conn.execute("INSERT INTO settings (key, value) VALUES ('k', 'v')", [])
+            .unwrap();
 
         // Up to date: nothing to back up.
         back_up_before_migrating(&conn, &path, MIGRATIONS.len()).unwrap();
@@ -165,7 +177,11 @@ mod tests {
         // A newer schema is coming: the copy has the data, including what sits in the WAL.
         back_up_before_migrating(&conn, &path, MIGRATIONS.len() + 1).unwrap();
         let copy = Connection::open(dir.path().join("test.sqlite.bak-v1")).unwrap();
-        let v: String = copy.query_row("SELECT value FROM settings WHERE key = 'k'", [], |r| r.get(0)).unwrap();
+        let v: String = copy
+            .query_row("SELECT value FROM settings WHERE key = 'k'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
         assert_eq!(v, "v");
 
         // Only the newest two stay.

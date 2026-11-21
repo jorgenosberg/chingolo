@@ -5,7 +5,10 @@ use specta::Type;
 use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 
-use crate::domain::library::{DocFilter, DocStatus, Document, MetadataPatch, PageBoxes, PageRegion, PassageView, SearchHit, SourceView};
+use crate::domain::library::{
+    DocFilter, DocStatus, Document, MetadataPatch, PageBoxes, PageRegion, PassageView, SearchHit,
+    SourceView,
+};
 use crate::error::{AppError, CmdResult};
 use crate::persistence::library::{self as repo, SearchOptions};
 use crate::services::ingestion::import::{self, ImportSummary};
@@ -31,7 +34,11 @@ pub async fn pick_and_import(
 ) -> CmdResult<ImportSummary> {
     let dialog = app.dialog().file();
     let picked: Vec<PathBuf> = if folder {
-        dialog.blocking_pick_folder().into_iter().filter_map(|p| p.into_path().ok()).collect()
+        dialog
+            .blocking_pick_folder()
+            .into_iter()
+            .filter_map(|p| p.into_path().ok())
+            .collect()
     } else {
         dialog
             .add_filter("Papers (PDF, Word)", &["pdf", "docx"])
@@ -51,14 +58,23 @@ pub async fn pick_and_import(
 #[tauri::command]
 #[specta::specta]
 pub fn set_import_target(state: State<'_, AppState>, project_id: Option<String>) -> CmdResult<()> {
-    *state.import_target.lock().map_err(|_| AppError::Internal("lock poisoned".into()))? = project_id;
+    *state
+        .import_target
+        .lock()
+        .map_err(|_| AppError::Internal("lock poisoned".into()))? = project_id;
     Ok(())
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn list_documents(state: State<'_, AppState>, project_id: Option<String>) -> CmdResult<Vec<Document>> {
-    Ok(state.db.call(move |c| repo::list_documents(c, project_id.as_deref())).await?)
+pub async fn list_documents(
+    state: State<'_, AppState>,
+    project_id: Option<String>,
+) -> CmdResult<Vec<Document>> {
+    Ok(state
+        .db
+        .call(move |c| repo::list_documents(c, project_id.as_deref()))
+        .await?)
 }
 
 #[tauri::command]
@@ -68,7 +84,10 @@ pub async fn update_document_metadata(
     id: String,
     patch: MetadataPatch,
 ) -> CmdResult<Document> {
-    Ok(state.db.call(move |c| repo::update_metadata(c, &id, &patch)).await?)
+    Ok(state
+        .db
+        .call(move |c| repo::update_metadata(c, &id, &patch))
+        .await?)
 }
 
 /// Removes the document, its index entries and the stored copy. The original file is untouched.
@@ -97,7 +116,9 @@ pub async fn retry_import(state: State<'_, AppState>, id: String) -> CmdResult<D
         .call(move |c| {
             let d = repo::get_document(c, &id)?;
             if matches!(d.status, DocStatus::Queued | DocStatus::Processing) {
-                return Err(AppError::Invalid("This document is already being read.".into()));
+                return Err(AppError::Invalid(
+                    "This document is already being read.".into(),
+                ));
             }
             repo::set_status(c, &id, DocStatus::Queued, None)
         })
@@ -123,7 +144,10 @@ pub async fn refresh_details(state: State<'_, AppState>, id: String) -> CmdResul
 #[specta::specta]
 pub async fn refresh_all_details(state: State<'_, AppState>) -> CmdResult<u32> {
     let docs = state.db.call(|c| repo::list_documents(c, None)).await?;
-    let docs: Vec<_> = docs.into_iter().filter(|d| matches!(d.status, DocStatus::Ready | DocStatus::NoText)).collect();
+    let docs: Vec<_> = docs
+        .into_iter()
+        .filter(|d| matches!(d.status, DocStatus::Ready | DocStatus::NoText))
+        .collect();
     for d in &docs {
         state.ingest.enqueue_details(d);
     }
@@ -133,15 +157,29 @@ pub async fn refresh_all_details(state: State<'_, AppState>) -> CmdResult<u32> {
 
 #[tauri::command]
 #[specta::specta]
-pub async fn attach_document(state: State<'_, AppState>, project_id: String, document_id: String) -> CmdResult<()> {
-    Ok(state.db.call(move |c| repo::attach(c, &project_id, &document_id)).await?)
+pub async fn attach_document(
+    state: State<'_, AppState>,
+    project_id: String,
+    document_id: String,
+) -> CmdResult<()> {
+    Ok(state
+        .db
+        .call(move |c| repo::attach(c, &project_id, &document_id))
+        .await?)
 }
 
 /// Takes the document out of a project. It stays in the library.
 #[tauri::command]
 #[specta::specta]
-pub async fn detach_document(state: State<'_, AppState>, project_id: String, document_id: String) -> CmdResult<()> {
-    Ok(state.db.call(move |c| repo::detach(c, &project_id, &document_id)).await?)
+pub async fn detach_document(
+    state: State<'_, AppState>,
+    project_id: String,
+    document_id: String,
+) -> CmdResult<()> {
+    Ok(state
+        .db
+        .call(move |c| repo::detach(c, &project_id, &document_id))
+        .await?)
 }
 
 /// Search over the text of documents that are ready. With `meaning` set, keywords and meaning are
@@ -186,14 +224,23 @@ pub async fn search_library(
         .call(move |c| match vector {
             Some(v) => retrieval::hybrid_search(c, &trimmed, &v, identity, &filter, limit),
             None => {
-                let opts = SearchOptions { filter: &filter, all_terms: true, prefix_last: true, limit };
+                let opts = SearchOptions {
+                    filter: &filter,
+                    all_terms: true,
+                    prefix_last: true,
+                    limit,
+                };
                 repo::search_passages(c, &query, &opts)
             }
         })
         .await?;
     log::info!(
         "library search ({}): {} hits, embedding {} ms, total {} ms",
-        if by_meaning { "keyword + meaning" } else { "keyword only" },
+        if by_meaning {
+            "keyword + meaning"
+        } else {
+            "keyword only"
+        },
         hits.len(),
         embed_ms,
         started.elapsed().as_millis()
@@ -204,28 +251,49 @@ pub async fn search_library(
 /// The saved copy of a cited passage, for when its document was deleted or read again.
 #[tauri::command]
 #[specta::specta]
-pub async fn get_source(state: State<'_, AppState>, conversation_id: String, handle: u32) -> CmdResult<SourceView> {
+pub async fn get_source(
+    state: State<'_, AppState>,
+    conversation_id: String,
+    handle: u32,
+) -> CmdResult<SourceView> {
     let s = state
         .db
         .call(move |c| crate::persistence::sources::get(c, &conversation_id, handle))
         .await?
         .ok_or(AppError::NotFound)?;
-    Ok(SourceView { handle: s.handle, title: s.title, page: s.page, text: s.text })
+    Ok(SourceView {
+        handle: s.handle,
+        title: s.title,
+        page: s.page,
+        text: s.text,
+    })
 }
 
 /// The layout regions stored for a document, for the developer view. Empty before layout has run.
 #[tauri::command]
 #[specta::specta]
-pub async fn get_layout(state: State<'_, AppState>, document_id: String) -> CmdResult<Vec<PageRegion>> {
-    Ok(state.db.call(move |c| repo::list_regions(c, &document_id)).await?)
+pub async fn get_layout(
+    state: State<'_, AppState>,
+    document_id: String,
+) -> CmdResult<Vec<PageRegion>> {
+    Ok(state
+        .db
+        .call(move |c| repo::list_regions(c, &document_id))
+        .await?)
 }
 
 /// A passage with its line boxes, for opening it in the reader.
 #[tauri::command]
 #[specta::specta]
 pub async fn get_passage(state: State<'_, AppState>, passage_id: String) -> CmdResult<PassageView> {
-    let p = state.db.call(move |c| repo::get_passage(c, &passage_id)).await?;
-    let boxes = p.boxes.and_then(|b| serde_json::from_str::<Vec<PageBoxes>>(&b).ok()).unwrap_or_default();
+    let p = state
+        .db
+        .call(move |c| repo::get_passage(c, &passage_id))
+        .await?;
+    let boxes = p
+        .boxes
+        .and_then(|b| serde_json::from_str::<Vec<PageBoxes>>(&b).ok())
+        .unwrap_or_default();
     Ok(PassageView {
         id: p.id,
         document_id: p.document_id,

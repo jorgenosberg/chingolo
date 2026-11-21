@@ -8,8 +8,8 @@ use tokio::sync::mpsc;
 
 use super::sse::SseParser;
 use super::{
-    Capabilities, EventStream, FinishReason, GenerationEvent, GenerationRequest, Part, Provider, Turn, TurnRole,
-    merge_turns,
+    Capabilities, EventStream, FinishReason, GenerationEvent, GenerationRequest, Part, Provider,
+    Turn, TurnRole, merge_turns,
 };
 use crate::domain::ModelInfo;
 use crate::error::{AppError, Result};
@@ -21,7 +21,14 @@ const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 const RETRIES_ON_503: u32 = 2;
 const RETRY_DELAY: Duration = Duration::from_secs(2);
 /// Models that accept generateContent but are not text chat models.
-const SKIP_IDS: &[&str] = &["-tts", "-image", "-live", "native-audio", "embedding", "robotics"];
+const SKIP_IDS: &[&str] = &[
+    "-tts",
+    "-image",
+    "-live",
+    "native-audio",
+    "embedding",
+    "robotics",
+];
 
 /// Tool call ids we made up because Gemini sent none. They are not sent back.
 const LOCAL_ID: &str = "local-call-";
@@ -47,7 +54,11 @@ impl Gemini {
             .connect_timeout(Duration::from_secs(15))
             .build()
             .expect("http client");
-        Gemini { client, base, retry_delay }
+        Gemini {
+            client,
+            base,
+            retry_delay,
+        }
     }
 }
 
@@ -57,7 +68,11 @@ impl Provider for Gemini {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities { tools: true, implicit_caching: true, vision: true }
+        Capabilities {
+            tools: true,
+            implicit_caching: true,
+            vision: true,
+        }
     }
 
     fn list_models<'a>(&'a self, api_key: &'a str) -> BoxFuture<'a, Result<Vec<ModelInfo>>> {
@@ -90,7 +105,8 @@ impl Provider for Gemini {
 
     fn generate(&self, api_key: String, request: GenerationRequest) -> EventStream {
         let (tx, mut rx) = mpsc::channel::<Result<GenerationEvent>>(64);
-        let (client, base, retry_delay) = (self.client.clone(), self.base.clone(), self.retry_delay);
+        let (client, base, retry_delay) =
+            (self.client.clone(), self.base.clone(), self.retry_delay);
         tokio::spawn(async move {
             // The task also ends when the receiver is dropped (cancellation).
             tokio::select! {
@@ -244,7 +260,10 @@ pub struct ChunkState {
 
 /// Turns one streamed JSON chunk into events. Thought summaries are not shown.
 pub fn parse_chunk(v: &Value, state: &mut ChunkState) -> Result<Vec<GenerationEvent>> {
-    if let Some(reason) = v.pointer("/promptFeedback/blockReason").and_then(Value::as_str) {
+    if let Some(reason) = v
+        .pointer("/promptFeedback/blockReason")
+        .and_then(Value::as_str)
+    {
         return Err(AppError::Provider(format!(
             "Gemini blocked this request ({reason}). Try rephrasing."
         )));
@@ -259,11 +278,14 @@ pub fn parse_chunk(v: &Value, state: &mut ChunkState) -> Result<Vec<GenerationEv
                 // Kept as received, including empty parts that only carry a thought signature.
                 state.parts.push(part.clone());
                 if let Some(call) = part.get("functionCall") {
-                    let name = call
-                        .get("name")
+                    let name = call.get("name").and_then(Value::as_str).ok_or_else(|| {
+                        AppError::Provider("Gemini sent a tool call without a name.".into())
+                    })?;
+                    let id = match call
+                        .get("id")
                         .and_then(Value::as_str)
-                        .ok_or_else(|| AppError::Provider("Gemini sent a tool call without a name.".into()))?;
-                    let id = match call.get("id").and_then(Value::as_str).filter(|i| !i.is_empty()) {
+                        .filter(|i| !i.is_empty())
+                    {
                         Some(id) => id.to_string(),
                         None => format!("{LOCAL_ID}{}", state.calls),
                     };
@@ -284,12 +306,17 @@ pub fn parse_chunk(v: &Value, state: &mut ChunkState) -> Result<Vec<GenerationEv
             && !reason.is_empty()
         {
             if !state.parts.is_empty() {
-                out.push(GenerationEvent::Replay(Value::Array(std::mem::take(&mut state.parts))));
+                out.push(GenerationEvent::Replay(Value::Array(std::mem::take(
+                    &mut state.parts,
+                ))));
             }
             if let Some(u) = usage(v) {
                 out.push(u);
             }
-            out.push(GenerationEvent::Finished(finish_reason(reason, state.calls)));
+            out.push(GenerationEvent::Finished(finish_reason(
+                reason,
+                state.calls,
+            )));
             return Ok(out);
         }
     }
@@ -355,9 +382,11 @@ async fn check_status(resp: reqwest::Response) -> Result<reqwest::Response> {
 }
 
 pub fn describe_error(status: u16, body: &str) -> String {
-    let message = serde_json::from_str::<Value>(body)
-        .ok()
-        .and_then(|v| v.pointer("/error/message").and_then(Value::as_str).map(str::to_owned));
+    let message = serde_json::from_str::<Value>(body).ok().and_then(|v| {
+        v.pointer("/error/message")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    });
     match (status, message) {
         (400 | 401 | 403, Some(m)) if m.to_lowercase().contains("api key") => {
             format!("Gemini rejected the API key: {m}")
@@ -440,7 +469,13 @@ mod tests {
     }
 
     fn request(turns: Vec<Turn>) -> GenerationRequest {
-        GenerationRequest { model: "m".into(), system: None, turns, tools: Vec::new(), no_tool_calls: false }
+        GenerationRequest {
+            model: "m".into(),
+            system: None,
+            turns,
+            tools: Vec::new(),
+            no_tool_calls: false,
+        }
     }
 
     fn add_tool() -> ToolSpec {
@@ -462,8 +497,15 @@ mod tests {
             })
             .collect();
         assert_eq!(text, "Hello");
-        assert!(ev.contains(&GenerationEvent::Usage { input_tokens: 7, output_tokens: 5, cached_tokens: 0 }));
-        assert_eq!(ev.last(), Some(&GenerationEvent::Finished(FinishReason::Stop)));
+        assert!(ev.contains(&GenerationEvent::Usage {
+            input_tokens: 7,
+            output_tokens: 5,
+            cached_tokens: 0
+        }));
+        assert_eq!(
+            ev.last(),
+            Some(&GenerationEvent::Finished(FinishReason::Stop))
+        );
     }
 
     #[test]
@@ -474,7 +516,10 @@ mod tests {
             name: "add".into(),
             args: json!({ "a": 1, "b": 2 }),
         }));
-        assert_eq!(ev.last(), Some(&GenerationEvent::Finished(FinishReason::ToolCalls)));
+        assert_eq!(
+            ev.last(),
+            Some(&GenerationEvent::Finished(FinishReason::ToolCalls))
+        );
         let replay = ev.iter().find_map(|e| match e {
             GenerationEvent::Replay(v) => Some(v.clone()),
             _ => None,
@@ -489,7 +534,10 @@ mod tests {
     #[test]
     fn max_tokens_and_other_reasons_map() {
         assert_eq!(finish_reason("MAX_TOKENS", 0), FinishReason::Length);
-        assert_eq!(finish_reason("SAFETY", 0), FinishReason::Other("SAFETY".into()));
+        assert_eq!(
+            finish_reason("SAFETY", 0),
+            FinishReason::Other("SAFETY".into())
+        );
     }
 
     #[test]
@@ -519,15 +567,30 @@ mod tests {
         let signed = json!([{ "functionCall": { "id": "fc1", "name": "add", "args": { "a": 1 } }, "thoughtSignature": "sig-b" }]);
         let mut model = Turn {
             role: TurnRole::Model,
-            parts: vec![Part::ToolCall { id: "fc1".into(), name: "add".into(), args: json!({ "a": 1 }) }],
-            replay: Some(Replay { provider: "gemini".into(), data: signed.clone() }),
+            parts: vec![Part::ToolCall {
+                id: "fc1".into(),
+                name: "add".into(),
+                args: json!({ "a": 1 }),
+            }],
+            replay: Some(Replay {
+                provider: "gemini".into(),
+                data: signed.clone(),
+            }),
         };
         let result = Turn {
             role: TurnRole::User,
-            parts: vec![Part::ToolResult { id: "fc1".into(), name: "add".into(), output: json!(3) }],
+            parts: vec![Part::ToolResult {
+                id: "fc1".into(),
+                name: "add".into(),
+                output: json!(3),
+            }],
             replay: None,
         };
-        let mut req = request(vec![Turn::text(TurnRole::User, "1+2?"), model.clone(), result.clone()]);
+        let mut req = request(vec![
+            Turn::text(TurnRole::User, "1+2?"),
+            model.clone(),
+            result.clone(),
+        ]);
         req.tools = vec![add_tool()];
         let b = build_body(&req);
         assert_eq!(b["tools"][0]["functionDeclarations"][0]["name"], "add");
@@ -536,22 +599,40 @@ mod tests {
         let b = build_body(&req);
         assert_eq!(b["toolConfig"]["functionCallingConfig"]["mode"], "NONE");
         assert!(b["tools"][0]["functionDeclarations"][0].is_object());
-        assert!(b["tools"][0]["functionDeclarations"][0].get("parametersJsonSchema").is_some());
-        assert_eq!(b["contents"][1]["parts"], signed, "model turn replayed as received");
+        assert!(
+            b["tools"][0]["functionDeclarations"][0]
+                .get("parametersJsonSchema")
+                .is_some()
+        );
+        assert_eq!(
+            b["contents"][1]["parts"], signed,
+            "model turn replayed as received"
+        );
         // The call comes before its response, and a plain value is wrapped in an object.
         assert_eq!(b["contents"][2]["role"], "user");
-        assert_eq!(b["contents"][2]["parts"][0]["functionResponse"]["response"], json!({ "result": 3 }));
-        assert_eq!(b["contents"][2]["parts"][0]["functionResponse"]["id"], "fc1");
+        assert_eq!(
+            b["contents"][2]["parts"][0]["functionResponse"]["response"],
+            json!({ "result": 3 })
+        );
+        assert_eq!(
+            b["contents"][2]["parts"][0]["functionResponse"]["id"],
+            "fc1"
+        );
 
         // Another provider's replay is ignored and the turn is rebuilt from its parts.
-        model.replay = Some(Replay { provider: "openai".into(), data: json!([]) });
+        model.replay = Some(Replay {
+            provider: "openai".into(),
+            data: json!([]),
+        });
         let b = build_body(&request(vec![model, result]));
         assert_eq!(b["contents"][0]["parts"][0]["functionCall"]["name"], "add");
     }
 
     #[test]
     fn invented_tool_call_ids_are_not_sent_back() {
-        let ev = events("data: {\"candidates\":[{\"content\":{\"parts\":[{\"functionCall\":{\"name\":\"add\",\"args\":{}}}]},\"finishReason\":\"STOP\"}]}\r\n\r\n");
+        let ev = events(
+            "data: {\"candidates\":[{\"content\":{\"parts\":[{\"functionCall\":{\"name\":\"add\",\"args\":{}}}]},\"finishReason\":\"STOP\"}]}\r\n\r\n",
+        );
         let id = ev
             .iter()
             .find_map(|e| match e {
@@ -562,10 +643,18 @@ mod tests {
         assert!(id.starts_with(LOCAL_ID));
         let b = build_body(&request(vec![Turn {
             role: TurnRole::User,
-            parts: vec![Part::ToolResult { id, name: "add".into(), output: json!({ "sum": 3 }) }],
+            parts: vec![Part::ToolResult {
+                id,
+                name: "add".into(),
+                output: json!({ "sum": 3 }),
+            }],
             replay: None,
         }]));
-        assert!(b["contents"][0]["parts"][0]["functionResponse"].get("id").is_none());
+        assert!(
+            b["contents"][0]["parts"][0]["functionResponse"]
+                .get("id")
+                .is_none()
+        );
     }
 
     #[test]
@@ -588,13 +677,21 @@ mod tests {
             ]
         }))
         .unwrap();
-        let kept: Vec<_> = page.models.into_iter().filter_map(ApiModel::into_info).collect();
+        let kept: Vec<_> = page
+            .models
+            .into_iter()
+            .filter_map(ApiModel::into_info)
+            .collect();
         assert_eq!(kept.len(), 1);
         assert_eq!(kept[0].id, "gemini-x-flash");
         assert_eq!(kept[0].input_token_limit, Some(1_000_000));
     }
 
-    async fn collect(g: &Gemini, key: &str, req: GenerationRequest) -> Vec<Result<GenerationEvent>> {
+    async fn collect(
+        g: &Gemini,
+        key: &str,
+        req: GenerationRequest,
+    ) -> Vec<Result<GenerationEvent>> {
         g.generate(key.to_string(), req).collect().await
     }
 
@@ -602,13 +699,33 @@ mod tests {
     async fn streams_a_reply_with_the_key_in_a_header_only() {
         let (base, seen) = serve_with(vec![Reply::sse(STREAM)]);
         let g = Gemini::with_base(base, Duration::ZERO);
-        let out = collect(&g, "secret-key", request(vec![Turn::text(TurnRole::User, "hi")])).await;
+        let out = collect(
+            &g,
+            "secret-key",
+            request(vec![Turn::text(TurnRole::User, "hi")]),
+        )
+        .await;
         assert!(out.iter().all(Result::is_ok));
-        assert!(out.iter().any(|e| matches!(e, Ok(GenerationEvent::Text(t)) if t == "Hel")));
+        assert!(
+            out.iter()
+                .any(|e| matches!(e, Ok(GenerationEvent::Text(t)) if t == "Hel"))
+        );
         let seen = seen.lock().unwrap();
-        assert!(seen[0].0.to_lowercase().contains("x-goog-api-key: secret-key"));
-        assert!(!seen[0].0.contains("secret-key\r\n\r\n") && !seen[0].0.lines().next().unwrap().contains("secret-key"));
-        assert!(seen[0].0.starts_with("POST /models/m:streamGenerateContent?alt=sse"));
+        assert!(
+            seen[0]
+                .0
+                .to_lowercase()
+                .contains("x-goog-api-key: secret-key")
+        );
+        assert!(
+            !seen[0].0.contains("secret-key\r\n\r\n")
+                && !seen[0].0.lines().next().unwrap().contains("secret-key")
+        );
+        assert!(
+            seen[0]
+                .0
+                .starts_with("POST /models/m:streamGenerateContent?alt=sse")
+        );
     }
 
     #[tokio::test]
@@ -629,7 +746,11 @@ mod tests {
         let g = Gemini::with_base(base, Duration::ZERO);
         let mut req = request(vec![Turn::text(TurnRole::User, "1+2?")]);
         req.tools = vec![add_tool()];
-        let first: Vec<GenerationEvent> = collect(&g, "k", req.clone()).await.into_iter().map(|e| e.unwrap()).collect();
+        let first: Vec<GenerationEvent> = collect(&g, "k", req.clone())
+            .await
+            .into_iter()
+            .map(|e| e.unwrap())
+            .collect();
         let (mut call, mut replay) = (None, None);
         for e in first {
             match e {
@@ -641,19 +762,33 @@ mod tests {
         let (id, name, args) = call.unwrap();
         req.turns.push(Turn {
             role: TurnRole::Model,
-            parts: vec![Part::ToolCall { id: id.clone(), name: name.clone(), args }],
-            replay: Some(Replay { provider: "gemini".into(), data: replay.unwrap() }),
+            parts: vec![Part::ToolCall {
+                id: id.clone(),
+                name: name.clone(),
+                args,
+            }],
+            replay: Some(Replay {
+                provider: "gemini".into(),
+                data: replay.unwrap(),
+            }),
         });
         req.turns.push(Turn {
             role: TurnRole::User,
-            parts: vec![Part::ToolResult { id, name, output: json!({ "sum": 3 }) }],
+            parts: vec![Part::ToolResult {
+                id,
+                name,
+                output: json!({ "sum": 3 }),
+            }],
             replay: None,
         });
         assert!(collect(&g, "k", req).await.iter().all(Result::is_ok));
         let seen = seen.lock().unwrap();
         let body: Value = serde_json::from_str(&seen[1].1).unwrap();
         assert_eq!(body["contents"][1]["parts"][1]["thoughtSignature"], "sig-b");
-        assert_eq!(body["contents"][2]["parts"][0]["functionResponse"]["response"]["sum"], 3);
+        assert_eq!(
+            body["contents"][2]["parts"][0]["functionResponse"]["response"]["sum"],
+            3
+        );
     }
 
     /// Live check of the tool round trip. Needs GEMINI_API_KEY and GEMINI_TEST_MODEL (a model id
@@ -694,23 +829,39 @@ mod tests {
         let sum = args["a"].as_f64().unwrap() + args["b"].as_f64().unwrap();
         req.turns.push(Turn {
             role: TurnRole::Model,
-            parts: vec![Part::ToolCall { id: id.clone(), name: name.clone(), args }],
-            replay: replay.map(|data| Replay { provider: "gemini".into(), data }),
+            parts: vec![Part::ToolCall {
+                id: id.clone(),
+                name: name.clone(),
+                args,
+            }],
+            replay: replay.map(|data| Replay {
+                provider: "gemini".into(),
+                data,
+            }),
         });
         req.turns.push(Turn {
             role: TurnRole::User,
-            parts: vec![Part::ToolResult { id, name, output: json!({ "sum": sum }) }],
+            parts: vec![Part::ToolResult {
+                id,
+                name,
+                output: json!({ "sum": sum }),
+            }],
             replay: None,
         });
         let mut text = String::new();
         for e in collect(&g, &key, req).await {
             match e.unwrap() {
                 GenerationEvent::Text(t) => text.push_str(&t),
-                ev @ (GenerationEvent::Usage { .. } | GenerationEvent::Finished(_)) => println!("second: {ev:?}"),
+                ev @ (GenerationEvent::Usage { .. } | GenerationEvent::Finished(_)) => {
+                    println!("second: {ev:?}")
+                }
                 _ => {}
             }
         }
         println!("answer: {text}");
-        assert!(text.replace([',', ' '], "").contains("5555"), "answer was: {text}");
+        assert!(
+            text.replace([',', ' '], "").contains("5555"),
+            "answer was: {text}"
+        );
     }
 }

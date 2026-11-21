@@ -16,10 +16,17 @@ const BACKEND: &str = "embedding_backend";
 /// The saved choice. Without one, Gemini, except for anyone who already accepted the local
 /// download before Gemini embeddings existed.
 pub fn saved_backend(conn: &Connection) -> Result<Backend> {
-    if let Some(b) = settings::get(conn, BACKEND)?.as_deref().and_then(Backend::from_setting) {
+    if let Some(b) = settings::get(conn, BACKEND)?
+        .as_deref()
+        .and_then(Backend::from_setting)
+    {
         return Ok(b);
     }
-    Ok(if settings::get_bool(conn, DOWNLOAD_ACCEPTED)? { Backend::Local } else { Backend::Gemini })
+    Ok(if settings::get_bool(conn, DOWNLOAD_ACCEPTED)? {
+        Backend::Local
+    } else {
+        Backend::Gemini
+    })
 }
 
 #[tauri::command]
@@ -33,7 +40,10 @@ pub fn embedding_status(state: State<'_, AppState>) -> EmbeddingStatus {
 #[tauri::command]
 #[specta::specta]
 pub async fn download_embedding_model(state: State<'_, AppState>) -> CmdResult<EmbeddingStatus> {
-    state.db.call(|c| settings::set_bool(c, DOWNLOAD_ACCEPTED, true)).await?;
+    state
+        .db
+        .call(|c| settings::set_bool(c, DOWNLOAD_ACCEPTED, true))
+        .await?;
     if state.embedder.backend() == Backend::Local {
         state.embedder.ensure_model();
     }
@@ -44,7 +54,10 @@ pub async fn download_embedding_model(state: State<'_, AppState>) -> CmdResult<E
 #[tauri::command]
 #[specta::specta]
 pub async fn allow_cloud_embedding(state: State<'_, AppState>) -> CmdResult<EmbeddingStatus> {
-    state.db.call(|c| settings::set_bool(c, CLOUD_ACCEPTED, true)).await?;
+    state
+        .db
+        .call(|c| settings::set_bool(c, CLOUD_ACCEPTED, true))
+        .await?;
     if state.embedder.backend() == Backend::Gemini {
         state.embedder.ensure_model();
     }
@@ -54,12 +67,18 @@ pub async fn allow_cloud_embedding(state: State<'_, AppState>) -> CmdResult<Embe
 /// Switches the model behind meaning search. The library is indexed again with the new one.
 #[tauri::command]
 #[specta::specta]
-pub async fn set_embedding_backend(state: State<'_, AppState>, backend: Backend) -> CmdResult<EmbeddingStatus> {
+pub async fn set_embedding_backend(
+    state: State<'_, AppState>,
+    backend: Backend,
+) -> CmdResult<EmbeddingStatus> {
     let (cloud, local) = state
         .db
         .call(move |c| {
             settings::set(c, BACKEND, backend.as_setting())?;
-            Ok((settings::get_bool(c, CLOUD_ACCEPTED)?, settings::get_bool(c, DOWNLOAD_ACCEPTED)?))
+            Ok((
+                settings::get_bool(c, CLOUD_ACCEPTED)?,
+                settings::get_bool(c, DOWNLOAD_ACCEPTED)?,
+            ))
         })
         .await?;
     state.embedder.use_backend(backend, cloud);

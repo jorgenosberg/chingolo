@@ -24,7 +24,11 @@ pub async fn pick_provider(state: &AppState) -> crate::error::Result<String> {
     if let Some(p) = saved.filter(|p| state.providers.get(p).is_ok()) {
         return Ok(p);
     }
-    Ok(providers_with_keys(state).await?.into_iter().next().unwrap_or_else(|| "gemini".to_string()))
+    Ok(providers_with_keys(state)
+        .await?
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| "gemini".to_string()))
 }
 
 use crate::services::ingestion::details_ai;
@@ -35,7 +39,9 @@ const MAX_FAVORITES: usize = 100;
 /// Favorites are stored as a JSON array of `provider/id`. Anything else reads as no favorites, so a
 /// damaged value can't break the pickers.
 fn parse_favorites(raw: Option<&str>) -> Vec<String> {
-    let list: Vec<String> = raw.and_then(|r| serde_json::from_str(r).ok()).unwrap_or_default();
+    let list: Vec<String> = raw
+        .and_then(|r| serde_json::from_str(r).ok())
+        .unwrap_or_default();
     clean_favorites(list)
 }
 
@@ -44,7 +50,10 @@ fn clean_favorites(list: Vec<String>) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
     list.into_iter()
         .map(|m| m.trim().to_string())
-        .filter(|m| m.split_once('/').is_some_and(|(p, id)| !p.is_empty() && !id.is_empty()))
+        .filter(|m| {
+            m.split_once('/')
+                .is_some_and(|(p, id)| !p.is_empty() && !id.is_empty())
+        })
         .filter(|m| seen.insert(m.clone()))
         .take(MAX_FAVORITES)
         .collect()
@@ -69,11 +78,18 @@ async fn read_settings(state: &AppState) -> crate::error::Result<AppSettings> {
                 rerank_enabled: repo::get_bool(c, "rerank_enabled")?,
                 rerank_model: repo::get(c, "rerank_model")?.filter(|m| !m.is_empty()),
                 rerank_provider: repo::get(c, "rerank_provider")?.filter(|m| !m.is_empty()),
-                crossref_enabled: repo::get_bool(c, crate::services::ingestion::enrich::CROSSREF_KEY)?,
-                title_search_enabled: repo::get_bool(c, crate::services::ingestion::enrich::TITLE_KEY)?,
+                crossref_enabled: repo::get_bool(
+                    c,
+                    crate::services::ingestion::enrich::CROSSREF_KEY,
+                )?,
+                title_search_enabled: repo::get_bool(
+                    c,
+                    crate::services::ingestion::enrich::TITLE_KEY,
+                )?,
                 metadata_ai_enabled: repo::get_bool(c, details_ai::ENABLED_KEY)?,
                 metadata_model: repo::get(c, details_ai::MODEL_KEY)?.filter(|m| !m.is_empty()),
-                metadata_provider: repo::get(c, details_ai::PROVIDER_KEY)?.filter(|m| !m.is_empty()),
+                metadata_provider: repo::get(c, details_ai::PROVIDER_KEY)?
+                    .filter(|m| !m.is_empty()),
                 favorite_models: parse_favorites(repo::get(c, FAVORITES_KEY)?.as_deref()),
                 app_version: env!("CARGO_PKG_VERSION").to_string(),
                 last_seen_version: repo::get(c, "last_seen_version")?.filter(|v| !v.is_empty()),
@@ -94,7 +110,9 @@ pub async fn update_settings(
     state: State<'_, AppState>,
     patch: SettingsPatch,
 ) -> CmdResult<AppSettings> {
-    let lookups_on = patch.crossref_enabled == Some(true) || patch.title_search_enabled == Some(true) || patch.metadata_ai_enabled == Some(true);
+    let lookups_on = patch.crossref_enabled == Some(true)
+        || patch.title_search_enabled == Some(true)
+        || patch.metadata_ai_enabled == Some(true);
     state
         .db
         .call(move |c| {
@@ -200,7 +218,9 @@ pub async fn list_all_models(state: State<'_, AppState>) -> CmdResult<ModelList>
         let providers = state.providers.clone();
         async move {
             let result = async {
-                let key = security::get_key(&id).await?.ok_or_else(|| AppError::NoApiKey(id.clone()))?;
+                let key = security::get_key(&id)
+                    .await?
+                    .ok_or_else(|| AppError::NoApiKey(id.clone()))?;
                 providers.get(&id)?.list_models(&key).await
             }
             .await;
@@ -213,7 +233,10 @@ pub async fn list_all_models(state: State<'_, AppState>) -> CmdResult<ModelList>
             Ok(list) => models.extend(list),
             Err(e) => {
                 log::warn!("couldn't list {provider} models: {e}");
-                errors.push(ProviderError { provider, message: e.to_string() });
+                errors.push(ProviderError {
+                    provider,
+                    message: e.to_string(),
+                });
             }
         }
     }
@@ -236,7 +259,15 @@ mod tests {
 
     #[test]
     fn favorites_drop_repeats_and_malformed_entries() {
-        let saved = favorites_json(v(&["gemini/a", " gemini/a ", "nonsense", "/x", "openai/", "", "openai/b"]));
+        let saved = favorites_json(v(&[
+            "gemini/a",
+            " gemini/a ",
+            "nonsense",
+            "/x",
+            "openai/",
+            "",
+            "openai/b",
+        ]));
         assert_eq!(parse_favorites(Some(&saved)), v(&["gemini/a", "openai/b"]));
     }
 
@@ -251,6 +282,9 @@ mod tests {
     #[test]
     fn the_list_is_capped() {
         let many: Vec<String> = (0..300).map(|i| format!("gemini/m{i}")).collect();
-        assert_eq!(parse_favorites(Some(&favorites_json(many))).len(), MAX_FAVORITES);
+        assert_eq!(
+            parse_favorites(Some(&favorites_json(many))).len(),
+            MAX_FAVORITES
+        );
     }
 }

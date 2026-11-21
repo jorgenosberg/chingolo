@@ -1,10 +1,10 @@
 use tauri::State;
 use tauri::ipc::Channel;
 
+use crate::commands::settings::pick_provider;
 use crate::domain::library::Scope;
 use crate::domain::{Conversation, ConversationFilter, Message, MessageHit};
 use crate::error::CmdResult;
-use crate::commands::settings::pick_provider;
 use crate::persistence::chat as repo;
 use crate::persistence::settings;
 use crate::services::chat::{self, ChatEvent, SendResult};
@@ -106,7 +106,10 @@ pub async fn set_conversation_scope(
     id: String,
     scope: Option<Scope>,
 ) -> CmdResult<Conversation> {
-    Ok(state.db.call(move |c| repo::change_scope(c, &id, scope)).await?)
+    Ok(state
+        .db
+        .call(move |c| repo::change_scope(c, &id, scope))
+        .await?)
 }
 
 #[tauri::command]
@@ -165,9 +168,6 @@ pub async fn fork_conversation(
 /// Returns a handoff note written by the conversation's model. Nothing is saved.
 #[tauri::command]
 #[specta::specta]
-pub async fn summarize_for_handoff(
-    state: State<'_, AppState>,
-    id: String,
-) -> CmdResult<String> {
+pub async fn summarize_for_handoff(state: State<'_, AppState>, id: String) -> CmdResult<String> {
     Ok(chat::handoff_summary(&state, id).await?)
 }

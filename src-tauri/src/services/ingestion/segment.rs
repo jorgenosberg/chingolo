@@ -47,7 +47,12 @@ struct Open {
 
 impl Open {
     fn new(page: u32) -> Self {
-        Open { text: String::new(), page_start: page, page_end: page, boxes: vec![] }
+        Open {
+            text: String::new(),
+            page_start: page,
+            page_end: page,
+            boxes: vec![],
+        }
     }
 
     fn len(&self) -> usize {
@@ -80,10 +85,20 @@ impl Open {
             return None;
         }
         let boxes = (!self.boxes.is_empty()).then(|| {
-            json!(self.boxes.iter().map(|(page, rects)| json!({ "page": page, "rects": rects })).collect::<Vec<_>>())
-                .to_string()
+            json!(
+                self.boxes
+                    .iter()
+                    .map(|(page, rects)| json!({ "page": page, "rects": rects }))
+                    .collect::<Vec<_>>()
+            )
+            .to_string()
         });
-        Some(NewPassage { page_start: self.page_start, page_end: self.page_end, text, boxes })
+        Some(NewPassage {
+            page_start: self.page_start,
+            page_end: self.page_end,
+            text,
+            boxes,
+        })
     }
 }
 
@@ -101,9 +116,20 @@ fn split_long(text: &str, max: usize) -> Vec<String> {
             .iter()
             .rposition(|c| matches!(c, '.' | '!' | '?'))
             .filter(|&i| i > max / 2)
-            .or_else(|| window.iter().rposition(|c| c.is_whitespace()).filter(|&i| i > max / 2))
+            .or_else(|| {
+                window
+                    .iter()
+                    .rposition(|c| c.is_whitespace())
+                    .filter(|&i| i > max / 2)
+            })
             .map_or(max, |i| i + 1);
-        out.push(chars[start..start + cut].iter().collect::<String>().trim().to_string());
+        out.push(
+            chars[start..start + cut]
+                .iter()
+                .collect::<String>()
+                .trim()
+                .to_string(),
+        );
         start += cut;
     }
     out.push(chars[start..].iter().collect::<String>().trim().to_string());
@@ -151,11 +177,19 @@ mod tests {
     use super::*;
 
     fn line(page: u32, text: &str) -> Block {
-        Block { page, text: text.into(), rect: Some([10.0, 10.0, 100.0, 20.0]), font_size: 10.0, join: Join::Space }
+        Block {
+            page,
+            text: text.into(),
+            rect: Some([10.0, 10.0, 100.0, 20.0]),
+            font_size: 10.0,
+            join: Join::Space,
+        }
     }
 
     fn lines(page: u32, n: usize, width: usize) -> Vec<Block> {
-        (0..n).map(|i| line(page, &format!("{}{}", "word ".repeat(width / 5 - 1), i))).collect()
+        (0..n)
+            .map(|i| line(page, &format!("{}{}", "word ".repeat(width / 5 - 1), i)))
+            .collect()
     }
 
     #[test]
@@ -171,17 +205,27 @@ mod tests {
     #[test]
     fn page_break_ends_a_long_passage_but_not_a_short_one() {
         let mut blocks = lines(1, 20, 80); // about 1,600 chars, closed on page 1
-        blocks.push(line(2, "Short tail on page two, long enough to count as text."));
+        blocks.push(line(
+            2,
+            "Short tail on page two, long enough to count as text.",
+        ));
         let out = segment(&blocks);
         assert_eq!((out[0].page_start, out[0].page_end), (1, 1));
-        assert_eq!((out.last().unwrap().page_start, out.last().unwrap().page_end), (2, 2));
+        assert_eq!(
+            (out.last().unwrap().page_start, out.last().unwrap().page_end),
+            (2, 2)
+        );
 
         // a short passage at the end of page 1 continues onto page 2
-        let blocks = vec![line(1, "A short heading line on page one"), line(2, "and the paragraph that follows it on page two")];
+        let blocks = vec![
+            line(1, "A short heading line on page one"),
+            line(2, "and the paragraph that follows it on page two"),
+        ];
         let out = segment(&blocks);
         assert_eq!(out.len(), 1);
         assert_eq!((out[0].page_start, out[0].page_end), (1, 2));
-        let boxes: serde_json::Value = serde_json::from_str(out[0].boxes.as_ref().unwrap()).unwrap();
+        let boxes: serde_json::Value =
+            serde_json::from_str(out[0].boxes.as_ref().unwrap()).unwrap();
         assert_eq!(boxes.as_array().unwrap().len(), 2, "one box group per page");
         assert_eq!(boxes[1]["page"], 2);
     }
@@ -191,7 +235,11 @@ mod tests {
         let mut second = line(1, "engineering schemes are proposed for the open ocean");
         second.join = Join::Tight;
         let out = segment(&[line(1, "proposed geo"), second]);
-        assert!(out[0].text.starts_with("proposed geoengineering schemes"), "{}", out[0].text);
+        assert!(
+            out[0].text.starts_with("proposed geoengineering schemes"),
+            "{}",
+            out[0].text
+        );
     }
 
     #[test]
@@ -204,19 +252,32 @@ mod tests {
     fn long_paragraph_is_cut_at_sentence_ends() {
         let sentence = "This is one fairly ordinary sentence about algae. ";
         let para = sentence.repeat(120); // about 6,000 chars
-        let blocks = vec![Block { page: 0, text: para, rect: None, font_size: 0.0, join: Join::Newline }];
+        let blocks = vec![Block {
+            page: 0,
+            text: para,
+            rect: None,
+            font_size: 0.0,
+            join: Join::Newline,
+        }];
         let out = segment(&blocks);
         assert!(out.len() >= 3);
         for p in &out {
             assert!(p.text.chars().count() <= HARD_MAX);
-            assert!(p.text.ends_with('.'), "cut mid-sentence: {:?}", &p.text[p.text.len().saturating_sub(20)..]);
+            assert!(
+                p.text.ends_with('.'),
+                "cut mid-sentence: {:?}",
+                &p.text[p.text.len().saturating_sub(20)..]
+            );
             assert!(p.boxes.is_none());
         }
     }
 
     #[test]
     fn handles_multibyte_text() {
-        let out = segment(&[line(1, &"Økosystemet ved Ærø og Åre er sårbart. ".repeat(60))]);
+        let out = segment(&[line(
+            1,
+            &"Økosystemet ved Ærø og Åre er sårbart. ".repeat(60),
+        )]);
         assert!(out.iter().all(|p| p.text.chars().count() <= HARD_MAX));
         assert!(out.len() >= 2);
     }

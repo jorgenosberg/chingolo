@@ -7,6 +7,6 @@ pub mod ingestion;
 pub mod pricing;
 pub mod rerank;
 pub mod retrieval;
-pub mod tools;
 #[cfg(test)]
 pub mod testserver;
+pub mod tools;

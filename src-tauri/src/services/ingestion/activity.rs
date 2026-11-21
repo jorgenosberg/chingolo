@@ -27,7 +27,10 @@ pub struct Activity {
 
 impl Activity {
     pub fn new(sink: impl Fn(DetailsActivity) + Send + Sync + 'static) -> Self {
-        Self { jobs: Arc::default(), sink: Arc::new(sink) }
+        Self {
+            jobs: Arc::default(),
+            sink: Arc::new(sink),
+        }
     }
 
     pub fn start(&self, id: &str) {
@@ -47,7 +50,9 @@ impl Activity {
 
     fn change(&self, f: impl FnOnce(&mut HashMap<Id, u32>)) {
         let ids = {
-            let Ok(mut jobs) = self.jobs.lock() else { return };
+            let Ok(mut jobs) = self.jobs.lock() else {
+                return;
+            };
             f(&mut jobs);
             jobs.keys().cloned().collect()
         };

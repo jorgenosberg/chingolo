@@ -69,6 +69,8 @@ pub fn download_tables_model(state: State<'_, AppState>) -> ModelState {
 /// How far page layout has got over the library. Poll while `done < total`.
 #[tauri::command]
 #[specta::specta]
-pub async fn layout_progress(state: State<'_, AppState>) -> crate::error::CmdResult<crate::services::ingestion::queue::LayoutProgress> {
+pub async fn layout_progress(
+    state: State<'_, AppState>,
+) -> crate::error::CmdResult<crate::services::ingestion::queue::LayoutProgress> {
     Ok(state.ingest.layout_progress(&state.db).await?)
 }

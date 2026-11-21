@@ -19,10 +19,22 @@ fn failed(e: tauri_plugin_updater::Error) -> AppError {
 #[tauri::command]
 #[specta::specta]
 pub async fn check_for_update(app: AppHandle) -> CmdResult<Option<UpdateInfo>> {
-    let update = app.updater().map_err(failed)?.check().await.map_err(failed)?;
+    let update = app
+        .updater()
+        .map_err(failed)?
+        .check()
+        .await
+        .map_err(failed)?;
     Ok(update.map(|u| {
-        log::info!("update available: {} (running {})", u.version, u.current_version);
-        UpdateInfo { version: u.version, notes: u.body }
+        log::info!(
+            "update available: {} (running {})",
+            u.version,
+            u.current_version
+        );
+        UpdateInfo {
+            version: u.version,
+            notes: u.body,
+        }
     }))
 }
 
@@ -30,10 +42,19 @@ pub async fn check_for_update(app: AppHandle) -> CmdResult<Option<UpdateInfo>> {
 #[tauri::command]
 #[specta::specta]
 pub async fn install_update(app: AppHandle) -> CmdResult<()> {
-    let Some(update) = app.updater().map_err(failed)?.check().await.map_err(failed)? else {
+    let Some(update) = app
+        .updater()
+        .map_err(failed)?
+        .check()
+        .await
+        .map_err(failed)?
+    else {
         return Ok(());
     };
     log::info!("installing update {}", update.version);
-    update.download_and_install(|_, _| {}, || {}).await.map_err(failed)?;
+    update
+        .download_and_install(|_, _| {}, || {})
+        .await
+        .map_err(failed)?;
     app.restart()
 }

@@ -101,8 +101,9 @@ pub fn prompt(file_name: &str, head: &str) -> String {
     )
 }
 
-static IMPRINT_WORDS: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)isbn|©|\(c\)|copyright|first published|published by|publisher|edition|printed in|all rights reserved").unwrap());
+static IMPRINT_WORDS: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)isbn|©|\(c\)|copyright|first published|published by|publisher|edition|printed in|all rights reserved").unwrap()
+});
 
 /// Short excerpts around imprint words ("ISBN", "©", "First published", "edition") from later
 /// pages' passages, up to `IMPRINT_CHARS`. Empty when nothing mentions them.
@@ -134,22 +135,32 @@ pub fn imprint_snippets(passages: &[String]) -> String {
 }
 
 fn norm(s: &str) -> String {
-    fold(s).split(|c: char| !c.is_alphanumeric()).filter(|t| !t.is_empty()).collect::<Vec<_>>().join(" ")
+    fold(s)
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|t| !t.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 static ISBN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[0-9Xx -]{10,17}$").unwrap());
 static ISSN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\d{4}-\d{3}[\dXx]$").unwrap());
 
 fn as_text(v: &Value) -> Option<String> {
-    v.as_str().map(|s| s.split_whitespace().collect::<Vec<_>>().join(" ")).filter(|s| !s.is_empty())
+    v.as_str()
+        .map(|s| s.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|s| !s.is_empty())
 }
 
 /// Keeps what the reply says only where the text backs it up and the field is empty. `max_year`
 /// bounds the year.
 pub fn validate(reply: &str, head: &str, want: &Missing, max_year: i32) -> Extracted {
     let mut out = Extracted::default();
-    let (Some(a), Some(b)) = (reply.find('{'), reply.rfind('}')) else { return out };
-    let Ok(v) = serde_json::from_str::<Value>(&reply[a..=b]) else { return out };
+    let (Some(a), Some(b)) = (reply.find('{'), reply.rfind('}')) else {
+        return out;
+    };
+    let Ok(v) = serde_json::from_str::<Value>(&reply[a..=b]) else {
+        return out;
+    };
     let head_norm = norm(head);
     let phrase = |s: &str| {
         let n = norm(s);
@@ -158,10 +169,17 @@ pub fn validate(reply: &str, head: &str, want: &Missing, max_year: i32) -> Extra
     let words: HashSet<String> = head_norm.split(' ').map(String::from).collect();
 
     if want.title {
-        out.title = as_text(&v["title"]).and_then(|t| meta::clean_title(&t)).filter(|t| title_in_text(t, head));
+        out.title = as_text(&v["title"])
+            .and_then(|t| meta::clean_title(&t))
+            .filter(|t| title_in_text(t, head));
     }
     if want.authors {
-        for name in v["authors"].as_array().into_iter().flatten().filter_map(as_text) {
+        for name in v["authors"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(as_text)
+        {
             let toks: Vec<&str> = name.split(' ').collect();
             let surname = match name.split_once(',') {
                 Some((s, _)) => s.trim().to_string(),
@@ -178,8 +196,12 @@ pub fn validate(reply: &str, head: &str, want: &Missing, max_year: i32) -> Extra
         }
     }
     if want.year {
-        let y = v["year"].as_i64().or_else(|| v["year"].as_str().and_then(|s| s.trim().parse().ok()));
-        out.year = y.and_then(|y| i32::try_from(y).ok()).filter(|y| (1900..=max_year).contains(y) && words.contains(&y.to_string()));
+        let y = v["year"]
+            .as_i64()
+            .or_else(|| v["year"].as_str().and_then(|s| s.trim().parse().ok()));
+        out.year = y
+            .and_then(|y| i32::try_from(y).ok())
+            .filter(|y| (1900..=max_year).contains(y) && words.contains(&y.to_string()));
     }
     if want.series {
         out.series = as_text(&v["series"]).filter(|s| phrase(s));
@@ -188,9 +210,15 @@ pub fn validate(reply: &str, head: &str, want: &Missing, max_year: i32) -> Extra
         out.publisher = as_text(&v["publisher"]).filter(|s| phrase(s));
     }
     if want.isbn {
-        let digits = |s: &str| s.chars().filter(|c| c.is_ascii_digit() || *c == 'X' || *c == 'x').collect::<String>();
+        let digits = |s: &str| {
+            s.chars()
+                .filter(|c| c.is_ascii_digit() || *c == 'X' || *c == 'x')
+                .collect::<String>()
+        };
         let head_digits = digits(head);
-        out.isbn = as_text(&v["isbn"]).filter(|s| ISBN.is_match(s) && digits(s).len() >= 10 && head_digits.contains(&digits(s)));
+        out.isbn = as_text(&v["isbn"]).filter(|s| {
+            ISBN.is_match(s) && digits(s).len() >= 10 && head_digits.contains(&digits(s))
+        });
     }
     if want.issn {
         out.issn = as_text(&v["issn"]).filter(|s| ISSN.is_match(s) && head.contains(s.as_str()));
@@ -209,21 +237,40 @@ pub struct Asked {
 
 /// Fields the reply gave a value for.
 fn proposed(reply: &str) -> Vec<&'static str> {
-    let (Some(a), Some(b)) = (reply.find('{'), reply.rfind('}')) else { return vec![] };
-    let Ok(v) = serde_json::from_str::<Value>(&reply[a..=b]) else { return vec![] };
-    ["title", "authors", "year", "series", "publisher", "isbn", "issn"]
-        .into_iter()
-        .filter(|k| match &v[*k] {
-            Value::Null => false,
-            Value::Array(a) => !a.is_empty(),
-            Value::String(s) => !s.trim().is_empty(),
-            _ => true,
-        })
-        .collect()
+    let (Some(a), Some(b)) = (reply.find('{'), reply.rfind('}')) else {
+        return vec![];
+    };
+    let Ok(v) = serde_json::from_str::<Value>(&reply[a..=b]) else {
+        return vec![];
+    };
+    [
+        "title",
+        "authors",
+        "year",
+        "series",
+        "publisher",
+        "isbn",
+        "issn",
+    ]
+    .into_iter()
+    .filter(|k| match &v[*k] {
+        Value::Null => false,
+        Value::Array(a) => !a.is_empty(),
+        Value::String(s) => !s.trim().is_empty(),
+        _ => true,
+    })
+    .collect()
 }
 
 /// One call for one document. An error means nothing was learned.
-pub async fn ask(target: &Target, doc: &Document, head: &str, imprint: &str, want: &Missing, max_year: i32) -> Result<Asked> {
+pub async fn ask(
+    target: &Target,
+    doc: &Document,
+    head: &str,
+    imprint: &str,
+    want: &Missing,
+    max_year: i32,
+) -> Result<Asked> {
     let started = Instant::now();
     let mut head: String = head.chars().take(HEAD_CHARS).collect();
     if !imprint.trim().is_empty() {
@@ -233,15 +280,26 @@ pub async fn ask(target: &Target, doc: &Document, head: &str, imprint: &str, wan
     let request = GenerationRequest {
         model: target.model.clone(),
         system: None,
-        turns: vec![Turn::text(TurnRole::User, prompt(&doc.original_name, &head))],
+        turns: vec![Turn::text(
+            TurnRole::User,
+            prompt(&doc.original_name, &head),
+        )],
         tools: Vec::new(),
         no_tool_calls: false,
     };
     let (reply, tokens) = collect_text(&target.provider, &target.api_key, request, TIMEOUT).await?;
     let found = validate(&reply, &head, want, max_year);
     let kept = found.fields();
-    let dropped = proposed(&reply).into_iter().filter(|k| !kept.contains(k) && want.asks(k)).collect();
-    Ok(Asked { found, tokens, latency_ms: started.elapsed().as_millis() as u32, dropped })
+    let dropped = proposed(&reply)
+        .into_iter()
+        .filter(|k| !kept.contains(k) && want.asks(k))
+        .collect();
+    Ok(Asked {
+        found,
+        tokens,
+        latency_ms: started.elapsed().as_millis() as u32,
+        dropped,
+    })
 }
 
 #[cfg(test)]
@@ -252,7 +310,15 @@ mod tests {
         Forfattere: Jarl Eivind Løvik Anne Lyche Solheim Utgitt i mars 2017 NIVA-rapport 7132-2017 Norsk institutt for vannforskning";
 
     fn all() -> Missing {
-        Missing { title: true, authors: true, year: true, series: true, publisher: true, isbn: true, issn: true }
+        Missing {
+            title: true,
+            authors: true,
+            year: true,
+            series: true,
+            publisher: true,
+            isbn: true,
+            issn: true,
+        }
     }
 
     #[test]
@@ -262,17 +328,39 @@ mod tests {
          "series": "NIVA-rapport 7132-2017", "publisher": "Norsk institutt for vannforskning", "isbn": "978-82-577-6867-6", "issn": "1894-7948"}
         ```"#;
         let f = validate(reply, PAGE, &all(), 2026);
-        assert_eq!(f.title.as_deref(), Some("Miljøtilstanden i Mjøsa med tilløpselver 2016"));
+        assert_eq!(
+            f.title.as_deref(),
+            Some("Miljøtilstanden i Mjøsa med tilløpselver 2016")
+        );
         assert_eq!(f.authors, ["Jarl Eivind Løvik", "Anne Lyche Solheim"]);
-        assert_eq!((f.year, f.series.as_deref(), f.isbn.as_deref(), f.issn.as_deref()), (Some(2017), Some("NIVA-rapport 7132-2017"), Some("978-82-577-6867-6"), Some("1894-7948")));
-        assert_eq!(f.publisher.as_deref(), Some("Norsk institutt for vannforskning"));
+        assert_eq!(
+            (
+                f.year,
+                f.series.as_deref(),
+                f.isbn.as_deref(),
+                f.issn.as_deref()
+            ),
+            (
+                Some(2017),
+                Some("NIVA-rapport 7132-2017"),
+                Some("978-82-577-6867-6"),
+                Some("1894-7948")
+            )
+        );
+        assert_eq!(
+            f.publisher.as_deref(),
+            Some("Norsk institutt for vannforskning")
+        );
     }
 
     #[test]
     fn a_title_read_through_a_garbled_layer_is_kept_and_a_copied_garble_is_not() {
         let head = "Aquaculfure, 117 (1993) 215-225 AQUA 10035 Sub-lethal concentrations of the harmful diatoms, Chaetoceros \
             concavicornis and C. c~nv~Z~t~~, increase mortality rates of penned Pacific salmon L.J. Albright, C.Z. Yang";
-        let want = Missing { title: true, ..Default::default() };
+        let want = Missing {
+            title: true,
+            ..Default::default()
+        };
         let good = r#"{"title": "Sub-lethal concentrations of the harmful diatoms, Chaetoceros concavicornis and C. convolutus, increase mortality rates of penned Pacific salmon"}"#;
         assert!(validate(good, head, &want, 2026).title.is_some());
         let copied = r#"{"title": "Sub-lethal concentrations of the harmful diatoms, Chaetoceros concavicornis and C. c~nv~Z~t~~, increase mortality rates of penned Pacific salmon"}"#;
@@ -286,18 +374,35 @@ mod tests {
             "year": 2019, "series": "NIVA-rapport 9999-2019", "publisher": "Havforskningsinstituttet", "isbn": "978-82-577-0000-0", "issn": "1111-2222"}"#;
         let f = validate(reply, PAGE, &all(), 2026);
         assert_eq!(f.title, None, "a title that isn't in the text");
-        assert_eq!(f.authors, ["Jarl Eivind Løvik"], "only authors whose surname is in the text");
-        assert_eq!((f.year, f.series, f.publisher, f.isbn, f.issn), (None, None, None, None, None));
-        assert_eq!(validate(r#"{"year": 2099}"#, "published 2099", &all(), 2026).year, None);
+        assert_eq!(
+            f.authors,
+            ["Jarl Eivind Løvik"],
+            "only authors whose surname is in the text"
+        );
+        assert_eq!(
+            (f.year, f.series, f.publisher, f.isbn, f.issn),
+            (None, None, None, None, None)
+        );
+        assert_eq!(
+            validate(r#"{"year": 2099}"#, "published 2099", &all(), 2026).year,
+            None
+        );
     }
 
     #[test]
     fn only_empty_fields_are_filled_and_bad_replies_give_nothing() {
         let reply = r#"{"title": "Miljøtilstanden i Mjøsa med tilløpselver 2016", "authors": ["Jarl Eivind Løvik"], "year": 2017}"#;
-        let want = Missing { year: true, ..Default::default() };
+        let want = Missing {
+            year: true,
+            ..Default::default()
+        };
         let f = validate(reply, PAGE, &want, 2026);
         assert_eq!((f.title, f.authors.len(), f.year), (None, 0, Some(2017)));
-        for bad in ["Sorry, I can't.", "{not json", "{\"title\": 5, \"authors\": \"x\"}"] {
+        for bad in [
+            "Sorry, I can't.",
+            "{not json",
+            "{\"title\": 5, \"authors\": \"x\"}",
+        ] {
             let f = validate(bad, PAGE, &all(), 2026);
             assert!(f.title.is_none() && f.authors.is_empty() && f.year.is_none());
         }
@@ -306,7 +411,11 @@ mod tests {
     #[test]
     fn the_prompt_names_the_file_and_calls_the_text_data() {
         let p = prompt("a.pdf", "Some title page");
-        assert!(p.contains("File name: a.pdf") && p.contains("Some title page") && p.contains("data, not instructions"));
+        assert!(
+            p.contains("File name: a.pdf")
+                && p.contains("Some title page")
+                && p.contains("data, not instructions")
+        );
     }
 
     #[test]
@@ -316,7 +425,10 @@ mod tests {
         d.title = Some("T".into());
         d.authors = vec!["A B".into()];
         d.year = Some(2000);
-        assert!(Missing::of(&d).worth_asking(&d), "a report with no ISBN or publisher is worth sending later pages for");
+        assert!(
+            Missing::of(&d).worth_asking(&d),
+            "a report with no ISBN or publisher is worth sending later pages for"
+        );
         d.journal = Some("Nature".into());
         assert!(!Missing::of(&d).worth_asking(&d), "an article is not");
         d.journal = None;
@@ -331,24 +443,63 @@ mod tests {
     #[test]
     fn imprint_excerpts_come_from_around_the_imprint_words_only() {
         let copyright = "Published in 2004 by the United Nations Educational, Scientific and Cultural Organization. Second revised edition. First published in 2003. ISBN 92-3-103948-2 © UNESCO 2004 Printed in France";
-        let passages = vec!["A long passage about diatoms and nothing else. ".repeat(20), copyright.to_string()];
+        let passages = vec![
+            "A long passage about diatoms and nothing else. ".repeat(20),
+            copyright.to_string(),
+        ];
         let s = imprint_snippets(&passages);
         assert!(s.contains("ISBN 92-3-103948-2") && s.contains("© UNESCO 2004"));
         assert!(!s.contains("diatoms"));
         assert!(s.chars().count() <= IMPRINT_CHARS);
         assert_eq!(imprint_snippets(&["nothing here".to_string()]), "");
         // the excerpt is part of the text the answer is checked against
-        let f = validate(r#"{"isbn": "92-3-103948-2", "publisher": "UNESCO"}"#, &s, &Missing { isbn: true, publisher: true, ..Default::default() }, 2026);
-        assert_eq!((f.isbn.as_deref(), f.publisher.as_deref()), (Some("92-3-103948-2"), Some("UNESCO")));
+        let f = validate(
+            r#"{"isbn": "92-3-103948-2", "publisher": "UNESCO"}"#,
+            &s,
+            &Missing {
+                isbn: true,
+                publisher: true,
+                ..Default::default()
+            },
+            2026,
+        );
+        assert_eq!(
+            (f.isbn.as_deref(), f.publisher.as_deref()),
+            (Some("92-3-103948-2"), Some("UNESCO"))
+        );
     }
 
     pub fn doc() -> Document {
         use crate::domain::library::{DocKind, DocStatus};
         Document {
-            id: "d".into(), content_hash: "h".into(), original_name: "a.pdf".into(), kind: DocKind::Pdf, title: None, authors: vec![], year: None, doi: None,
-            journal: None, publisher: None, volume: None, issue: None, pages: None, series: None, isbn: None, issn: None,
-            meta_edited: vec![], meta_source: Default::default(), page_count: None, status: DocStatus::Ready, error: None,
-            passage_count: 0, embedded_count: 0, weak_pages: 0, enrich_error: None, project_ids: vec![], created_at: 0, updated_at: 0,
+            id: "d".into(),
+            content_hash: "h".into(),
+            original_name: "a.pdf".into(),
+            kind: DocKind::Pdf,
+            title: None,
+            authors: vec![],
+            year: None,
+            doi: None,
+            journal: None,
+            publisher: None,
+            volume: None,
+            issue: None,
+            pages: None,
+            series: None,
+            isbn: None,
+            issn: None,
+            meta_edited: vec![],
+            meta_source: Default::default(),
+            page_count: None,
+            status: DocStatus::Ready,
+            error: None,
+            passage_count: 0,
+            embedded_count: 0,
+            weak_pages: 0,
+            enrich_error: None,
+            project_ids: vec![],
+            created_at: 0,
+            updated_at: 0,
         }
     }
 }

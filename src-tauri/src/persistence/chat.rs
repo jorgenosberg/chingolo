@@ -4,14 +4,15 @@ use rusqlite::{Connection, OptionalExtension, Row, ToSql, params, params_from_it
 
 use super::sources;
 
+use crate::domain::library::Scope;
 use crate::domain::{
     Conversation, ConversationFilter, DEFAULT_CONVERSATION_TITLE, Id, Message, MessageHit,
     MessageStatus, Role, clean_name, new_id, now_ms,
 };
-use crate::domain::library::Scope;
 use crate::error::{AppError, Result};
 
-const CONV_COLS: &str = "id, project_id, chapter_id, title, provider, model_id, archived_at, created_at, updated_at,
+const CONV_COLS: &str =
+    "id, project_id, chapter_id, title, provider, model_id, archived_at, created_at, updated_at,
     (SELECT CASE WHEN m.status <> 'error' THEN NULLIF(m.input_tokens, 0) END
        FROM messages m WHERE m.conversation_id = conversations.id AND m.role = 'assistant'
        ORDER BY m.id DESC LIMIT 1),
@@ -76,7 +77,15 @@ pub fn create_conversation(
         "INSERT INTO conversations
            (id, project_id, chapter_id, title, provider, model_id, created_at, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
-        params![id, project_id, chapter_id, DEFAULT_CONVERSATION_TITLE, provider, model_id, now],
+        params![
+            id,
+            project_id,
+            chapter_id,
+            DEFAULT_CONVERSATION_TITLE,
+            provider,
+            model_id,
+            now
+        ],
     )?;
     get_conversation(conn, &id)
 }
@@ -217,7 +226,12 @@ pub fn set_archived(conn: &Connection, id: &str, archived: bool) -> Result<Conve
     get_conversation(conn, id)
 }
 
-pub fn set_model(conn: &Connection, id: &str, provider: &str, model_id: &str) -> Result<Conversation> {
+pub fn set_model(
+    conn: &Connection,
+    id: &str,
+    provider: &str,
+    model_id: &str,
+) -> Result<Conversation> {
     let n = conn.execute(
         "UPDATE conversations SET provider = ?1, model_id = ?2 WHERE id = ?3",
         params![provider, model_id, id],
@@ -230,8 +244,14 @@ pub fn set_model(conn: &Connection, id: &str, provider: &str, model_id: &str) ->
 
 /// Sets or clears (`None`) what a conversation may read. The caller validates the ids.
 pub fn set_scope(conn: &Connection, id: &str, scope: Option<&Scope>) -> Result<Conversation> {
-    let json = scope.map(serde_json::to_string).transpose().map_err(|e| AppError::Internal(e.to_string()))?;
-    let n = conn.execute("UPDATE conversations SET source_scope = ?1 WHERE id = ?2", params![json, id])?;
+    let json = scope
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+    let n = conn.execute(
+        "UPDATE conversations SET source_scope = ?1 WHERE id = ?2",
+        params![json, id],
+    )?;
     if n == 0 {
         return Err(AppError::NotFound);
     }
@@ -247,7 +267,9 @@ pub fn change_scope(conn: &Connection, id: &str, scope: Option<Scope>) -> Result
     let conv = get_conversation(conn, id)?;
     let scope = match scope {
         Some(Scope::Project) if conv.project_id.is_none() => {
-            return Err(AppError::Invalid("This conversation isn't in a project.".into()));
+            return Err(AppError::Invalid(
+                "This conversation isn't in a project.".into(),
+            ));
         }
         Some(Scope::Documents { ids }) => {
             let mut unique: Vec<Id> = Vec::with_capacity(ids.len());
@@ -260,10 +282,14 @@ pub fn change_scope(conn: &Connection, id: &str, scope: Option<Scope>) -> Result
                 return Err(AppError::Invalid("Choose at least one document.".into()));
             }
             if unique.len() > MAX_SCOPE_DOCUMENTS {
-                return Err(AppError::Invalid(format!("Choose at most {MAX_SCOPE_DOCUMENTS} documents.")));
+                return Err(AppError::Invalid(format!(
+                    "Choose at most {MAX_SCOPE_DOCUMENTS} documents."
+                )));
             }
             if super::library::existing_ids(conn, &unique)?.len() != unique.len() {
-                return Err(AppError::Invalid("One of those documents no longer exists.".into()));
+                return Err(AppError::Invalid(
+                    "One of those documents no longer exists.".into(),
+                ));
             }
             Some(Scope::Documents { ids: unique })
         }
@@ -382,7 +408,16 @@ pub fn insert_message(
         "INSERT INTO messages
            (id, conversation_id, role, content, status, provider, model_id, created_at, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
-        params![id, conversation_id, role.as_str(), content, status.as_str(), provider, model_id, now],
+        params![
+            id,
+            conversation_id,
+            role.as_str(),
+            content,
+            status.as_str(),
+            provider,
+            model_id,
+            now
+        ],
     )?;
     touch_conversation(conn, conversation_id)?;
     get_message(conn, &id)
@@ -452,12 +487,18 @@ pub fn finish_message(conn: &Connection, id: &str, f: Finish) -> Result<Message>
 
 /// Stores the turns of a reply as a JSON array (serialized by the caller, which owns the type).
 pub fn set_turns(conn: &Connection, id: &str, turns_json: &str) -> Result<()> {
-    conn.execute("UPDATE messages SET turns = ?1 WHERE id = ?2", params![turns_json, id])?;
+    conn.execute(
+        "UPDATE messages SET turns = ?1 WHERE id = ?2",
+        params![turns_json, id],
+    )?;
     Ok(())
 }
 
 pub fn set_citations(conn: &Connection, id: &str, citations_json: &str) -> Result<()> {
-    conn.execute("UPDATE messages SET citations = ?1 WHERE id = ?2", params![citations_json, id])?;
+    conn.execute(
+        "UPDATE messages SET citations = ?1 WHERE id = ?2",
+        params![citations_json, id],
+    )?;
     Ok(())
 }
 
@@ -499,7 +540,10 @@ mod tests {
 
         let f = ConversationFilter::default();
         assert!(list_conversations(&conn, &f).unwrap().is_empty());
-        let f = ConversationFilter { include_archived: true, ..Default::default() };
+        let f = ConversationFilter {
+            include_archived: true,
+            ..Default::default()
+        };
         assert_eq!(list_conversations(&conn, &f).unwrap().len(), 1);
 
         let c = set_archived(&conn, &c.id, false).unwrap();
@@ -507,12 +551,42 @@ mod tests {
         assert_eq!(c.model_id.as_deref(), Some("other-model"));
         assert_eq!(c.provider, "openai");
         delete_conversation(&conn, &c.id).unwrap();
-        assert!(matches!(get_conversation(&conn, &c.id), Err(AppError::NotFound)));
+        assert!(matches!(
+            get_conversation(&conn, &c.id),
+            Err(AppError::NotFound)
+        ));
     }
 
-    fn reply(conn: &Connection, conv: &str, text: &str, status: MessageStatus, input: Option<u32>) -> Message {
-        let m = insert_message(conn, conv, Role::Assistant, "", MessageStatus::Streaming, Some("gemini"), Some("m")).unwrap();
-        finish_message(conn, &m.id, Finish { content: text, status, input_tokens: input, output_tokens: Some(5), cached_input_tokens: None, error: None }).unwrap()
+    fn reply(
+        conn: &Connection,
+        conv: &str,
+        text: &str,
+        status: MessageStatus,
+        input: Option<u32>,
+    ) -> Message {
+        let m = insert_message(
+            conn,
+            conv,
+            Role::Assistant,
+            "",
+            MessageStatus::Streaming,
+            Some("gemini"),
+            Some("m"),
+        )
+        .unwrap();
+        finish_message(
+            conn,
+            &m.id,
+            Finish {
+                content: text,
+                status,
+                input_tokens: input,
+                output_tokens: Some(5),
+                cached_input_tokens: None,
+                error: None,
+            },
+        )
+        .unwrap()
     }
 
     #[test]
@@ -520,9 +594,21 @@ mod tests {
         let conn = test_conn();
         let c = conv(&conn);
         assert_eq!(c.switch_cost_tokens, None, "no replies yet");
-        insert_message(&conn, &c.id, Role::User, "hi", MessageStatus::Complete, None, None).unwrap();
+        insert_message(
+            &conn,
+            &c.id,
+            Role::User,
+            "hi",
+            MessageStatus::Complete,
+            None,
+            None,
+        )
+        .unwrap();
         reply(&conn, &c.id, "hello", MessageStatus::Complete, Some(1200));
-        assert_eq!(get_conversation(&conn, &c.id).unwrap().switch_cost_tokens, Some(1200));
+        assert_eq!(
+            get_conversation(&conn, &c.id).unwrap().switch_cost_tokens,
+            Some(1200)
+        );
         reply(&conn, &c.id, "", MessageStatus::Error, None);
         assert_eq!(
             get_conversation(&conn, &c.id).unwrap().switch_cost_tokens,
@@ -530,7 +616,10 @@ mod tests {
             "when the current model is failing, switching is free of warnings"
         );
         reply(&conn, &c.id, "again", MessageStatus::Complete, Some(2500));
-        assert_eq!(get_conversation(&conn, &c.id).unwrap().switch_cost_tokens, Some(2500));
+        assert_eq!(
+            get_conversation(&conn, &c.id).unwrap().switch_cost_tokens,
+            Some(2500)
+        );
     }
 
     #[test]
@@ -541,8 +630,23 @@ mod tests {
         rename_conversation(&conn, &c.id, "Topic").unwrap();
         let mut ids = Vec::new();
         for i in 0..30 {
-            let u = insert_message(&conn, &c.id, Role::User, &format!("q{i}"), MessageStatus::Complete, None, None).unwrap();
-            let a = reply(&conn, &c.id, &format!("a{i}"), MessageStatus::Complete, Some(900));
+            let u = insert_message(
+                &conn,
+                &c.id,
+                Role::User,
+                &format!("q{i}"),
+                MessageStatus::Complete,
+                None,
+                None,
+            )
+            .unwrap();
+            let a = reply(
+                &conn,
+                &c.id,
+                &format!("a{i}"),
+                MessageStatus::Complete,
+                Some(900),
+            );
             ids.push((u.id, a.id));
         }
         reply(&conn, &c.id, "", MessageStatus::Error, None);
@@ -551,12 +655,25 @@ mod tests {
         assert_eq!(whole.title, "Topic (fork)");
         assert_eq!(whole.project_id.as_deref(), Some(p.id.as_str()));
         assert_eq!(whole.switch_cost_tokens, None, "a fork starts uncached");
-        let texts: Vec<_> = list_messages(&conn, &whole.id).unwrap().into_iter().map(|m| m.content).collect();
-        let expected: Vec<_> = (0..30).flat_map(|i| [format!("q{i}"), format!("a{i}")]).collect();
-        assert_eq!(texts, expected, "failed replies are skipped and order is kept");
+        let texts: Vec<_> = list_messages(&conn, &whole.id)
+            .unwrap()
+            .into_iter()
+            .map(|m| m.content)
+            .collect();
+        let expected: Vec<_> = (0..30)
+            .flat_map(|i| [format!("q{i}"), format!("a{i}")])
+            .collect();
+        assert_eq!(
+            texts, expected,
+            "failed replies are skipped and order is kept"
+        );
 
         let partial = fork_conversation(&mut conn, &c.id, Some(&ids[1].1)).unwrap();
-        let texts: Vec<_> = list_messages(&conn, &partial.id).unwrap().into_iter().map(|m| m.content).collect();
+        let texts: Vec<_> = list_messages(&conn, &partial.id)
+            .unwrap()
+            .into_iter()
+            .map(|m| m.content)
+            .collect();
         assert_eq!(texts, ["q0", "a0", "q1", "a1"]);
         let copied = list_messages(&conn, &partial.id).unwrap();
         assert_eq!(partial.forked_from_title.as_deref(), Some("Topic"));
@@ -566,15 +683,31 @@ mod tests {
             "the marker points at the last copied message"
         );
         assert_eq!(c.fork_boundary_message_id, None);
-        assert_eq!(list_messages(&conn, &c.id).unwrap().len(), 61, "the original is untouched");
-        assert!(matches!(fork_conversation(&mut conn, &c.id, Some("nope")), Err(AppError::NotFound)));
+        assert_eq!(
+            list_messages(&conn, &c.id).unwrap().len(),
+            61,
+            "the original is untouched"
+        );
+        assert!(matches!(
+            fork_conversation(&mut conn, &c.id, Some("nope")),
+            Err(AppError::NotFound)
+        ));
     }
 
     #[test]
     fn citations_saved_before_labels_existed_still_load() {
         let conn = test_conn();
         let conv = create_conversation(&conn, None, None, "anthropic", None).unwrap();
-        let m = insert_message(&conn, &conv.id, Role::Assistant, "See [S1].", MessageStatus::Complete, None, None).unwrap();
+        let m = insert_message(
+            &conn,
+            &conv.id,
+            Role::Assistant,
+            "See [S1].",
+            MessageStatus::Complete,
+            None,
+            None,
+        )
+        .unwrap();
         let old = r#"[{"handle":1,"status":"ok","quoteVerified":null,"passageId":"p","documentId":"d","title":"T","page":3,"snippet":"s"}]"#;
         set_citations(&conn, &m.id, old).unwrap();
         let got = list_messages(&conn, &conv.id).unwrap();
@@ -586,12 +719,38 @@ mod tests {
     fn fork_keeps_tool_turns_citations_scope_and_handles() {
         let mut conn = test_conn();
         let c = conv(&conn);
-        conn.execute("UPDATE conversations SET source_scope = '{\"kind\":\"library\"}' WHERE id = ?1", [&c.id]).unwrap();
-        insert_message(&conn, &c.id, Role::User, "q", MessageStatus::Complete, None, None).unwrap();
-        let a = reply(&conn, &c.id, "answer [S1]", MessageStatus::Complete, Some(10));
+        conn.execute(
+            "UPDATE conversations SET source_scope = '{\"kind\":\"library\"}' WHERE id = ?1",
+            [&c.id],
+        )
+        .unwrap();
+        insert_message(
+            &conn,
+            &c.id,
+            Role::User,
+            "q",
+            MessageStatus::Complete,
+            None,
+            None,
+        )
+        .unwrap();
+        let a = reply(
+            &conn,
+            &c.id,
+            "answer [S1]",
+            MessageStatus::Complete,
+            Some(10),
+        );
         set_turns(&conn, &a.id, "[{\"role\":\"model\",\"parts\":[]}]").unwrap();
         set_citations(&conn, &a.id, "[{\"handle\":1,\"status\":\"ok\"}]").unwrap();
-        let s = sources::NewSource { passage_id: "p1", document_id: "d1", title: "T", label: "", page: 2, text: "x" };
+        let s = sources::NewSource {
+            passage_id: "p1",
+            document_id: "d1",
+            title: "T",
+            label: "",
+            page: 2,
+            text: "x",
+        };
         sources::handle_for(&conn, &c.id, &s).unwrap();
 
         let f = fork_conversation(&mut conn, &c.id, None).unwrap();
@@ -600,11 +759,22 @@ mod tests {
         assert_eq!(turns.len(), 1, "only the reply had turns");
         assert_eq!(turns[&copied[1].id], "[{\"role\":\"model\",\"parts\":[]}]");
         let citations: Option<String> = conn
-            .query_row("SELECT citations FROM messages WHERE id = ?1", [&copied[1].id], |r| r.get(0))
+            .query_row(
+                "SELECT citations FROM messages WHERE id = ?1",
+                [&copied[1].id],
+                |r| r.get(0),
+            )
             .unwrap();
-        assert_eq!(citations.as_deref(), Some("[{\"handle\":1,\"status\":\"ok\"}]"));
+        assert_eq!(
+            citations.as_deref(),
+            Some("[{\"handle\":1,\"status\":\"ok\"}]")
+        );
         let scope: Option<String> = conn
-            .query_row("SELECT source_scope FROM conversations WHERE id = ?1", [&f.id], |r| r.get(0))
+            .query_row(
+                "SELECT source_scope FROM conversations WHERE id = ?1",
+                [&f.id],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(scope.as_deref(), Some("{\"kind\":\"library\"}"));
         assert_eq!(f.source_scope, Some(Scope::Library));
@@ -619,20 +789,69 @@ mod tests {
         assert_eq!(loose.source_scope, None);
         let d = super::super::library::insert_document(&conn, "h1", "a.pdf", DocKind::Pdf).unwrap();
 
-        assert!(change_scope(&conn, &loose.id, Some(Scope::Project)).is_err(), "no project");
-        assert!(change_scope(&conn, &loose.id, Some(Scope::Documents { ids: vec![] })).is_err(), "empty list");
-        assert!(change_scope(&conn, &loose.id, Some(Scope::Documents { ids: vec!["nope".into()] })).is_err(), "unknown id");
-        assert!(matches!(change_scope(&conn, "nope", Some(Scope::Library)), Err(AppError::NotFound)));
-        assert_eq!(get_conversation(&conn, &loose.id).unwrap().source_scope, None, "a rejected scope changes nothing");
+        assert!(
+            change_scope(&conn, &loose.id, Some(Scope::Project)).is_err(),
+            "no project"
+        );
+        assert!(
+            change_scope(&conn, &loose.id, Some(Scope::Documents { ids: vec![] })).is_err(),
+            "empty list"
+        );
+        assert!(
+            change_scope(
+                &conn,
+                &loose.id,
+                Some(Scope::Documents {
+                    ids: vec!["nope".into()]
+                })
+            )
+            .is_err(),
+            "unknown id"
+        );
+        assert!(matches!(
+            change_scope(&conn, "nope", Some(Scope::Library)),
+            Err(AppError::NotFound)
+        ));
+        assert_eq!(
+            get_conversation(&conn, &loose.id).unwrap().source_scope,
+            None,
+            "a rejected scope changes nothing"
+        );
 
-        let picked = change_scope(&conn, &loose.id, Some(Scope::Documents { ids: vec![d.id.clone(), d.id.clone()] })).unwrap();
-        assert_eq!(picked.source_scope, Some(Scope::Documents { ids: vec![d.id.clone()] }), "duplicates are dropped");
-        assert_eq!(get_conversation(&conn, &loose.id).unwrap().source_scope, picked.source_scope, "it is stored");
+        let picked = change_scope(
+            &conn,
+            &loose.id,
+            Some(Scope::Documents {
+                ids: vec![d.id.clone(), d.id.clone()],
+            }),
+        )
+        .unwrap();
+        assert_eq!(
+            picked.source_scope,
+            Some(Scope::Documents {
+                ids: vec![d.id.clone()]
+            }),
+            "duplicates are dropped"
+        );
+        assert_eq!(
+            get_conversation(&conn, &loose.id).unwrap().source_scope,
+            picked.source_scope,
+            "it is stored"
+        );
 
         let p = crate::persistence::projects::create_project(&conn, "P").unwrap();
         let in_p = create_conversation(&conn, Some(&p.id), None, "gemini", Some("m")).unwrap();
-        assert_eq!(change_scope(&conn, &in_p.id, Some(Scope::Project)).unwrap().source_scope, Some(Scope::Project));
-        assert_eq!(change_scope(&conn, &in_p.id, None).unwrap().source_scope, None, "back to the default");
+        assert_eq!(
+            change_scope(&conn, &in_p.id, Some(Scope::Project))
+                .unwrap()
+                .source_scope,
+            Some(Scope::Project)
+        );
+        assert_eq!(
+            change_scope(&conn, &in_p.id, None).unwrap().source_scope,
+            None,
+            "back to the default"
+        );
     }
 
     #[test]
@@ -641,12 +860,23 @@ mod tests {
         let p = projects::create_project(&conn, "P").unwrap();
         create_conversation(&conn, Some(&p.id), None, "gemini", None).unwrap();
         conv(&conn);
-        let in_p = ConversationFilter { project_id: Some(p.id.clone()), ..Default::default() };
+        let in_p = ConversationFilter {
+            project_id: Some(p.id.clone()),
+            ..Default::default()
+        };
         assert_eq!(list_conversations(&conn, &in_p).unwrap().len(), 1);
-        let loose = ConversationFilter { unassigned_only: true, ..Default::default() };
+        let loose = ConversationFilter {
+            unassigned_only: true,
+            ..Default::default()
+        };
         assert_eq!(list_conversations(&conn, &loose).unwrap().len(), 1);
         projects::delete_project(&conn, &p.id).unwrap();
-        assert_eq!(list_conversations(&conn, &Default::default()).unwrap().len(), 1);
+        assert_eq!(
+            list_conversations(&conn, &Default::default())
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     #[test]
@@ -655,18 +885,46 @@ mod tests {
         let a = conv(&conn);
         rename_conversation(&conn, &a.id, "Regression notes").unwrap();
         let b = conv(&conn);
-        insert_message(&conn, &b.id, Role::User, "Hva er forskjellen på årsak og sammenheng?", MessageStatus::Complete, None, None).unwrap();
+        insert_message(
+            &conn,
+            &b.id,
+            Role::User,
+            "Hva er forskjellen på årsak og sammenheng?",
+            MessageStatus::Complete,
+            None,
+            None,
+        )
+        .unwrap();
         let c = conv(&conn);
-        insert_message(&conn, &c.id, Role::User, "Unrelated", MessageStatus::Complete, None, None).unwrap();
+        insert_message(
+            &conn,
+            &c.id,
+            Role::User,
+            "Unrelated",
+            MessageStatus::Complete,
+            None,
+            None,
+        )
+        .unwrap();
 
         let q = |s: &str| {
-            let f = ConversationFilter { query: Some(s.into()), ..Default::default() };
-            list_conversations(&conn, &f).unwrap().into_iter().map(|c| c.id).collect::<Vec<_>>()
+            let f = ConversationFilter {
+                query: Some(s.into()),
+                ..Default::default()
+            };
+            list_conversations(&conn, &f)
+                .unwrap()
+                .into_iter()
+                .map(|c| c.id)
+                .collect::<Vec<_>>()
         };
         assert_eq!(q("regress"), [a.id.clone()]);
         assert_eq!(q("arsak"), [b.id.clone()], "diacritics are ignored");
         assert_eq!(q("sammenheng"), [b.id.clone()]);
-        assert!(q("\"quoted\" OR (weird").is_empty(), "odd input must not break the query");
+        assert!(
+            q("\"quoted\" OR (weird").is_empty(),
+            "odd input must not break the query"
+        );
         assert!(q("100%").is_empty());
     }
 
@@ -675,10 +933,37 @@ mod tests {
         let conn = test_conn();
         let a = conv(&conn);
         rename_conversation(&conn, &a.id, "Notes").unwrap();
-        let m = insert_message(&conn, &a.id, Role::User, "Hva er forskjellen på årsak og sammenheng?", MessageStatus::Complete, None, None).unwrap();
-        insert_message(&conn, &a.id, Role::User, "Unrelated", MessageStatus::Complete, None, None).unwrap();
+        let m = insert_message(
+            &conn,
+            &a.id,
+            Role::User,
+            "Hva er forskjellen på årsak og sammenheng?",
+            MessageStatus::Complete,
+            None,
+            None,
+        )
+        .unwrap();
+        insert_message(
+            &conn,
+            &a.id,
+            Role::User,
+            "Unrelated",
+            MessageStatus::Complete,
+            None,
+            None,
+        )
+        .unwrap();
         let archived = conv(&conn);
-        let am = insert_message(&conn, &archived.id, Role::Assistant, "Årsak is cause.", MessageStatus::Complete, None, None).unwrap();
+        let am = insert_message(
+            &conn,
+            &archived.id,
+            Role::Assistant,
+            "Årsak is cause.",
+            MessageStatus::Complete,
+            None,
+            None,
+        )
+        .unwrap();
         set_archived(&conn, &archived.id, true).unwrap();
 
         let hits = search_messages(&conn, "arsak", 3, 40).unwrap();
@@ -694,7 +979,11 @@ mod tests {
 
         assert!(search_messages(&conn, "   ", 3, 40).unwrap().is_empty());
         assert!(search_messages(&conn, "\"", 3, 40).unwrap().is_empty());
-        assert!(search_messages(&conn, "\"quoted\" OR (weird", 3, 40).unwrap().is_empty());
+        assert!(
+            search_messages(&conn, "\"quoted\" OR (weird", 3, 40)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -702,10 +991,28 @@ mod tests {
         let conn = test_conn();
         let a = conv(&conn);
         for i in 0..5 {
-            insert_message(&conn, &a.id, Role::User, &format!("plankton bloom {i}"), MessageStatus::Complete, None, None).unwrap();
+            insert_message(
+                &conn,
+                &a.id,
+                Role::User,
+                &format!("plankton bloom {i}"),
+                MessageStatus::Complete,
+                None,
+                None,
+            )
+            .unwrap();
         }
         let b = conv(&conn);
-        insert_message(&conn, &b.id, Role::User, "plankton too", MessageStatus::Complete, None, None).unwrap();
+        insert_message(
+            &conn,
+            &b.id,
+            Role::User,
+            "plankton too",
+            MessageStatus::Complete,
+            None,
+            None,
+        )
+        .unwrap();
 
         let hits = search_messages(&conn, "plankton", 3, 40).unwrap();
         assert_eq!(hits.iter().filter(|h| h.conversation_id == a.id).count(), 3);
@@ -717,13 +1024,40 @@ mod tests {
     fn fts_stays_in_sync_when_content_changes() {
         let conn = test_conn();
         let c = conv(&conn);
-        let m = insert_message(&conn, &c.id, Role::Assistant, "", MessageStatus::Streaming, Some("gemini"), Some("m")).unwrap();
+        let m = insert_message(
+            &conn,
+            &c.id,
+            Role::Assistant,
+            "",
+            MessageStatus::Streaming,
+            Some("gemini"),
+            Some("m"),
+        )
+        .unwrap();
         flush_content(&conn, &m.id, "partial answer about entropy").unwrap();
-        let f = ConversationFilter { query: Some("entropy".into()), ..Default::default() };
+        let f = ConversationFilter {
+            query: Some("entropy".into()),
+            ..Default::default()
+        };
         assert_eq!(list_conversations(&conn, &f).unwrap().len(), 1);
-        finish_message(&conn, &m.id, Finish { content: "final answer about enthalpy", status: MessageStatus::Complete, input_tokens: Some(3), output_tokens: Some(5), cached_input_tokens: None, error: None }).unwrap();
+        finish_message(
+            &conn,
+            &m.id,
+            Finish {
+                content: "final answer about enthalpy",
+                status: MessageStatus::Complete,
+                input_tokens: Some(3),
+                output_tokens: Some(5),
+                cached_input_tokens: None,
+                error: None,
+            },
+        )
+        .unwrap();
         assert!(list_conversations(&conn, &f).unwrap().is_empty());
-        let f = ConversationFilter { query: Some("enthalpy".into()), ..Default::default() };
+        let f = ConversationFilter {
+            query: Some("enthalpy".into()),
+            ..Default::default()
+        };
         assert_eq!(list_conversations(&conn, &f).unwrap().len(), 1);
     }
 
@@ -731,7 +1065,16 @@ mod tests {
     fn interrupted_replies_are_marked_on_startup() {
         let conn = test_conn();
         let c = conv(&conn);
-        let m = insert_message(&conn, &c.id, Role::Assistant, "", MessageStatus::Streaming, None, None).unwrap();
+        let m = insert_message(
+            &conn,
+            &c.id,
+            Role::Assistant,
+            "",
+            MessageStatus::Streaming,
+            None,
+            None,
+        )
+        .unwrap();
         flush_content(&conn, &m.id, "half a sentence").unwrap();
         assert_eq!(recover_interrupted(&conn).unwrap(), 1);
         let m = get_message(&conn, &m.id).unwrap();
@@ -745,14 +1088,33 @@ mod tests {
         let conn = test_conn();
         let c = conv(&conn);
         title_from_first_message(&conn, &c.id, "  What is\n a p-value? ").unwrap();
-        assert_eq!(get_conversation(&conn, &c.id).unwrap().title, "What is a p-value?");
+        assert_eq!(
+            get_conversation(&conn, &c.id).unwrap().title,
+            "What is a p-value?"
+        );
         title_from_first_message(&conn, &c.id, "Something else").unwrap();
-        assert_eq!(get_conversation(&conn, &c.id).unwrap().title, "What is a p-value?");
+        assert_eq!(
+            get_conversation(&conn, &c.id).unwrap().title,
+            "What is a p-value?"
+        );
 
         for text in ["one", "two", "three"] {
-            insert_message(&conn, &c.id, Role::User, text, MessageStatus::Complete, None, None).unwrap();
+            insert_message(
+                &conn,
+                &c.id,
+                Role::User,
+                text,
+                MessageStatus::Complete,
+                None,
+                None,
+            )
+            .unwrap();
         }
-        let texts: Vec<_> = list_messages(&conn, &c.id).unwrap().into_iter().map(|m| m.content).collect();
+        let texts: Vec<_> = list_messages(&conn, &c.id)
+            .unwrap()
+            .into_iter()
+            .map(|m| m.content)
+            .collect();
         assert_eq!(texts, ["one", "two", "three"]);
     }
 }

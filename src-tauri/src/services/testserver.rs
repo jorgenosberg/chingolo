@@ -16,11 +16,21 @@ pub struct Reply {
 
 impl Reply {
     pub fn json(status: u16, body: impl Into<String>) -> Self {
-        Reply { status, content_type: "application/json", headers: Vec::new(), body: body.into() }
+        Reply {
+            status,
+            content_type: "application/json",
+            headers: Vec::new(),
+            body: body.into(),
+        }
     }
 
     pub fn sse(body: impl Into<String>) -> Self {
-        Reply { status: 200, content_type: "text/event-stream", headers: Vec::new(), body: body.into() }
+        Reply {
+            status: 200,
+            content_type: "text/event-stream",
+            headers: Vec::new(),
+            body: body.into(),
+        }
     }
 
     pub fn header(mut self, name: &'static str, value: &str) -> Self {
@@ -31,7 +41,12 @@ impl Reply {
 
 /// JSON replies only: `(status, body)`.
 pub fn serve(replies: Vec<(u16, String)>) -> (String, Seen) {
-    serve_with(replies.into_iter().map(|(s, b)| Reply::json(s, b)).collect())
+    serve_with(
+        replies
+            .into_iter()
+            .map(|(s, b)| Reply::json(s, b))
+            .collect(),
+    )
 }
 
 /// Returns the base URL and the requests seen so far as `(head, body)`.
@@ -42,7 +57,9 @@ pub fn serve_with(replies: Vec<Reply>) -> (String, Seen) {
     let log = seen.clone();
     std::thread::spawn(move || {
         for reply in replies {
-            let Ok((mut s, _)) = listener.accept() else { return };
+            let Ok((mut s, _)) = listener.accept() else {
+                return;
+            };
             let mut buf = Vec::new();
             let mut chunk = [0u8; 4096];
             let (head_end, len) = loop {
@@ -53,7 +70,9 @@ pub fn serve_with(replies: Vec<Reply>) -> (String, Seen) {
                     let len = text[..i]
                         .lines()
                         .find_map(|l| {
-                            l.to_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap())
+                            l.to_lowercase()
+                                .strip_prefix("content-length:")
+                                .map(|v| v.trim().parse::<usize>().unwrap())
                         })
                         .unwrap_or(0);
                     break (i + 4, len);
@@ -64,8 +83,14 @@ pub fn serve_with(replies: Vec<Reply>) -> (String, Seen) {
                 buf.extend_from_slice(&chunk[..n]);
             }
             let head = String::from_utf8_lossy(&buf[..head_end]).to_string();
-            log.lock().unwrap().push((head, String::from_utf8_lossy(&buf[head_end..]).to_string()));
-            let extra: String = reply.headers.iter().map(|(k, v)| format!("{k}: {v}\r\n")).collect();
+            log.lock()
+                .unwrap()
+                .push((head, String::from_utf8_lossy(&buf[head_end..]).to_string()));
+            let extra: String = reply
+                .headers
+                .iter()
+                .map(|(k, v)| format!("{k}: {v}\r\n"))
+                .collect();
             let out = format!(
                 "HTTP/1.1 {} X\r\ncontent-type: {}\r\n{extra}content-length: {}\r\nconnection: close\r\n\r\n{}",
                 reply.status,

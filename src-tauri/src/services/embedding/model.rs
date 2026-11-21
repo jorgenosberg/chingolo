@@ -71,7 +71,10 @@ pub fn total_bytes(files: &[ManifestFile]) -> u64 {
 
 /// Where the files for the pinned revision go.
 pub fn model_dir(app_data: &Path) -> PathBuf {
-    app_data.join("models").join(super::MODEL_NAME).join(REVISION)
+    app_data
+        .join("models")
+        .join(super::MODEL_NAME)
+        .join(REVISION)
 }
 
 /// What the UI shows about the model files. Sizes are bytes.
@@ -103,7 +106,11 @@ fn sha256_of(path: &Path) -> std::io::Result<String> {
         }
         hasher.update(&buf[..n]);
     }
-    Ok(hasher.finalize().iter().map(|b| format!("{b:02x}")).collect())
+    Ok(hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect())
 }
 
 pub fn http_client() -> reqwest::Client {
@@ -143,7 +150,10 @@ pub async fn download(
             continue;
         }
         let part = dir.join(format!("{}.part", f.name));
-        download_one(client, base_url, f, &part, cancel, &mut done, total, progress).await?;
+        download_one(
+            client, base_url, f, &part, cancel, &mut done, total, progress,
+        )
+        .await?;
         // Hashing 200 MB blocks for a moment, so keep it off the async threads.
         let (p, want) = (part.clone(), f.sha256);
         let got = tokio::task::spawn_blocking(move || sha256_of(&p))
@@ -187,7 +197,11 @@ async fn download_one(
     }
 
     // A full URL in the manifest is used as is.
-    let url = if f.remote.starts_with("http") { f.remote.to_string() } else { format!("{base_url}/{REVISION}/{}", f.remote) };
+    let url = if f.remote.starts_with("http") {
+        f.remote.to_string()
+    } else {
+        format!("{base_url}/{REVISION}/{}", f.remote)
+    };
     let mut req = client.get(&url);
     if have > 0 {
         req = req.header(reqwest::header::RANGE, format!("bytes={have}-"));
@@ -197,15 +211,22 @@ async fn download_one(
     if status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
         // The partial file doesn't fit what the server has. Start that file over.
         let _ = std::fs::remove_file(part);
-        return Err(AppError::Provider("Download failed: the partial file was discarded. Try again.".into()));
+        return Err(AppError::Provider(
+            "Download failed: the partial file was discarded. Try again.".into(),
+        ));
     }
     if !status.is_success() {
-        return Err(AppError::Provider(format!("Download failed: the server answered {status}.")));
+        return Err(AppError::Provider(format!(
+            "Download failed: the server answered {status}."
+        )));
     }
     // 200 to a Range request means the server sent the whole file.
     let resumed = status == reqwest::StatusCode::PARTIAL_CONTENT;
     let mut out = if resumed {
-        std::fs::OpenOptions::new().append(true).open(part).map_err(net)?
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(part)
+            .map_err(net)?
     } else {
         have = 0;
         std::fs::File::create(part).map_err(net)?
@@ -291,10 +312,19 @@ mod tests {
                 // path is /<revision>/<remote>
                 let name = path.splitn(3, '/').nth(2).unwrap_or("");
                 let Some(body) = files.get(name) else {
-                    let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                    let _ = stream.write_all(
+                        b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                    );
                     continue;
                 };
-                let start = if behaviour.ignore_range { 0 } else { range.as_ref().and_then(|r| r.parse::<usize>().ok()).unwrap_or(0) };
+                let start = if behaviour.ignore_range {
+                    0
+                } else {
+                    range
+                        .as_ref()
+                        .and_then(|r| r.parse::<usize>().ok())
+                        .unwrap_or(0)
+                };
                 let (head, slice) = if start > 0 {
                     (
                         format!(
@@ -306,10 +336,18 @@ mod tests {
                         &body[start..],
                     )
                 } else {
-                    (format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()), &body[..])
+                    (
+                        format!(
+                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                            body.len()
+                        ),
+                        &body[..],
+                    )
                 };
                 let _ = stream.write_all(head.as_bytes());
-                let cut = behaviour.cut_first_at.filter(|_| start == 0 && cuts.fetch_add(1, Ordering::SeqCst) == 0);
+                let cut = behaviour
+                    .cut_first_at
+                    .filter(|_| start == 0 && cuts.fetch_add(1, Ordering::SeqCst) == 0);
                 match cut {
                     Some(n) => {
                         let _ = stream.write_all(&slice[..n.min(slice.len())]);
@@ -325,11 +363,16 @@ mod tests {
     }
 
     fn hex(data: &[u8]) -> String {
-        Sha256::digest(data).iter().map(|b| format!("{b:02x}")).collect()
+        Sha256::digest(data)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
     }
 
     fn data(seed: u8, len: usize) -> Vec<u8> {
-        (0..len).map(|i| (i as u8).wrapping_mul(31).wrapping_add(seed)).collect()
+        (0..len)
+            .map(|i| (i as u8).wrapping_mul(31).wrapping_add(seed))
+            .collect()
     }
 
     /// Two small files. The first is bigger than the 1 MB progress step.
@@ -343,19 +386,45 @@ mod tests {
         let (a, b) = (data(1, 2_500_000), data(2, 1_000));
         let leak = |s: String| -> &'static str { Box::leak(s.into_boxed_str()) };
         let manifest = vec![
-            ManifestFile { name: "a.bin", remote: "sub/a.bin", size: a.len() as u64, sha256: leak(hex(&a)) },
-            ManifestFile { name: "b.bin", remote: "b.bin", size: b.len() as u64, sha256: leak(hex(&b)) },
+            ManifestFile {
+                name: "a.bin",
+                remote: "sub/a.bin",
+                size: a.len() as u64,
+                sha256: leak(hex(&a)),
+            },
+            ManifestFile {
+                name: "b.bin",
+                remote: "b.bin",
+                size: b.len() as u64,
+                sha256: leak(hex(&b)),
+            },
         ];
         Fixture { a, b, manifest }
     }
 
     fn files_of(fx: &Fixture) -> HashMap<String, Vec<u8>> {
-        HashMap::from([("sub/a.bin".to_string(), fx.a.clone()), ("b.bin".to_string(), fx.b.clone())])
+        HashMap::from([
+            ("sub/a.bin".to_string(), fx.a.clone()),
+            ("b.bin".to_string(), fx.b.clone()),
+        ])
     }
 
-    async fn run(server: &Server, fx: &Fixture, dir: &Path, cancel: &CancellationToken) -> (Result<()>, Vec<(u64, u64)>) {
+    async fn run(
+        server: &Server,
+        fx: &Fixture,
+        dir: &Path,
+        cancel: &CancellationToken,
+    ) -> (Result<()>, Vec<(u64, u64)>) {
         let mut seen = Vec::new();
-        let r = download(&http_client(), &server.base, &fx.manifest, dir, cancel, &mut |d, t| seen.push((d, t))).await;
+        let r = download(
+            &http_client(),
+            &server.base,
+            &fx.manifest,
+            dir,
+            cancel,
+            &mut |d, t| seen.push((d, t)),
+        )
+        .await;
         (r, seen)
     }
 
@@ -372,11 +441,17 @@ mod tests {
         let total = (fx.a.len() + fx.b.len()) as u64;
         assert_eq!(seen.first(), Some(&(0, total)));
         assert_eq!(seen.last(), Some(&(total, total)));
-        assert!(seen.windows(2).all(|w| w[0].0 <= w[1].0), "progress never goes back");
+        assert!(
+            seen.windows(2).all(|w| w[0].0 <= w[1].0),
+            "progress never goes back"
+        );
 
         // a second run finds everything in place and asks for nothing
         let before = server.ranges.lock().unwrap().len();
-        run(&server, &fx, dir.path(), &CancellationToken::new()).await.0.unwrap();
+        run(&server, &fx, dir.path(), &CancellationToken::new())
+            .await
+            .0
+            .unwrap();
         assert_eq!(server.ranges.lock().unwrap().len(), before);
     }
 
@@ -386,7 +461,10 @@ mod tests {
         let server = serve(files_of(&fx), Behaviour::default());
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("a.bin.part"), &fx.a[..1_000_000]).unwrap();
-        run(&server, &fx, dir.path(), &CancellationToken::new()).await.0.unwrap();
+        run(&server, &fx, dir.path(), &CancellationToken::new())
+            .await
+            .0
+            .unwrap();
         assert_eq!(server.ranges.lock().unwrap()[0].as_deref(), Some("1000000"));
         assert_eq!(std::fs::read(dir.path().join("a.bin")).unwrap(), fx.a);
     }
@@ -394,23 +472,46 @@ mod tests {
     #[tokio::test]
     async fn a_dropped_connection_can_be_resumed() {
         let fx = fixture();
-        let server = serve(files_of(&fx), Behaviour { cut_first_at: Some(700_000), ..Default::default() });
+        let server = serve(
+            files_of(&fx),
+            Behaviour {
+                cut_first_at: Some(700_000),
+                ..Default::default()
+            },
+        );
         let dir = tempfile::tempdir().unwrap();
         let (r, _) = run(&server, &fx, dir.path(), &CancellationToken::new()).await;
         assert!(r.is_err());
-        assert!(!dir.path().join("a.bin").exists(), "no final name before the file is whole");
-        let part = std::fs::metadata(dir.path().join("a.bin.part")).unwrap().len();
+        assert!(
+            !dir.path().join("a.bin").exists(),
+            "no final name before the file is whole"
+        );
+        let part = std::fs::metadata(dir.path().join("a.bin.part"))
+            .unwrap()
+            .len();
         assert!(part > 0 && part < fx.a.len() as u64);
 
-        run(&server, &fx, dir.path(), &CancellationToken::new()).await.0.unwrap();
+        run(&server, &fx, dir.path(), &CancellationToken::new())
+            .await
+            .0
+            .unwrap();
         assert_eq!(std::fs::read(dir.path().join("a.bin")).unwrap(), fx.a);
-        assert_eq!(server.ranges.lock().unwrap()[1].as_deref(), Some(part.to_string().as_str()));
+        assert_eq!(
+            server.ranges.lock().unwrap()[1].as_deref(),
+            Some(part.to_string().as_str())
+        );
     }
 
     #[tokio::test]
     async fn a_server_that_ignores_range_still_gives_a_correct_file() {
         let fx = fixture();
-        let server = serve(files_of(&fx), Behaviour { ignore_range: true, ..Default::default() });
+        let server = serve(
+            files_of(&fx),
+            Behaviour {
+                ignore_range: true,
+                ..Default::default()
+            },
+        );
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("a.bin.part"), &fx.a[..1_000_000]).unwrap();
         let (r, seen) = run(&server, &fx, dir.path(), &CancellationToken::new()).await;
@@ -445,20 +546,38 @@ mod tests {
         let (r, _) = run(&server, &fx, dir.path(), &cancel).await;
         assert!(matches!(r, Err(AppError::Cancelled)));
         assert!(server.ranges.lock().unwrap().is_empty());
-        assert_eq!(std::fs::metadata(dir.path().join("a.bin.part")).unwrap().len(), 1_000);
+        assert_eq!(
+            std::fs::metadata(dir.path().join("a.bin.part"))
+                .unwrap()
+                .len(),
+            1_000
+        );
     }
 
     #[tokio::test]
     async fn a_full_url_in_the_manifest_is_used_as_is() {
         let fx = fixture();
         let server = serve(files_of(&fx), Behaviour::default());
-        let url: &'static str = Box::leak(format!("{}/any-tag/b.bin", server.base).into_boxed_str());
-        let manifest = [ManifestFile { name: "b.bin", remote: url, size: fx.b.len() as u64, sha256: fx.manifest[1].sha256 }];
+        let url: &'static str =
+            Box::leak(format!("{}/any-tag/b.bin", server.base).into_boxed_str());
+        let manifest = [ManifestFile {
+            name: "b.bin",
+            remote: url,
+            size: fx.b.len() as u64,
+            sha256: fx.manifest[1].sha256,
+        }];
         let dir = tempfile::tempdir().unwrap();
         // The base URL is ignored for this file, so a wrong one must not matter.
-        download(&http_client(), "http://127.0.0.1:1", &manifest, dir.path(), &CancellationToken::new(), &mut |_, _| {})
-            .await
-            .unwrap();
+        download(
+            &http_client(),
+            "http://127.0.0.1:1",
+            &manifest,
+            dir.path(),
+            &CancellationToken::new(),
+            &mut |_, _| {},
+        )
+        .await
+        .unwrap();
         assert_eq!(std::fs::read(dir.path().join("b.bin")).unwrap(), fx.b);
     }
 
@@ -473,8 +592,14 @@ mod tests {
 
     #[test]
     fn manifest_sizes_add_up_and_the_directory_is_pinned() {
-        assert_eq!(total_bytes(FILES), 519_322 + 196_725_760 + 20_323_312 + 1_765 + 662 + 1_156_830);
+        assert_eq!(
+            total_bytes(FILES),
+            519_322 + 196_725_760 + 20_323_312 + 1_765 + 662 + 1_156_830
+        );
         let dir = model_dir(Path::new("/data"));
-        assert!(dir.ends_with(format!("models/{}/{REVISION}", crate::services::embedding::MODEL_NAME)));
+        assert!(dir.ends_with(format!(
+            "models/{}/{REVISION}",
+            crate::services::embedding::MODEL_NAME
+        )));
     }
 }

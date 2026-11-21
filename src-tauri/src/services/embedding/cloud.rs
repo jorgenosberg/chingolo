@@ -40,7 +40,13 @@ impl GeminiEncoder {
             .connect_timeout(Duration::from_secs(15))
             .build()
             .expect("http client");
-        GeminiEncoder { client, base, key, retry_step, last: None }
+        GeminiEncoder {
+            client,
+            base,
+            key,
+            retry_step,
+            last: None,
+        }
     }
 
     async fn call(&self, key: &str, texts: &[String]) -> Result<(Vec<Vec<f32>>, EncodeUsage)> {
@@ -73,8 +79,14 @@ impl GeminiEncoder {
                 .map_err(|e| AppError::Provider(format!("Unexpected Gemini response: {e}")))?;
             let vectors = parse_response(&value, texts.len())?;
             let usage = match response_tokens(&value) {
-                Some(tokens) => EncodeUsage { tokens, estimated: false },
-                None => EncodeUsage { tokens: estimate_tokens(texts), estimated: true },
+                Some(tokens) => EncodeUsage {
+                    tokens,
+                    estimated: false,
+                },
+                None => EncodeUsage {
+                    tokens: estimate_tokens(texts),
+                    estimated: true,
+                },
             };
             log::debug!(
                 "gemini embeddings: {} texts, response keys {:?}, tokens {} (estimated: {})",
@@ -103,14 +115,21 @@ fn response_tokens(value: &Value) -> Option<u32> {
         .get("embeddings")?
         .as_array()?
         .iter()
-        .map(|e| e.get("usageMetadata").and_then(count).or_else(|| e.get("statistics").and_then(count)))
+        .map(|e| {
+            e.get("usageMetadata")
+                .and_then(count)
+                .or_else(|| e.get("statistics").and_then(count))
+        })
         .collect();
     per_item.map(|v| v.iter().sum::<u64>() as u32)
 }
 
 /// About 4 characters per token. Only used when the response has no count.
 fn estimate_tokens(texts: &[String]) -> u32 {
-    texts.iter().map(|t| t.chars().count().div_ceil(4) as u32).sum()
+    texts
+        .iter()
+        .map(|t| t.chars().count().div_ceil(4) as u32)
+        .sum()
 }
 
 impl Encoder for GeminiEncoder {
@@ -146,22 +165,35 @@ fn build_body(texts: &[String]) -> Value {
 /// One vector per text, or an error. A wrong count or size is an error rather than something to
 /// store, because a bad vector would sit in the index silently.
 fn parse_response(value: &Value, expected: usize) -> Result<Vec<Vec<f32>>> {
-    let bad = |what: &str| AppError::Provider(format!("Unexpected Gemini embedding response: {what}"));
+    let bad =
+        |what: &str| AppError::Provider(format!("Unexpected Gemini embedding response: {what}"));
     let items: Vec<&Value> = match value.get("embeddings").and_then(Value::as_array) {
         Some(list) => list.iter().collect(),
         None => value.get("embedding").into_iter().collect(),
     };
     if items.len() != expected {
-        return Err(bad(&format!("expected {expected} vectors, got {}", items.len())));
+        return Err(bad(&format!(
+            "expected {expected} vectors, got {}",
+            items.len()
+        )));
     }
     items
         .into_iter()
         .map(|item| {
-            let values = item.get("values").and_then(Value::as_array).ok_or_else(|| bad("no values"))?;
+            let values = item
+                .get("values")
+                .and_then(Value::as_array)
+                .ok_or_else(|| bad("no values"))?;
             if values.len() != DIMENSIONS {
-                return Err(bad(&format!("expected {DIMENSIONS} dimensions, got {}", values.len())));
+                return Err(bad(&format!(
+                    "expected {DIMENSIONS} dimensions, got {}",
+                    values.len()
+                )));
             }
-            let v: Option<Vec<f32>> = values.iter().map(|x| x.as_f64().map(|f| f as f32)).collect();
+            let v: Option<Vec<f32>> = values
+                .iter()
+                .map(|x| x.as_f64().map(|f| f as f32))
+                .collect();
             Ok(normalize(v.ok_or_else(|| bad("a value was not a number"))?))
         })
         .collect()
@@ -196,27 +228,47 @@ mod tests {
 
     #[test]
     fn reads_token_counts_from_either_place_or_gives_none() {
-        assert_eq!(response_tokens(&json!({ "usageMetadata": { "promptTokenCount": 42 } })), Some(42));
+        assert_eq!(
+            response_tokens(&json!({ "usageMetadata": { "promptTokenCount": 42 } })),
+            Some(42)
+        );
         let per_item = json!({ "embeddings": [
             { "values": [], "usageMetadata": { "promptTokenCount": 5 } },
             { "values": [], "statistics": { "tokenCount": 7 } },
         ]});
         assert_eq!(response_tokens(&per_item), Some(12));
-        assert_eq!(response_tokens(&json!({ "embeddings": [{ "values": [] }] })), None);
+        assert_eq!(
+            response_tokens(&json!({ "embeddings": [{ "values": [] }] })),
+            None
+        );
         assert_eq!(estimate_tokens(&["abcdefgh".into(), "abc".into()]), 3);
     }
 
     #[test]
     fn a_call_without_counts_is_estimated_and_flagged() {
-        let (base, _) = serve(vec![(200, json!({ "embeddings": [vector(1.0)] }).to_string())]);
+        let (base, _) = serve(vec![(
+            200,
+            json!({ "embeddings": [vector(1.0)] }).to_string(),
+        )]);
         let mut e = encoder(base, Some("k"));
         e.encode(&["twelve chars".into()]).unwrap();
-        assert_eq!(e.last_usage(), Some(EncodeUsage { tokens: 3, estimated: true }));
+        assert_eq!(
+            e.last_usage(),
+            Some(EncodeUsage {
+                tokens: 3,
+                estimated: true
+            })
+        );
     }
 
     #[test]
     fn accepts_the_single_embedding_shape() {
-        assert_eq!(parse_response(&json!({ "embedding": vector(1.0) }), 1).unwrap().len(), 1);
+        assert_eq!(
+            parse_response(&json!({ "embedding": vector(1.0) }), 1)
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     #[test]
@@ -233,12 +285,25 @@ mod tests {
 
     #[test]
     fn sends_the_key_as_a_header_and_returns_vectors() {
-        let (base, seen) = serve(vec![(200, json!({ "embeddings": [vector(1.0)] }).to_string())]);
-        let out = encoder(base, Some("secret-key")).encode(&["hello".into()]).unwrap();
+        let (base, seen) = serve(vec![(
+            200,
+            json!({ "embeddings": [vector(1.0)] }).to_string(),
+        )]);
+        let out = encoder(base, Some("secret-key"))
+            .encode(&["hello".into()])
+            .unwrap();
         assert_eq!(out.len(), 1);
         let seen = seen.lock().unwrap();
-        assert!(seen[0].0.to_lowercase().contains("x-goog-api-key: secret-key"));
-        assert!(!seen[0].0.contains("key="), "the key must never be in the URL");
+        assert!(
+            seen[0]
+                .0
+                .to_lowercase()
+                .contains("x-goog-api-key: secret-key")
+        );
+        assert!(
+            !seen[0].0.contains("key="),
+            "the key must never be in the URL"
+        );
         assert!(seen[0].1.contains("hello"));
     }
 
@@ -246,14 +311,23 @@ mod tests {
     fn retries_a_rate_limit_then_succeeds() {
         let ok = json!({ "embeddings": [vector(1.0)] }).to_string();
         let (base, seen) = serve(vec![(429, "{}".into()), (503, "{}".into()), (200, ok)]);
-        assert_eq!(encoder(base, Some("k")).encode(&["x".into()]).unwrap().len(), 1);
+        assert_eq!(
+            encoder(base, Some("k"))
+                .encode(&["x".into()])
+                .unwrap()
+                .len(),
+            1
+        );
         assert_eq!(seen.lock().unwrap().len(), 3);
     }
 
     #[test]
     fn gives_up_after_the_retries_and_says_why() {
         let (base, _) = serve(vec![(429, r#"{"error":{"message":"quota"}}"#.into()); 4]);
-        let err = encoder(base, Some("k")).encode(&["x".into()]).unwrap_err().to_string();
+        let err = encoder(base, Some("k"))
+            .encode(&["x".into()])
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("rate limit"), "{err}");
     }
 
@@ -261,14 +335,20 @@ mod tests {
     fn a_rejected_key_is_reported_without_retrying() {
         let body = r#"{"error":{"message":"API key not valid. Please pass a valid API key."}}"#;
         let (base, seen) = serve(vec![(400, body.into())]);
-        let err = encoder(base, Some("bad")).encode(&["x".into()]).unwrap_err().to_string();
+        let err = encoder(base, Some("bad"))
+            .encode(&["x".into()])
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("rejected the API key"), "{err}");
         assert_eq!(seen.lock().unwrap().len(), 1);
     }
 
     #[test]
     fn no_key_is_a_clear_error_and_no_request() {
-        let err = encoder("http://127.0.0.1:1".into(), None).encode(&["x".into()]).unwrap_err().to_string();
+        let err = encoder("http://127.0.0.1:1".into(), None)
+            .encode(&["x".into()])
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("Add your Gemini API key"), "{err}");
     }
 
@@ -280,15 +360,28 @@ mod tests {
         let key = std::env::var("GEMINI_API_KEY").expect("set GEMINI_API_KEY");
         let mut e = GeminiEncoder::new(Arc::new(move || Ok(Some(key.clone()))));
         let texts = [
-            format!("{}Coral bleaching follows sustained heat stress.", super::super::DOC_PREFIX),
-            format!("{}Gill tissue was stained with alcian blue.", super::super::DOC_PREFIX),
-            format!("{}why do reefs lose their colour", super::super::QUERY_PREFIX),
+            format!(
+                "{}Coral bleaching follows sustained heat stress.",
+                super::super::DOC_PREFIX
+            ),
+            format!(
+                "{}Gill tissue was stained with alcian blue.",
+                super::super::DOC_PREFIX
+            ),
+            format!(
+                "{}why do reefs lose their colour",
+                super::super::QUERY_PREFIX
+            ),
         ];
         let v = e.encode(&texts).unwrap();
         assert_eq!(v.len(), 3);
         assert_eq!(v[0].len(), DIMENSIONS);
         let dot = |a: &[f32], b: &[f32]| a.iter().zip(b).map(|(x, y)| x * y).sum::<f32>();
-        println!("query vs bleaching {:.3}, query vs staining {:.3}", dot(&v[2], &v[0]), dot(&v[2], &v[1]));
+        println!(
+            "query vs bleaching {:.3}, query vs staining {:.3}",
+            dot(&v[2], &v[0]),
+            dot(&v[2], &v[1])
+        );
         assert!(dot(&v[2], &v[0]) > dot(&v[2], &v[1]));
     }
 }

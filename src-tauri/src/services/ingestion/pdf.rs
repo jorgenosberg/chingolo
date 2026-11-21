@@ -7,13 +7,13 @@ use std::sync::LazyLock;
 use pdfium_render::prelude::*;
 use regex::Regex;
 
+use super::Extraction;
 use super::detect::{Info, detect};
 use super::layout::{Layout, PageRegions, Region};
 use super::ocr::{self, Ocr, OcrSlot};
 use super::segment::{Block, Join};
 use super::tables::{self, Filled, Glyph, Tables};
 use super::vision;
-use super::Extraction;
 use crate::error::{AppError, Result};
 use crate::persistence::library::{Extracted, NewPage};
 
@@ -28,7 +28,8 @@ const LOW_QUALITY_ODD_RATIO: usize = 20;
 
 /// Shapes that real words don't have but a broken font encoding makes: a digit in front of a letter
 /// run (`0DQXDORQ` for "Manual"), a digit inside one, or a symbol between two letters (`c~nv~Z~t~~`).
-static GARBLE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\d\p{L}{4,}|\p{L}{2,}\d\p{L}{2,}|\p{L}[~^|{}\\]\p{L}").unwrap());
+static GARBLE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\d\p{L}{4,}|\p{L}{2,}\d\p{L}{2,}|\p{L}[~^|{}\\]\p{L}").unwrap());
 
 const ELEMENTS: &str = "H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe Co Ni Cu Zn Ga Ge As Se Br Kr Rb Sr Y Zr Nb Mo Tc Ru Rh Pd Ag Cd In Sn Sb Te I Xe Cs Ba La Ce Pr Nd Pm Sm Eu Gd Tb Dy Ho Er Tm Yb Lu Hf Ta W Re Os Ir Pt Au Hg Tl Pb Bi Po At Rn Fr Ra Ac Th Pa U Np Pu Am Cm Bk Cf Es Fm Md No Lr";
 
@@ -67,9 +68,12 @@ pub fn garble_words<'a>(lines: impl IntoIterator<Item = &'a str>) -> (Vec<&'a st
             continue;
         }
         all += 1;
-        let core = w.trim_start_matches(|c: char| c.is_ascii_digit() || c == '-' || c == '\u{2013}');
+        let core =
+            w.trim_start_matches(|c: char| c.is_ascii_digit() || c == '-' || c == '\u{2013}');
         let mut cs = core.chars();
-        let capitalised = cs.next().is_some_and(char::is_uppercase) && cs.clone().count() >= 2 && cs.all(char::is_lowercase);
+        let capitalised = cs.next().is_some_and(char::is_uppercase)
+            && cs.clone().count() >= 2
+            && cs.all(char::is_lowercase);
         if !(capitalised && core.len() < w.len()) && GARBLE.is_match(w) && !is_formula(w) {
             bad.push(w);
         }
@@ -124,11 +128,14 @@ impl PdfReader {
         for dir in library_dirs() {
             let lib = Pdfium::pdfium_platform_library_name_at_path(&dir);
             if let Ok(bindings) = Pdfium::bind_to_library(lib) {
-                return Ok(PdfReader { pdfium: Pdfium::new(bindings) });
+                return Ok(PdfReader {
+                    pdfium: Pdfium::new(bindings),
+                });
             }
         }
         Err(AppError::Internal(
-            "The PDF library (libpdfium) was not found. Run src-tauri/scripts/fetch-pdfium.sh.".into(),
+            "The PDF library (libpdfium) was not found. Run src-tauri/scripts/fetch-pdfium.sh."
+                .into(),
         ))
     }
 
@@ -164,7 +171,10 @@ impl PdfReader {
         cancelled: &dyn Fn() -> bool,
         progress: &mut dyn FnMut(u32, u32),
     ) -> Result<Vec<PageRegions>> {
-        let doc = self.pdfium.load_pdf_from_file(path, None).map_err(open_error)?;
+        let doc = self
+            .pdfium
+            .load_pdf_from_file(path, None)
+            .map_err(open_error)?;
         let mut out = Vec::with_capacity(pages.len());
         for (done, &no) in pages.iter().enumerate() {
             if cancelled() {
@@ -177,9 +187,20 @@ impl PdfReader {
                 .get(no as i32 - 1)
                 .map_err(|e| AppError::Internal(e.to_string()))
                 .and_then(|page| {
-                    let Rendered { img, scale, crop, rotation } = render(&page)?;
+                    let Rendered {
+                        img,
+                        scale,
+                        crop,
+                        rotation,
+                    } = render(&page)?;
                     let found = layout.detect(img)?;
-                    Ok(found.into_iter().map(|r| Region { rect: ocr::to_user_space(r.rect, scale, crop, rotation), ..r }).collect())
+                    Ok(found
+                        .into_iter()
+                        .map(|r| Region {
+                            rect: ocr::to_user_space(r.rect, scale, crop, rotation),
+                            ..r
+                        })
+                        .collect())
                 })
                 .unwrap_or_else(|e| {
                     log::warn!("layout failed on page {no}: {e}");
@@ -202,7 +223,10 @@ impl PdfReader {
         cancelled: &dyn Fn() -> bool,
         progress: &mut dyn FnMut(u32, u32),
     ) -> Result<Vec<TableRead>> {
-        let doc = self.pdfium.load_pdf_from_file(path, None).map_err(open_error)?;
+        let doc = self
+            .pdfium
+            .load_pdf_from_file(path, None)
+            .map_err(open_error)?;
         let mut out = Vec::with_capacity(regions.len());
         let mut i = 0;
         while i < regions.len() {
@@ -210,9 +234,19 @@ impl PdfReader {
                 return Err(AppError::Cancelled);
             }
             let no = regions[i].0;
-            let end = regions[i..].iter().position(|r| r.0 != no).map_or(regions.len(), |n| i + n);
-            let page = doc.pages().get(no as i32 - 1).map_err(|e| AppError::Internal(e.to_string()));
-            let drawn = page.as_ref().map_err(|e| e.to_string()).and_then(|p| render(p).map(|r| (r, page_glyphs(p))).map_err(|e| e.to_string()));
+            let end = regions[i..]
+                .iter()
+                .position(|r| r.0 != no)
+                .map_or(regions.len(), |n| i + n);
+            let page = doc
+                .pages()
+                .get(no as i32 - 1)
+                .map_err(|e| AppError::Internal(e.to_string()));
+            let drawn = page.as_ref().map_err(|e| e.to_string()).and_then(|p| {
+                render(p)
+                    .map(|r| (r, page_glyphs(p)))
+                    .map_err(|e| e.to_string())
+            });
             for &(_, region) in &regions[i..end] {
                 let filled = match &drawn {
                     Ok((r, glyphs)) => read_table(r, glyphs, region, tables),
@@ -229,15 +263,23 @@ impl PdfReader {
     /// One page drawn for layout detection (1-based page number).
     #[cfg(test)]
     pub(super) fn render_page(&self, path: &Path, page: u32) -> Result<Rendered> {
-        let doc = self.pdfium.load_pdf_from_file(path, None).map_err(open_error)?;
-        let page = doc.pages().get((page - 1) as i32).map_err(|e| AppError::Internal(e.to_string()))?;
+        let doc = self
+            .pdfium
+            .load_pdf_from_file(path, None)
+            .map_err(open_error)?;
+        let page = doc
+            .pages()
+            .get((page - 1) as i32)
+            .map_err(|e| AppError::Internal(e.to_string()))?;
         render(&page)
     }
 
     /// Only the details: the file properties and the first pages, which is where titles,
     /// authors and citation lines are. Nothing is stored, so nothing needs indexing again.
     pub fn extract_meta(&self, path: &Path, ocr: &mut OcrSlot) -> Result<Extracted> {
-        Ok(self.read(path, ocr, &|| false, &mut |_, _| {}, META_PAGES)?.meta)
+        Ok(self
+            .read(path, ocr, &|| false, &mut |_, _| {}, META_PAGES)?
+            .meta)
     }
 
     fn read(
@@ -248,7 +290,10 @@ impl PdfReader {
         progress: &mut dyn FnMut(u32, u32),
         max_pages: usize,
     ) -> Result<Extraction> {
-        let doc = self.pdfium.load_pdf_from_file(path, None).map_err(open_error)?;
+        let doc = self
+            .pdfium
+            .load_pdf_from_file(path, None)
+            .map_err(open_error)?;
         let total = (doc.pages().len() as usize).min(max_pages) as u32;
 
         let mut pages = Vec::new();
@@ -276,7 +321,10 @@ impl PdfReader {
             {
                 match ocr_page(&page, engine) {
                     Ok(l)
-                        if l.iter().map(|x| x.text.chars().filter(|c| c.is_alphanumeric()).count()).sum::<usize>() >= MIN_CHARS_PER_PAGE
+                        if l.iter()
+                            .map(|x| x.text.chars().filter(|c| c.is_alphanumeric()).count())
+                            .sum::<usize>()
+                            >= MIN_CHARS_PER_PAGE
                             && (quality == "none" || reads_better(&lines, &l)) =>
                     {
                         lines = l;
@@ -289,7 +337,13 @@ impl PdfReader {
                 }
             }
             unreadable += u32::from(failed);
-            pages.push(NewPage { page_no, width: page.width().value, height: page.height().value, quality, ocr: ocr_read });
+            pages.push(NewPage {
+                page_no,
+                width: page.width().value,
+                height: page.height().value,
+                quality,
+                ocr: ocr_read,
+            });
             blocks.extend(lines.into_iter().map(|l| Block {
                 page: page_no,
                 text: l.text,
@@ -300,15 +354,28 @@ impl PdfReader {
             progress(page_no, total);
         }
 
-        let info = |t| doc.metadata().get(t).map(|m| m.value().trim().to_string()).filter(|s| !s.is_empty());
-        let file_name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let info = |t| {
+            doc.metadata()
+                .get(t)
+                .map(|m| m.value().trim().to_string())
+                .filter(|s| !s.is_empty())
+        };
+        let file_name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
         let found = Info {
             title: info(PdfDocumentMetadataTagType::Title),
             author: info(PdfDocumentMetadataTagType::Author),
             subject: info(PdfDocumentMetadataTagType::Subject),
         };
         let meta = detect(&found, &blocks, &file_name, current_year());
-        Ok(Extraction { pages, blocks, meta, unreadable_pages: unreadable })
+        Ok(Extraction {
+            pages,
+            blocks,
+            meta,
+            unreadable_pages: unreadable,
+        })
     }
 }
 
@@ -344,18 +411,43 @@ pub struct TableRead {
 /// Room around a table region for the model, in pixels. Layout boxes are tight.
 const TABLE_PAD_PX: f32 = 6.0;
 
-fn read_table(r: &Rendered, glyphs: &[Glyph], region: [f32; 4], tables: &Tables) -> std::result::Result<Filled, String> {
+fn read_table(
+    r: &Rendered,
+    glyphs: &[Glyph],
+    region: [f32; 4],
+    tables: &Tables,
+) -> std::result::Result<Filled, String> {
     let [x0, y0, x1, y1] = ocr::to_pixels(region, r.scale, r.crop, r.rotation);
-    let (x0, y0) = ((x0 - TABLE_PAD_PX).max(0.0).floor(), (y0 - TABLE_PAD_PX).max(0.0).floor());
-    let (x1, y1) = ((x1 + TABLE_PAD_PX).min(r.img.width() as f32).ceil(), (y1 + TABLE_PAD_PX).min(r.img.height() as f32).ceil());
+    let (x0, y0) = (
+        (x0 - TABLE_PAD_PX).max(0.0).floor(),
+        (y0 - TABLE_PAD_PX).max(0.0).floor(),
+    );
+    let (x1, y1) = (
+        (x1 + TABLE_PAD_PX).min(r.img.width() as f32).ceil(),
+        (y1 + TABLE_PAD_PX).min(r.img.height() as f32).ceil(),
+    );
     let (w, h) = ((x1 - x0).max(0.0) as u32, (y1 - y0).max(0.0) as u32);
     if w < 16 || h < 16 {
         return Err("the table region is empty".into());
     }
     let crop = image::imageops::crop_imm(&r.img, x0 as u32, y0 as u32, w, h).to_image();
     let grid = tables.grid(crop).map_err(|e| e.to_string())?;
-    let pixels: Vec<[f32; 4]> = grid.iter().map(|c| [c.rect[0] + x0, c.rect[1] + y0, c.rect[2] + x0, c.rect[3] + y0]).collect();
-    let cells: Vec<_> = grid.into_iter().zip(&pixels).map(|(c, px)| (c, ocr::to_user_space(*px, r.scale, r.crop, r.rotation))).collect();
+    let pixels: Vec<[f32; 4]> = grid
+        .iter()
+        .map(|c| {
+            [
+                c.rect[0] + x0,
+                c.rect[1] + y0,
+                c.rect[2] + x0,
+                c.rect[3] + y0,
+            ]
+        })
+        .collect();
+    let cells: Vec<_> = grid
+        .into_iter()
+        .zip(&pixels)
+        .map(|(c, px)| (c, ocr::to_user_space(*px, r.scale, r.crop, r.rotation)))
+        .collect();
     let mut filled = tables::fill(&cells, region, glyphs);
     verify_cells(&r.img, &pixels, &mut filled.cells);
     Ok(filled)
@@ -377,27 +469,61 @@ fn verify_cells(img: &image::RgbImage, pixels: &[[f32; 4]], cells: &mut [tables:
         if !tables::worth_checking(&cell.text) {
             continue;
         }
-        let (x0, y0) = ((px[0] as i64 - CELL_PAD_PX).max(0), (px[1] as i64 - CELL_PAD_PX).max(0));
-        let (x1, y1) = ((px[2] as i64 + CELL_PAD_PX).min(img.width() as i64), (px[3] as i64 + CELL_PAD_PX).min(img.height() as i64));
+        let (x0, y0) = (
+            (px[0] as i64 - CELL_PAD_PX).max(0),
+            (px[1] as i64 - CELL_PAD_PX).max(0),
+        );
+        let (x1, y1) = (
+            (px[2] as i64 + CELL_PAD_PX).min(img.width() as i64),
+            (px[3] as i64 + CELL_PAD_PX).min(img.height() as i64),
+        );
         if x1 - x0 < 4 || y1 - y0 < 4 {
             continue;
         }
-        let part = image::imageops::crop_imm(img, x0 as u32, y0 as u32, (x1 - x0) as u32, (y1 - y0) as u32).to_image();
+        let part = image::imageops::crop_imm(
+            img,
+            x0 as u32,
+            y0 as u32,
+            (x1 - x0) as u32,
+            (y1 - y0) as u32,
+        )
+        .to_image();
         // Vision skips very small text, so short crops are enlarged first
         let part = if part.height() < CELL_MIN_HEIGHT_PX {
             let k = (CELL_MIN_HEIGHT_PX as f32 / part.height() as f32).min(4.0);
-            image::imageops::resize(&part, (part.width() as f32 * k) as u32, (part.height() as f32 * k) as u32, image::imageops::FilterType::Lanczos3)
+            image::imageops::resize(
+                &part,
+                (part.width() as f32 * k) as u32,
+                (part.height() as f32 * k) as u32,
+                image::imageops::FilterType::Lanczos3,
+            )
         } else {
             part
         };
-        let mut framed = image::RgbImage::from_pixel(part.width() + 2 * CELL_BORDER_PX, part.height() + 2 * CELL_BORDER_PX, image::Rgb([255, 255, 255]));
-        image::imageops::overlay(&mut framed, &part, CELL_BORDER_PX as i64, CELL_BORDER_PX as i64);
+        let mut framed = image::RgbImage::from_pixel(
+            part.width() + 2 * CELL_BORDER_PX,
+            part.height() + 2 * CELL_BORDER_PX,
+            image::Rgb([255, 255, 255]),
+        );
+        image::imageops::overlay(
+            &mut framed,
+            &part,
+            CELL_BORDER_PX as i64,
+            CELL_BORDER_PX as i64,
+        );
         // a reading with nothing in it says nothing, it is not a disagreement
-        let lines: Vec<String> = vision::read_lines(&framed).unwrap_or_default().into_iter().filter(|l| l.chars().any(char::is_alphanumeric)).collect();
+        let lines: Vec<String> = vision::read_lines(&framed)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|l| l.chars().any(char::is_alphanumeric))
+            .collect();
         if !lines.is_empty() {
             cell.verified = Some(tables::readers_agree(&cell.text, &lines.join(" ")));
             if cell.verified == Some(false) && std::env::var("CHINGOLO_VISION_DEBUG").is_ok() {
-                println!("      vision r{}c{}: layer {:?} vision {:?}", cell.row, cell.col, cell.text, lines);
+                println!(
+                    "      vision r{}c{}: layer {:?} vision {:?}",
+                    cell.row, cell.col, cell.text, lines
+                );
             }
         }
     }
@@ -419,7 +545,16 @@ fn page_glyphs(page: &PdfPage) -> Vec<Glyph> {
             continue;
         }
         if let Ok(r) = ch.loose_bounds() {
-            out.push(Glyph { ch: c, rect: [r.left().value, r.bottom().value, r.right().value, r.top().value], space_before: std::mem::take(&mut space) });
+            out.push(Glyph {
+                ch: c,
+                rect: [
+                    r.left().value,
+                    r.bottom().value,
+                    r.right().value,
+                    r.top().value,
+                ],
+                space_before: std::mem::take(&mut space),
+            });
         }
     }
     out
@@ -437,23 +572,50 @@ pub(super) fn render(page: &PdfPage) -> Result<Rendered> {
     let scale = ocr::RENDER_SCALE.min(ocr::MAX_SIDE_PX / w.max(h));
     let draw = |e: PdfiumError| AppError::Internal(format!("couldn't draw the page: {e}"));
     let bitmap = page
-        .render_with_config(&PdfRenderConfig::new().scale_page_by_factor(scale).rotate_if_landscape(PdfPageRenderRotation::None, false))
+        .render_with_config(
+            &PdfRenderConfig::new()
+                .scale_page_by_factor(scale)
+                .rotate_if_landscape(PdfPageRenderRotation::None, false),
+        )
         .map_err(draw)?;
     let img = bitmap.as_image().map_err(draw)?.to_rgb8();
-    let crop = page.boundaries().crop().or_else(|_| page.boundaries().media()).map(|x| x.bounds);
-    let crop = crop.map(|c| [c.left().value, c.bottom().value, c.right().value, c.top().value]).unwrap_or([0.0, 0.0, w, h]);
+    let crop = page
+        .boundaries()
+        .crop()
+        .or_else(|_| page.boundaries().media())
+        .map(|x| x.bounds);
+    let crop = crop
+        .map(|c| {
+            [
+                c.left().value,
+                c.bottom().value,
+                c.right().value,
+                c.top().value,
+            ]
+        })
+        .unwrap_or([0.0, 0.0, w, h]);
     let rotation = match page.rotation() {
         Ok(PdfPageRenderRotation::Degrees90) => 90,
         Ok(PdfPageRenderRotation::Degrees180) => 180,
         Ok(PdfPageRenderRotation::Degrees270) => 270,
         _ => 0,
     };
-    Ok(Rendered { scale: (img.width() as f32 / w, img.height() as f32 / h), img, crop, rotation })
+    Ok(Rendered {
+        scale: (img.width() as f32 / w, img.height() as f32 / h),
+        img,
+        crop,
+        rotation,
+    })
 }
 
 /// Reads the page with text recognition and puts the lines back in PDF user space.
 fn ocr_page(page: &PdfPage, engine: &Ocr) -> Result<Vec<RawLine>> {
-    let Rendered { img, scale, crop, rotation } = render(page)?;
+    let Rendered {
+        img,
+        scale,
+        crop,
+        rotation,
+    } = render(page)?;
     Ok(engine
         .recognize(img)?
         .into_iter()
@@ -513,7 +675,10 @@ impl LineBuilder {
 
     fn start_line(&mut self, first: char) {
         // pdfium drops the hyphen when it joins "geo-" and "engineering" and gives no newline.
-        let prev_alpha = self.out.last().is_some_and(|l| l.text.chars().last().is_some_and(char::is_alphabetic));
+        let prev_alpha = self
+            .out
+            .last()
+            .is_some_and(|l| l.text.chars().last().is_some_and(char::is_alphabetic));
         self.cur_tight = self.soft_split && prev_alpha && first.is_lowercase();
         self.soft_split = false;
     }
@@ -535,9 +700,16 @@ fn read_page(page: &PdfPage) -> std::result::Result<(Vec<RawLine>, &'static str)
         if c.is_control() {
             continue;
         }
-        let bounds = if c.is_whitespace() { None } else { ch.loose_bounds().ok() };
+        let bounds = if c.is_whitespace() {
+            None
+        } else {
+            ch.loose_bounds().ok()
+        };
         if let Some(r) = bounds {
-            let (cx, cy) = ((r.left().value + r.right().value) / 2.0, (r.bottom().value + r.top().value) / 2.0);
+            let (cx, cy) = (
+                (r.left().value + r.right().value) / 2.0,
+                (r.bottom().value + r.top().value) / 2.0,
+            );
             let angle = ch.angle_degrees().unwrap_or(0.0).abs() % 180.0;
             let vertical = (angle - 90.0).abs() < 20.0;
             if !b.same_line(cx, cy, vertical) {
@@ -560,7 +732,12 @@ fn read_page(page: &PdfPage) -> std::result::Result<(Vec<RawLine>, &'static str)
             odd += 1;
         }
         if let Some(r) = bounds {
-            let (l, bo, ri, t) = (r.left().value, r.bottom().value, r.right().value, r.top().value);
+            let (l, bo, ri, t) = (
+                r.left().value,
+                r.bottom().value,
+                r.right().value,
+                r.top().value,
+            );
             b.rect = Some(match b.rect {
                 None => [l, bo, ri, t],
                 Some(o) => [o[0].min(l), o[1].min(bo), o[2].max(ri), o[3].max(t)],
@@ -571,16 +748,28 @@ fn read_page(page: &PdfPage) -> std::result::Result<(Vec<RawLine>, &'static str)
     b.flush();
 
     // Text outside the crop box is invisible in a viewer (prepress headers, crop marks).
-    let crop = page.boundaries().crop().or_else(|_| page.boundaries().media()).ok().map(|x| x.bounds);
+    let crop = page
+        .boundaries()
+        .crop()
+        .or_else(|_| page.boundaries().media())
+        .ok()
+        .map(|x| x.bounds);
     let mut lines = b.out;
     if let Some(c) = crop {
-        let (l, bo, r, t) = (c.left().value, c.bottom().value, c.right().value, c.top().value);
+        let (l, bo, r, t) = (
+            c.left().value,
+            c.bottom().value,
+            c.right().value,
+            c.top().value,
+        );
         lines.retain(|x| x.rect[0] < r && x.rect[2] > l && x.rect[1] < t && x.rect[3] > bo);
     }
 
     let quality = if letters < MIN_CHARS_PER_PAGE {
         "none"
-    } else if odd * LOW_QUALITY_ODD_RATIO > letters || is_garbled(lines.iter().map(|l| l.text.as_str())) {
+    } else if odd * LOW_QUALITY_ODD_RATIO > letters
+        || is_garbled(lines.iter().map(|l| l.text.as_str()))
+    {
         "low"
     } else {
         "ok"
@@ -593,33 +782,82 @@ mod tests {
     use super::*;
 
     fn raw(text: &str) -> Vec<RawLine> {
-        vec![RawLine { text: text.into(), rect: [0.0; 4], font: 10.0, tight: false }]
+        vec![RawLine {
+            text: text.into(),
+            rect: [0.0; 4],
+            font: 10.0,
+            tight: false,
+        }]
     }
 
     #[test]
     fn recognised_text_replaces_a_garbled_layer_only_when_it_is_better_and_not_much_shorter() {
-        let layer = raw("Collec8on Loca8on classifica8on of samples from the first survey and the second survey of the bay");
-        assert!(reads_better(&layer, &raw("Collection Location classification of samples from the first survey and the second survey of the bay")));
-        assert!(!reads_better(&layer, &raw("Collection Location classification of samples")), "a third of the words are gone");
-        assert!(!reads_better(&layer, &raw("Collec8on Loca8on classifica8on of samples from the first survey and the second survey of the bay")), "no better");
+        let layer = raw(
+            "Collec8on Loca8on classifica8on of samples from the first survey and the second survey of the bay",
+        );
+        assert!(reads_better(
+            &layer,
+            &raw(
+                "Collection Location classification of samples from the first survey and the second survey of the bay"
+            )
+        ));
+        assert!(
+            !reads_better(
+                &layer,
+                &raw("Collection Location classification of samples")
+            ),
+            "a third of the words are gone"
+        );
+        assert!(
+            !reads_better(
+                &layer,
+                &raw(
+                    "Collec8on Loca8on classifica8on of samples from the first survey and the second survey of the bay"
+                )
+            ),
+            "no better"
+        );
     }
 
     #[test]
     fn broken_font_encodings_are_garble_and_chemistry_and_footnote_marks_are_not() {
         let bad = |t: &str| garble_words([t]).0.len();
-        assert_eq!(bad("0DQXDORQ +DUPIXO0DULQH 0LFURDOJDH"), 3, "the Manual's cover: Manual on Harmful Marine Microalgae shifted by three");
-        assert_eq!(bad("Collec8on Loca8on and classifica8on"), 3, "a broken ti ligature");
+        assert_eq!(
+            bad("0DQXDORQ +DUPIXO0DULQH 0LFURDOJDH"),
+            3,
+            "the Manual's cover: Manual on Harmful Marine Microalgae shifted by three"
+        );
+        assert_eq!(
+            bad("Collec8on Loca8on and classifica8on"),
+            3,
+            "a broken ti ligature"
+        );
         assert_eq!(bad("and c~nv~Z~t~~ increase"), 1);
-        assert_eq!(bad("11Département 3-4April 1Introduction of the ocean"), 0, "numbers glued to a capitalised word");
-        assert_eq!(bad("NaH2PO4 Na2SiO3 NH4VO3 CH2OHCHOH 1CH2OHCHOH"), 0, "formulas");
-        assert_eq!(bad("measured 2.5 mg at 1500 m depth in 1993 (CO2) and 10.1038/nature02437"), 0);
+        assert_eq!(
+            bad("11Département 3-4April 1Introduction of the ocean"),
+            0,
+            "numbers glued to a capitalised word"
+        );
+        assert_eq!(
+            bad("NaH2PO4 Na2SiO3 NH4VO3 CH2OHCHOH 1CH2OHCHOH"),
+            0,
+            "formulas"
+        );
+        assert_eq!(
+            bad("measured 2.5 mg at 1500 m depth in 1993 (CO2) and 10.1038/nature02437"),
+            0
+        );
         assert!(is_garbled(["0DQXDORQ +DUPIXO0DULQH 0LFURDOJDH"]));
-        assert!(!is_garbled(["ekstrem2høy ekstrem2høy ekstrem2høy"]), "one odd word, even repeated, is not a broken layer");
+        assert!(
+            !is_garbled(["ekstrem2høy ekstrem2høy ekstrem2høy"]),
+            "one odd word, even repeated, is not a broken layer"
+        );
     }
 
     /// One page, two lines of 18 pt Helvetica. No xref table: pdfium rebuilds it.
     fn tiny_pdf() -> Vec<u8> {
-        let content = "BT /F1 18 Tf 20 150 Td (Hello Chingolo world) Tj 0 -30 Td (Second line here) Tj ET";
+        let content =
+            "BT /F1 18 Tf 20 150 Td (Hello Chingolo world) Tj 0 -30 Td (Second line here) Tj ET";
         format!(
             "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n\
              2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n\
@@ -634,7 +872,11 @@ mod tests {
 
     /// The tiny page with its box starting at (ox, oy) and turned by `rotate` degrees.
     fn placed_pdf(ox: i32, oy: i32, rotate: u16) -> Vec<u8> {
-        let content = format!("BT /F1 18 Tf {} {} Td (Hello Chingolo world) Tj 0 -30 Td (Second line here) Tj ET", 20 + ox, 150 + oy);
+        let content = format!(
+            "BT /F1 18 Tf {} {} Td (Hello Chingolo world) Tj 0 -30 Td (Second line here) Tj ET",
+            20 + ox,
+            150 + oy
+        );
         format!(
             "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n\
              2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n\
@@ -663,21 +905,36 @@ mod tests {
                 let doc = reader.pdfium.load_pdf_from_file(&path, None).unwrap();
                 let page = doc.pages().get(0).unwrap();
                 let (lines, _) = read_page(&page).unwrap();
-                let want = lines.iter().fold([f32::MAX, f32::MAX, f32::MIN, f32::MIN], |a, l| {
-                    [a[0].min(l.rect[0]), a[1].min(l.rect[1]), a[2].max(l.rect[2]), a[3].max(l.rect[3])]
-                });
+                let want = lines
+                    .iter()
+                    .fold([f32::MAX, f32::MAX, f32::MIN, f32::MIN], |a, l| {
+                        [
+                            a[0].min(l.rect[0]),
+                            a[1].min(l.rect[1]),
+                            a[2].max(l.rect[2]),
+                            a[3].max(l.rect[3]),
+                        ]
+                    });
                 let r = render(&page).unwrap();
                 assert_eq!(r.rotation, rotate);
                 let mut px = [f32::MAX, f32::MAX, f32::MIN, f32::MIN];
                 for (x, y, p) in r.img.enumerate_pixels() {
                     if p.0.iter().map(|&c| c as u32).sum::<u32>() < 300 {
-                        px = [px[0].min(x as f32), px[1].min(y as f32), px[2].max(x as f32 + 1.0), px[3].max(y as f32 + 1.0)];
+                        px = [
+                            px[0].min(x as f32),
+                            px[1].min(y as f32),
+                            px[2].max(x as f32 + 1.0),
+                            px[3].max(y as f32 + 1.0),
+                        ];
                     }
                 }
                 let got = ocr::to_user_space(px, r.scale, r.crop, r.rotation);
                 // Glyph boxes include padding above and below the ink, so allow a few points.
                 for i in 0..4 {
-                    assert!((got[i] - want[i]).abs() < 6.0, "origin ({ox},{oy}) rotate {rotate}: got {got:?}, text layer {want:?}");
+                    assert!(
+                        (got[i] - want[i]).abs() < 6.0,
+                        "origin ({ox},{oy}) rotate {rotate}: got {got:?}, text layer {want:?}"
+                    );
                 }
             }
         }
@@ -701,14 +958,19 @@ mod tests {
         std::fs::write(&path, tiny_pdf()).unwrap();
 
         let mut last = (0, 0);
-        let out = reader.extract(&path, &|| false, &mut |d, t| last = (d, t)).unwrap();
+        let out = reader
+            .extract(&path, &|| false, &mut |d, t| last = (d, t))
+            .unwrap();
         assert_eq!(last, (1, 1));
         assert_eq!((out.pages.len(), out.pages[0].quality), (1, "ok"));
         assert_eq!((out.pages[0].width, out.pages[0].height), (300.0, 200.0));
         let texts: Vec<_> = out.blocks.iter().map(|b| b.text.as_str()).collect();
         assert_eq!(texts, ["Hello Chingolo world", "Second line here"]);
         let r = out.blocks[0].rect.unwrap();
-        assert!(r[0] >= 19.0 && r[2] <= 300.0 && r[1] > 140.0 && r[3] < 180.0, "{r:?}");
+        assert!(
+            r[0] >= 19.0 && r[2] <= 300.0 && r[1] > 140.0 && r[3] < 180.0,
+            "{r:?}"
+        );
         assert!((out.blocks[0].font_size - 18.0).abs() < 1.0);
     }
 
@@ -717,7 +979,10 @@ mod tests {
         let Some(reader) = reader() else { return };
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("blank.pdf");
-        let blank = String::from_utf8(tiny_pdf()).unwrap().replace("Hello Chingolo world", "").replace("Second line here", "");
+        let blank = String::from_utf8(tiny_pdf())
+            .unwrap()
+            .replace("Hello Chingolo world", "")
+            .replace("Second line here", "");
         std::fs::write(&path, blank).unwrap();
         let out = reader.extract(&path, &|| false, &mut |_, _| {}).unwrap();
         assert_eq!(out.pages[0].quality, "none");
@@ -731,7 +996,11 @@ mod tests {
     fn corpus_smoke() {
         let Some(reader) = reader() else { return };
         let dir = std::env::var("CHINGOLO_TEST_PAPERS").expect("set CHINGOLO_TEST_PAPERS");
-        let mut files: Vec<_> = std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().path()).filter(|p| p.extension().is_some_and(|e| e == "pdf")).collect();
+        let mut files: Vec<_> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .filter(|p| p.extension().is_some_and(|e| e == "pdf"))
+            .collect();
         files.sort();
         for f in files {
             let t = std::time::Instant::now();
@@ -740,10 +1009,23 @@ mod tests {
             let none = out.pages.iter().filter(|p| p.quality == "none").count();
             println!(
                 "{:>4} pages {:>3} no-text {:>5} passages {:>4.1}s | title={:?} year={:?} doi={:?} authors={} | {}",
-                out.pages.len(), none, passages.len(), t.elapsed().as_secs_f32(),
-                out.meta.title.as_deref().map(|t| t.chars().take(50).collect::<String>()),
-                out.meta.year, out.meta.doi, out.meta.authors.len(),
-                f.file_name().unwrap().to_string_lossy().chars().take(30).collect::<String>()
+                out.pages.len(),
+                none,
+                passages.len(),
+                t.elapsed().as_secs_f32(),
+                out.meta
+                    .title
+                    .as_deref()
+                    .map(|t| t.chars().take(50).collect::<String>()),
+                out.meta.year,
+                out.meta.doi,
+                out.meta.authors.len(),
+                f.file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .chars()
+                    .take(30)
+                    .collect::<String>()
             );
         }
     }
@@ -759,17 +1041,46 @@ mod tests {
         let mut slot = OcrSlot::new(Some(PathBuf::from(models)));
         for name in ["383495a0.pdf", "Fs97-18-135-eng.pdf"] {
             let t = std::time::Instant::now();
-            let out = reader.extract_with(&Path::new(&papers).join(name), &mut slot, &|| false, &mut |_, _| {}).unwrap();
+            let out = reader
+                .extract_with(
+                    &Path::new(&papers).join(name),
+                    &mut slot,
+                    &|| false,
+                    &mut |_, _| {},
+                )
+                .unwrap();
             let read = out.pages.iter().filter(|p| p.ocr).count();
             let none = out.pages.iter().filter(|p| p.quality == "none").count();
             let passages = crate::services::ingestion::segment::segment(&out.blocks);
-            println!("{name}: {} pages, {read} read by OCR, {none} still without text, {} passages, {:.0}s", out.pages.len(), passages.len(), t.elapsed().as_secs_f32());
-            println!("  page 1 size {}x{}", out.pages[0].width, out.pages[0].height);
+            println!(
+                "{name}: {} pages, {read} read by OCR, {none} still without text, {} passages, {:.0}s",
+                out.pages.len(),
+                passages.len(),
+                t.elapsed().as_secs_f32()
+            );
+            println!(
+                "  page 1 size {}x{}",
+                out.pages[0].width, out.pages[0].height
+            );
             for b in out.blocks.iter().take(4) {
-                println!("  p{} {:?} font {:.1} | {}", b.page, b.rect.map(|r| r.map(|v| v.round())), b.font_size, b.text.chars().take(70).collect::<String>());
+                println!(
+                    "  p{} {:?} font {:.1} | {}",
+                    b.page,
+                    b.rect.map(|r| r.map(|v| v.round())),
+                    b.font_size,
+                    b.text.chars().take(70).collect::<String>()
+                );
             }
             for p in passages.iter().skip(2).take(2) {
-                println!("  passage p{}: {}", p.page_start, p.text.chars().take(300).collect::<String>().replace('\n', " "));
+                println!(
+                    "  passage p{}: {}",
+                    p.page_start,
+                    p.text
+                        .chars()
+                        .take(300)
+                        .collect::<String>()
+                        .replace('\n', " ")
+                );
             }
         }
     }
@@ -780,11 +1091,16 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("tiny.pdf");
         std::fs::write(&path, tiny_pdf()).unwrap();
-        assert!(matches!(reader.extract(&path, &|| true, &mut |_, _| {}), Err(AppError::Cancelled)));
+        assert!(matches!(
+            reader.extract(&path, &|| true, &mut |_, _| {}),
+            Err(AppError::Cancelled)
+        ));
 
         let junk = dir.path().join("junk.pdf");
         std::fs::write(&junk, b"this is not a pdf at all").unwrap();
-        let err = reader.extract(&junk, &|| false, &mut |_, _| {}).unwrap_err();
+        let err = reader
+            .extract(&junk, &|| false, &mut |_, _| {})
+            .unwrap_err();
         assert!(err.to_string().contains("couldn't be"), "{err}");
     }
 }
