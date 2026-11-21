@@ -8,6 +8,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
 	Fragment,
 	useCallback,
+	useEffect,
 	useLayoutEffect,
 	useRef,
 	useState,
@@ -34,6 +35,7 @@ import { useLiveReply } from "../../lib/streams";
 import { PrivacyNotice } from "../settings/PrivacyNotice";
 import { Composer } from "./Composer";
 import { ConversationCost } from "./ConversationCost";
+import { FindBar } from "./FindBar";
 import { useConversationFlows } from "./flows";
 import { MessageItem } from "./MessageItem";
 
@@ -74,6 +76,8 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 	// collapses them without an effect.
 	const [earlierFor, setEarlierFor] = useState<string | null>(null);
 	const showEarlier = earlierFor === conversationId;
+	const [findOpen, setFindOpen] = useState(false);
+	const [findTick, setFindTick] = useState(0);
 
 	const scroller = useRef<HTMLDivElement>(null);
 	const stick = useRef(true);
@@ -89,7 +93,21 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 	useLayoutEffect(() => {
 		stick.current = true;
 		setError(null);
+		setFindOpen(false);
 	}, [conversationId]);
+
+	// ⌘F. This view is only mounted for chats, so the reader keeps its own find.
+	useEffect(() => {
+		const onKey = (e: KeyboardEvent) => {
+			if (!e.metaKey || e.altKey || e.ctrlKey || e.key !== SHORTCUTS.find)
+				return;
+			e.preventDefault();
+			setFindOpen(true);
+			setFindTick((t) => t + 1);
+		};
+		window.addEventListener("keydown", onKey);
+		return () => window.removeEventListener("keydown", onKey);
+	}, []);
 
 	// Jump to a message a search hit asked for. Declared after the effects above so it has the
 	// last word on the scroll position when both run in one commit.
@@ -329,6 +347,15 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 					)}
 				</div>
 			</header>
+
+			{findOpen && (
+				<FindBar
+					root={scroller}
+					focusTick={findTick}
+					onClose={() => setFindOpen(false)}
+					expandEarlier={() => setEarlierFor(conversationId)}
+				/>
+			)}
 
 			<div
 				ref={scroller}

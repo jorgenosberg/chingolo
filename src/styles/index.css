@@ -122,6 +122,16 @@
 	overflow-x: auto;
 }
 
+/* Matches of the find bar (⌘F) in a chat. */
+::highlight(find) {
+	background-color: oklch(0.88 0.15 90 / 0.5);
+	color: inherit;
+}
+::highlight(find-current) {
+	background-color: oklch(0.78 0.17 65);
+	color: inherit;
+}
+
 /* Marks the message a search hit jumped to, then fades. */
 .message-flash {
 	border-radius: 0.5rem;

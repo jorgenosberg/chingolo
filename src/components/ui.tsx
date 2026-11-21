@@ -59,6 +59,8 @@ export const SHORTCUTS = {
 	context: "j",
 	library: "l",
 	sidebar: "b",
+	/** Find in the open chat. Only the chat view listens for it. */
+	find: "f",
 } as const;
 
 /** Shows ⌘ + key as a small keycap, e.g. `<Kbd keys="k" />` renders "⌘K". `onPrimary` is for use on a primary-colored button. */
