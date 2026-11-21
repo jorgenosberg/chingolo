@@ -39,7 +39,11 @@ function collect(root: HTMLElement, q: string): Range[] {
 }
 
 function clearHighlights() {
-	if (!canHighlight) return;
+	if (!canHighlight) {
+		// The fallback marks the current match as the selection.
+		window.getSelection()?.removeAllRanges();
+		return;
+	}
 	CSS.highlights.delete("find");
 	CSS.highlights.delete("find-current");
 }
