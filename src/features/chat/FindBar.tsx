@@ -38,23 +38,37 @@ function collect(root: HTMLElement, q: string): Range[] {
 	return found;
 }
 
+// One Highlight object per name, emptied with clear() before every change. Some WebKit builds
+// (bug 306396, fixed upstream in January 2026) don't repaint the old marks when a highlight is
+// deleted from or replaced in `CSS.highlights`, so stale marks stay on screen. Clearing the
+// Highlight's own ranges repaints them, whatever the system WebKit does.
+const matches = canHighlight ? new Highlight() : null;
+const currentMatch = canHighlight ? new Highlight() : null;
+if (currentMatch) currentMatch.priority = 1; // drawn over the plain matches
+
 function clearHighlights() {
-	if (!canHighlight) {
+	if (!matches || !currentMatch) {
 		// The fallback marks the current match as the selection.
 		window.getSelection()?.removeAllRanges();
 		return;
 	}
+	matches.clear();
+	currentMatch.clear();
 	CSS.highlights.delete("find");
 	CSS.highlights.delete("find-current");
 }
 
 function paint(ranges: Range[], current: number) {
 	if (!ranges.length) return clearHighlights();
-	if (canHighlight) {
-		CSS.highlights.set("find", new Highlight(...ranges));
-		const now = new Highlight(ranges[current]);
-		now.priority = 1; // drawn over the plain matches
-		CSS.highlights.set("find-current", now);
+	if (matches && currentMatch) {
+		matches.clear();
+		currentMatch.clear();
+		for (const r of ranges) matches.add(r);
+		currentMatch.add(ranges[current]);
+		if (!CSS.highlights.has("find")) {
+			CSS.highlights.set("find", matches);
+			CSS.highlights.set("find-current", currentMatch);
+		}
 	} else {
 		// Older WebKit: show the current match as the selection.
 		const sel = window.getSelection();
