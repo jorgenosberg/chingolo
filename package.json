@@ -10,7 +10,8 @@
 		"tauri": "tauri",
 		"check": "biome check .",
 		"fix": "biome check --write .",
-		"typecheck": "tsc --noEmit"
+		"typecheck": "tsc --noEmit",
+		"prepare": "git config core.hooksPath .githooks || true"
 	},
 	"dependencies": {
 		"@phosphor-icons/react": "2.1.10",

@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Only runs the global hook of the same name, so this repo's hooks folder doesn't switch it off.
+. "$(dirname "$0")/_chain" "$@"

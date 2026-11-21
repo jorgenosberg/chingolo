@@ -1,0 +1,16 @@
+# Sourced by the hooks in this folder. Not a hook itself.
+#
+# `core.hooksPath` points git at this folder, which replaces the global hooks folder for this
+# repo. To keep those (branch names, stripping Co-Authored-By lines, worktree links), each hook
+# first runs the global hook of the same name, if there is one.
+
+global_dir="$(git config --global --get core.hooksPath 2>/dev/null)"
+global_dir="${global_dir/#\~/$HOME}"
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ -n "$global_dir" ] && [ "$global_dir" != "$here" ]; then
+	global_hook="$global_dir/$(basename "$0")"
+	if [ -x "$global_hook" ]; then
+		"$global_hook" "$@" || exit $?
+	fi
+fi

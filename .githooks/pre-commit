@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Format and lint what is about to be committed. Fix with `bun run fix` and `cargo fmt`.
+. "$(dirname "$0")/_chain" "$@"
+
+cd "$(git rev-parse --show-toplevel)" || exit 1
+staged() { git diff --cached --name-only --diff-filter=ACMR; }
+fail=0
+
+if staged | grep -qE '\.(tsx?|jsx?|json|jsonc|css|html|svg|md)$'; then
+	echo "pre-commit: biome (staged files)"
+	bunx biome check --staged --no-errors-on-unmatched || fail=1
+fi
+
+if staged | grep -q '\.rs$'; then
+	echo "pre-commit: rustfmt"
+	(cd src-tauri && cargo fmt --check >/dev/null 2>&1) || {
+		echo "Rust code is not formatted. Run: cd src-tauri && cargo fmt"
+		fail=1
+	}
+fi
+
+if [ "$fail" -ne 0 ]; then
+	echo "pre-commit: fix the above, stage the result, and commit again."
+	exit 1
+fi

@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Everything must be formatted, linted and type-checked before it leaves the machine. There is no
+# CI, so this is the gate. It does not run the tests.
+. "$(dirname "$0")/_chain" "$@"
+
+cd "$(git rev-parse --show-toplevel)" || exit 1
+fail=0
+
+echo "pre-push: biome"
+bunx biome check . || fail=1
+
+echo "pre-push: typecheck"
+bunx tsc --noEmit || fail=1
+
+echo "pre-push: rustfmt"
+(cd src-tauri && cargo fmt --check >/dev/null 2>&1) || {
+	echo "Rust code is not formatted. Run: cd src-tauri && cargo fmt"
+	fail=1
+}
+
+# Clippy warnings are allowed (there are some from before this hook). Errors are not.
+echo "pre-push: clippy"
+out="$(cd src-tauri && cargo clippy --all-targets 2>&1)" || {
+	echo "$out"
+	fail=1
+}
+
+if [ "$fail" -ne 0 ]; then
+	echo "pre-push: not pushing. Fix the above, commit, and push again."
+	exit 1
+fi
