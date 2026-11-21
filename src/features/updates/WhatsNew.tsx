@@ -208,7 +208,6 @@ export function WhatsNew() {
 							{!last && <Button onPress={close}>Skip</Button>}
 							<Button
 								variant="primary"
-								// biome-ignore lint/a11y/noAutofocus: Enter should move on
 								autoFocus
 								onPress={last ? close : () => setStep((s) => s + 1)}
 							>

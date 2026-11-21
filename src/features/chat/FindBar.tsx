@@ -165,67 +165,68 @@ export function FindBar({
 	const noMatches = text && stat.total === 0;
 
 	return (
-		<form
-			role="search"
-			className="flex shrink-0 items-center gap-1.5 border-b border-border px-5 py-2"
-			onSubmit={(e) => e.preventDefault()}
-			// On the form, so Escape closes the bar from the buttons as well as the field.
-			onKeyDown={(e) => {
-				if (e.key !== "Escape" || e.nativeEvent.isComposing) return;
-				e.preventDefault();
-				onClose();
-			}}
-		>
-			<div className="relative min-w-0 flex-1">
-				<MagnifyingGlassIcon className="pointer-events-none absolute left-2 top-1.5 size-4 text-muted-foreground" />
-				<input
-					ref={input}
-					type="search"
-					aria-label="Find in conversation"
-					placeholder="Find in conversation"
-					value={text}
-					onChange={(e) => {
-						const q = e.target.value;
-						setText(q);
-						query.current = q;
-						if (q) expandEarlier();
-						search(q, false);
-					}}
-					onKeyDown={(e) => {
-						if (e.nativeEvent.isComposing) return;
-						if (e.key === "Enter") {
-							e.preventDefault();
-							step(e.shiftKey ? -1 : 1);
-						}
-					}}
-					className="h-7 w-full rounded-md border border-transparent bg-muted pr-2 pl-7 text-[13px] outline-none placeholder:text-muted-foreground focus:border-primary/50"
-				/>
-			</div>
-			{text && (
-				<span
-					aria-live="polite"
-					className={`shrink-0 text-xs ${noMatches ? "text-problem" : "text-muted-foreground"}`}
+		<search className="shrink-0 border-b border-border px-5 py-2">
+			<form
+				className="flex items-center gap-1.5"
+				onSubmit={(e) => e.preventDefault()}
+				// On the form, so Escape closes the bar from the buttons as well as the field.
+				onKeyDown={(e) => {
+					if (e.key !== "Escape" || e.nativeEvent.isComposing) return;
+					e.preventDefault();
+					onClose();
+				}}
+			>
+				<div className="relative min-w-0 flex-1">
+					<MagnifyingGlassIcon className="pointer-events-none absolute left-2 top-1.5 size-4 text-muted-foreground" />
+					<input
+						ref={input}
+						type="search"
+						aria-label="Find in conversation"
+						placeholder="Find in conversation"
+						value={text}
+						onChange={(e) => {
+							const q = e.target.value;
+							setText(q);
+							query.current = q;
+							if (q) expandEarlier();
+							search(q, false);
+						}}
+						onKeyDown={(e) => {
+							if (e.nativeEvent.isComposing) return;
+							if (e.key === "Enter") {
+								e.preventDefault();
+								step(e.shiftKey ? -1 : 1);
+							}
+						}}
+						className="h-7 w-full rounded-md border border-transparent bg-muted pr-2 pl-7 text-[13px] outline-none placeholder:text-muted-foreground focus:border-primary/50"
+					/>
+				</div>
+				{text && (
+					<span
+						aria-live="polite"
+						className={`shrink-0 text-xs ${noMatches ? "text-problem" : "text-muted-foreground"}`}
+					>
+						{noMatches ? "No matches" : `${stat.current} of ${stat.total}`}
+					</span>
+				)}
+				<IconButton
+					label="Previous match"
+					isDisabled={!stat.total}
+					onPress={() => step(-1)}
 				>
-					{noMatches ? "No matches" : `${stat.current} of ${stat.total}`}
-				</span>
-			)}
-			<IconButton
-				label="Previous match"
-				isDisabled={!stat.total}
-				onPress={() => step(-1)}
-			>
-				<CaretUpIcon />
-			</IconButton>
-			<IconButton
-				label="Next match"
-				isDisabled={!stat.total}
-				onPress={() => step(1)}
-			>
-				<CaretDownIcon />
-			</IconButton>
-			<IconButton label="Close find" onPress={onClose}>
-				<XIcon />
-			</IconButton>
-		</form>
+					<CaretUpIcon />
+				</IconButton>
+				<IconButton
+					label="Next match"
+					isDisabled={!stat.total}
+					onPress={() => step(1)}
+				>
+					<CaretDownIcon />
+				</IconButton>
+				<IconButton label="Close find" onPress={onClose}>
+					<XIcon />
+				</IconButton>
+			</form>
+		</search>
 	);
 }

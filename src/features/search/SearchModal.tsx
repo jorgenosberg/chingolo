@@ -43,7 +43,12 @@ type Result = {
 
 /** The snippet with its matched words in `<mark>`. Built as elements, never as HTML. */
 function Snippet({ text }: { text: string }) {
-	const parts = text.replace(/\s+/g, " ").split(/\u0002|\u0003/);
+	// End markers become start markers, so the pieces alternate: text, match, text, match, ...
+	const parts = text
+		.replace(/\s+/g, " ")
+		.split("\u0003")
+		.join("\u0002")
+		.split("\u0002");
 	return (
 		<>
 			{parts.map((p, i) =>
