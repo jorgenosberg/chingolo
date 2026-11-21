@@ -8,7 +8,12 @@ import { Button, cx } from "../../components/ui";
 import { api } from "../../lib/api";
 import { keys, useSettings } from "../../lib/queries";
 
-type Section = { version: string; body: string };
+type Section = {
+	version: string;
+	/** The opening paragraph of a version's notes, shown under the title on the intro page. */
+	summary: string;
+	body: string;
+};
 type Page = {
 	key: string;
 	version: string;
@@ -22,10 +27,21 @@ function sections(md: string): Section[] {
 	const out: Section[] = [];
 	for (const line of md.split("\n")) {
 		const m = /^## (\d+\.\d+\.\d+)\s*$/.exec(line);
-		if (m) out.push({ version: m[1], body: "" });
+		if (m) out.push({ version: m[1], summary: "", body: "" });
 		else if (out.length) out[out.length - 1].body += `${line}\n`;
 	}
-	return out.map((s) => ({ ...s, body: s.body.trim() }));
+	return out.map((s) => {
+		// A first paragraph that isn't a list or heading is the summary, if notes follow it.
+		const [head, ...rest] = s.body.trim().split(/\n\s*\n/);
+		if (rest.length > 0 && !/^(-|\*|#|\d+\.)/.test(head)) {
+			return {
+				...s,
+				summary: head.replace(/\s+/g, " ").trim(),
+				body: rest.join("\n\n").trim(),
+			};
+		}
+		return { ...s, body: s.body.trim() };
+	});
 }
 
 /**
@@ -87,15 +103,19 @@ export function WhatsNew() {
 	const app = settings.data?.appVersion;
 	const seen = settings.data?.lastSeenVersion ?? "0.1.0";
 
-	const pages = useMemo(
+	// Newest first, as written in the changelog.
+	const due = useMemo(
 		() =>
 			app
 				? SECTIONS.filter(
 						(s) => compare(s.version, seen) > 0 && compare(s.version, app) <= 0,
-					).flatMap(pagesOf)
+					)
 				: [],
 		[app, seen],
 	);
+	const pages = useMemo(() => due.flatMap(pagesOf), [due]);
+	// After a skipped release the intro shows the newest summary. The pages cover the rest.
+	const summary = due[0]?.summary;
 	const updated = app !== undefined && compare(app, seen) > 0;
 
 	const remember = async () => {
@@ -138,7 +158,7 @@ export function WhatsNew() {
 							<>
 								{manyVersions && (
 									<p className="mb-1 text-xs text-muted-foreground">
-										Version {page.version}
+										v{page.version}
 									</p>
 								)}
 								<Heading slot="title" className="mb-3 text-base font-semibold">
@@ -154,11 +174,16 @@ export function WhatsNew() {
 									src={flag}
 									alt=""
 									aria-hidden="true"
-									className="h-60 w-auto"
+									className="h-52 w-auto"
 								/>
 								<Heading slot="title" className="text-lg font-semibold">
-									What's new in Chingolo {app}
+									What's new in Chingolo v{app}
 								</Heading>
+								{summary && (
+									<p className="max-w-sm text-sm text-muted-foreground">
+										{summary}
+									</p>
+								)}
 							</div>
 						)}
 					</div>
