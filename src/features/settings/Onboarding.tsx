@@ -11,13 +11,14 @@ import {
 	providerInfo,
 	providerName,
 } from "../../lib/providers";
-import { keys } from "../../lib/queries";
+import { keys, useSettings } from "../../lib/queries";
 import { PrivacyNotice } from "./PrivacyNotice";
 
 type Step = "welcome" | "key" | "model" | "privacy";
 
 export function Onboarding() {
 	const qc = useQueryClient();
+	const settings = useSettings();
 	const [step, setStep] = useState<Step>("welcome");
 	const [provider, setProvider] = useState<string>(PROVIDERS[0].id);
 	const [key, setKey] = useState("");
@@ -31,6 +32,8 @@ export function Onboarding() {
 		try {
 			await api.updateSettings({
 				onboarded: true,
+				// A new install has nothing to catch up on, so no "What's new" on first launch.
+				lastSeenVersion: settings.data?.appVersion ?? null,
 				privacyAcknowledged: acknowledged ? true : null,
 			});
 			await qc.invalidateQueries({ queryKey: keys.settings });

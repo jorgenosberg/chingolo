@@ -75,6 +75,8 @@ async fn read_settings(state: &AppState) -> crate::error::Result<AppSettings> {
                 metadata_model: repo::get(c, details_ai::MODEL_KEY)?.filter(|m| !m.is_empty()),
                 metadata_provider: repo::get(c, details_ai::PROVIDER_KEY)?.filter(|m| !m.is_empty()),
                 favorite_models: parse_favorites(repo::get(c, FAVORITES_KEY)?.as_deref()),
+                app_version: env!("CARGO_PKG_VERSION").to_string(),
+                last_seen_version: repo::get(c, "last_seen_version")?.filter(|v| !v.is_empty()),
             })
         })
         .await
@@ -101,6 +103,9 @@ pub async fn update_settings(
             }
             if let Some(v) = patch.privacy_acknowledged {
                 repo::set_bool(c, "privacy_acknowledged", v)?;
+            }
+            if let Some(v) = patch.last_seen_version {
+                repo::set(c, "last_seen_version", &v)?;
             }
             if let Some(v) = patch.default_model {
                 repo::set(c, "default_model", &v)?;

@@ -63,6 +63,7 @@ export const api = {
 		unwrap(
 			commands.updateSettings({
 				onboarded: null,
+				lastSeenVersion: null,
 				privacyAcknowledged: null,
 				defaultModel: null,
 				defaultProvider: null,

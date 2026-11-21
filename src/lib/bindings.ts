@@ -174,6 +174,10 @@ export type AppSettings = {
 	 *  show the curated default list.
 	 */
 	favoriteModels: string[],
+	/**  The version of the running app. */
+	appVersion: string,
+	/**  The version whose "What's new" the user has seen. None for installs that predate it. */
+	lastSeenVersion: string | null,
 };
 
 /**
@@ -536,6 +540,7 @@ export type SendResult = {
 
 export type SettingsPatch = {
 	onboarded: boolean | null,
+	lastSeenVersion: string | null,
 	privacyAcknowledged: boolean | null,
 	defaultModel: string | null,
 	defaultProvider: string | null,

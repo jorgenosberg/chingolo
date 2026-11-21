@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1
+
+- Search (⌘K) now finds single messages and shows the matching text. Clicking a result opens the chat at that message.
+- ⌘F finds text in the open chat, with a match count and next and previous buttons.
+- After an update, Chingolo shows what changed.
+
 ## 0.1.0
 
 First release. macOS on Apple Silicon only, not notarized.

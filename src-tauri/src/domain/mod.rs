@@ -262,12 +262,17 @@ pub struct AppSettings {
     /// Models the user starred, as `provider/id`, in the order they chose. Empty means the pickers
     /// show the curated default list.
     pub favorite_models: Vec<String>,
+    /// The version of the running app.
+    pub app_version: String,
+    /// The version whose "What's new" the user has seen. None for installs that predate it.
+    pub last_seen_version: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsPatch {
     pub onboarded: Option<bool>,
+    pub last_seen_version: Option<String>,
     pub privacy_acknowledged: Option<bool>,
     pub default_model: Option<String>,
     pub default_provider: Option<String>,
