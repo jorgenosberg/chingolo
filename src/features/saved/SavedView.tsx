@@ -210,8 +210,8 @@ const VIEW_KEY = "chingolo.savedView";
 /** Grid cards share one height, so a long reply scrolls inside its card. */
 const ROW_HEIGHT: Record<ViewMode, string> = {
 	list: "auto",
-	large: "24rem",
-	small: "17rem",
+	large: "19rem",
+	small: "13.5rem",
 };
 const COLUMNS: Record<ViewMode, string> = {
 	list: "1fr",
