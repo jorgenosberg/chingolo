@@ -1,8 +1,16 @@
 import { ArrowLeftIcon, XIcon } from "@phosphor-icons/react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo } from "react";
-import type { ReaderTarget } from "../../app/nav";
+import { type ReaderTarget, useNav } from "../../app/nav";
 import { Button, Note, Spinner } from "../../components/ui";
-import { useDocuments, usePassage, useSource } from "../../lib/queries";
+import { api } from "../../lib/api";
+import {
+	keys,
+	useConversations,
+	useDocuments,
+	usePassage,
+	useSource,
+} from "../../lib/queries";
 import { type Highlight, PdfReader } from "./PdfReader";
 
 const NO_BOXES: Highlight["boxes"] = [];
@@ -22,6 +30,15 @@ export default function ReaderView({
 	backLabel: string;
 	compact?: boolean;
 }) {
+	const qc = useQueryClient();
+	const { libraryScope, conversationId } = useNav();
+	const conversations = useConversations();
+	// Text saved from the reader goes to the project in view: the open chat's when this is the
+	// citation pane, the library's filter when it fills the main pane.
+	const projectId = compact
+		? (conversations.data?.find((c) => c.id === conversationId)?.projectId ??
+			null)
+		: libraryScope;
 	const docs = useDocuments(null);
 	const passage = usePassage(reader?.passageId ?? null);
 
@@ -110,7 +127,15 @@ export default function ReaderView({
 			) : (
 				<>
 					{notice && <Note className="mx-6 mb-2">{notice}</Note>}
-					<PdfReader key={doc.id} documentId={doc.id} highlight={highlight} />
+					<PdfReader
+						key={doc.id}
+						documentId={doc.id}
+						highlight={highlight}
+						onSaveSelection={async (page, text) => {
+							await api.savePassage(doc.id, page, text, projectId);
+							qc.invalidateQueries({ queryKey: keys.saved });
+						}}
+					/>
 				</>
 			)}
 		</div>

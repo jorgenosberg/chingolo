@@ -9,6 +9,7 @@ import {
 } from "@phosphor-icons/react";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { useEffect, useRef, useState } from "react";
+import { SelectionPill } from "../../components/SelectionPill";
 import { Button, IconButton, Spinner } from "../../components/ui";
 import type { PageBoxes } from "../../lib/bindings";
 import { useLayoutOverlay } from "../../lib/devtools";
@@ -38,6 +39,18 @@ function fitWidth(viewer: Viewer) {
 	if (viewer.currentScale > MAX_FIT_SCALE) viewer.currentScale = MAX_FIT_SCALE;
 }
 
+/**
+ * The selected words on one line of text. The selection keeps PDF line breaks (and hyphens at
+ * line ends), so join them back up.
+ */
+function selectedText(range: Range): string {
+	const raw = window.getSelection()?.toString() || range.toString();
+	return raw
+		.replace(/-\s*\n\s*(?=[a-zæøå])/g, "")
+		.replace(/\s+/g, " ")
+		.trim();
+}
+
 /** `chingolo-doc` is registered in Rust. A document is addressed by id, never by path. */
 const docUrl = (id: string) => `chingolo-doc://localhost/${id}`;
 
@@ -52,9 +65,12 @@ function assetUrl(dir: string) {
 export function PdfReader({
 	documentId,
 	highlight,
+	onSaveSelection,
 }: {
 	documentId: string;
 	highlight: Highlight;
+	/** Saves selected text. Without it the reader shows no Save button. */
+	onSaveSelection?: (page: number, text: string) => Promise<unknown>;
 }) {
 	const containerRef = useRef<HTMLDivElement>(null);
 	const viewerElRef = useRef<HTMLDivElement>(null);
@@ -344,6 +360,24 @@ export function PdfReader({
 				>
 					<div ref={viewerElRef} className="pdfViewer" />
 				</div>
+				{onSaveSelection && (
+					<SelectionPill
+						containerRef={containerRef}
+						onSave={(range) => {
+							const start =
+								range.startContainer instanceof Element
+									? range.startContainer
+									: range.startContainer.parentElement;
+							const page = Number(
+								start?.closest(".page")?.getAttribute("data-page-number"),
+							);
+							return onSaveSelection(
+								page > 0 ? page : pages.current,
+								selectedText(range),
+							);
+						}}
+					/>
+				)}
 				{status === "loading" && (
 					<div className="absolute inset-0 flex items-center justify-center">
 						<Spinner />
