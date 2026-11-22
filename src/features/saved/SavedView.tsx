@@ -51,6 +51,7 @@ import {
 	citePlugins,
 	citeTags,
 	savedAsCitations,
+	where,
 } from "../chat/citations";
 import { cleanCopy, writeRich } from "../chat/copy";
 
@@ -557,6 +558,12 @@ function SavedCard({
 				>
 					{item.body}
 				</ClampedText>
+			)}
+
+			{item.kind === "passage" && item.sources[0] && (
+				<p className="shrink-0 truncate text-xs text-muted-foreground">
+					{where(item.sources[0])}
+				</p>
 			)}
 
 			{item.conversationTitle &&
