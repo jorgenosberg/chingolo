@@ -2,6 +2,7 @@ import { createContext, type ReactNode, useContext, useMemo } from "react";
 import { Button, Tooltip, TooltipTrigger } from "react-aria-components";
 import { defaultRemarkPlugins } from "streamdown";
 import { type ReaderTarget, useNav } from "../../app/nav";
+import { POPOVER } from "../../components/ui";
 import type { Citation } from "../../lib/bindings";
 
 const TOKEN = /\[S(\d+)\]/g;
@@ -78,7 +79,7 @@ function CiteTip({ c }: { c: Citation }) {
 		<Tooltip
 			placement="top"
 			offset={6}
-			className="max-w-sm rounded-lg border border-border bg-card px-3 py-2 text-xs text-foreground shadow-lg"
+			className={`max-w-sm px-3 py-2 text-xs ${POPOVER}`}
 		>
 			{warning && <p className="mb-1 font-medium text-problem">{warning}</p>}
 			<p className="font-medium">{where(c)}</p>

@@ -20,7 +20,7 @@ import {
 } from "../lib/providers";
 import { useSettings } from "../lib/queries";
 import { ModelOption, modelHints, ShowAllButton } from "./ModelOption";
-import { cx, focus } from "./ui";
+import { cx, focus, POPOVER } from "./ui";
 
 export function ModelSelect({
 	models,
@@ -75,7 +75,9 @@ export function ModelSelect({
 				<SelectValue className="truncate data-[placeholder]:text-muted-foreground" />
 				<CaretDownIcon className="size-4 shrink-0 text-muted-foreground" />
 			</Button>
-			<Popover className="max-h-80 min-w-(--trigger-width) overflow-auto rounded-xl border border-border bg-card p-1 shadow-lg">
+			<Popover
+				className={`max-h-80 min-w-(--trigger-width) overflow-auto p-1 ${POPOVER}`}
+			>
 				<ListBox className="outline-none">
 					{groups.map((g) => (
 						<ListBoxSection

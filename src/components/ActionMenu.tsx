@@ -1,7 +1,7 @@
 import { DotsThreeIcon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import { Menu, MenuItem, MenuTrigger, Popover } from "react-aria-components";
-import { cx, IconButton } from "./ui";
+import { cx, IconButton, POPOVER } from "./ui";
 
 export type Action = {
 	id: string;
@@ -23,10 +23,7 @@ export function ActionMenu({
 			<IconButton label={label} className="size-6">
 				<DotsThreeIcon />
 			</IconButton>
-			<Popover
-				placement="bottom end"
-				className="min-w-44 rounded-xl border border-border bg-card p-1 shadow-lg"
-			>
+			<Popover placement="bottom end" className={`min-w-44 p-1 ${POPOVER}`}>
 				<Menu
 					aria-label={label}
 					onAction={(k) => actions.find((a) => a.id === k)?.run()}

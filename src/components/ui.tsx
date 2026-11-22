@@ -121,16 +121,19 @@ export function IconButton({
 	return (
 		<TooltipTrigger delay={500}>
 			{button}
-			<Tooltip
-				offset={6}
-				className="flex items-center gap-2 rounded-md border border-border bg-card px-2 py-1 text-xs shadow-md"
-			>
+			<Tooltip offset={6} className={`flex items-center gap-2 ${TOOLTIP}`}>
 				{label}
 				<Kbd keys={shortcut} />
 			</Tooltip>
 		</TooltipTrigger>
 	);
 }
+
+/** Surface of every popover and menu. Add padding at the use site. */
+export const POPOVER = "rounded-xl border border-border bg-card shadow-lg";
+/** A short label that appears on hover. */
+export const TOOLTIP =
+	"rounded-md border border-border bg-card px-2 py-1 text-xs shadow-md";
 
 export function TextInput({
 	label,

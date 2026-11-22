@@ -11,7 +11,7 @@ import {
 	type Selection,
 } from "react-aria-components";
 import type { Document, Scope } from "../lib/bindings";
-import { cx, focus } from "./ui";
+import { cx, focus, POPOVER } from "./ui";
 
 type Kind = "project" | "library" | "documents";
 
@@ -130,11 +130,7 @@ export function ScopePopover({
 				<BooksIcon className="size-[17px]" />
 				<span className="max-w-32 truncate">{label}</span>
 			</RacButton>
-			<Popover
-				placement="top end"
-				offset={10}
-				className="w-80 rounded-xl border border-border bg-card p-1.5 shadow-lg"
-			>
+			<Popover placement="top end" className={`w-80 p-1.5 ${POPOVER}`}>
 				<Dialog aria-label="Sources" className="outline-none">
 					{picking ? (
 						<div className="flex flex-col gap-1.5">

@@ -2,7 +2,7 @@ import { PiggyBankIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Dialog, DialogTrigger, Popover } from "react-aria-components";
-import { IconButton, Spinner } from "../../components/ui";
+import { IconButton, POPOVER, Spinner } from "../../components/ui";
 import { api } from "../../lib/api";
 import { keys } from "../../lib/queries";
 import { Cost, KINDS, money, tokens } from "../settings/UsageSection";
@@ -31,11 +31,7 @@ export function ConversationCost({
 			<IconButton label="Cost of this conversation">
 				<PiggyBankIcon />
 			</IconButton>
-			<Popover
-				placement="bottom end"
-				offset={8}
-				className="w-80 rounded-xl border border-border bg-card p-3 shadow-lg"
-			>
+			<Popover placement="bottom end" className={`w-80 p-3 ${POPOVER}`}>
 				<Dialog aria-label="Cost of this conversation" className="outline-none">
 					<p className="text-xs font-medium text-muted-foreground">
 						This conversation

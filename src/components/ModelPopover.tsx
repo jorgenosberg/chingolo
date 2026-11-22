@@ -22,7 +22,7 @@ import {
 } from "../lib/providers";
 import { useSettings } from "../lib/queries";
 import { ModelOption, modelHints, ShowAllButton } from "./ModelOption";
-import { IconButton } from "./ui";
+import { IconButton, POPOVER, TOOLTIP } from "./ui";
 
 /** Small button that opens a popover to see and change the conversation's model. */
 export function ModelPopover({
@@ -63,19 +63,11 @@ export function ModelPopover({
 				>
 					<SparkleIcon />
 				</IconButton>
-				<Tooltip
-					placement="top"
-					offset={8}
-					className="rounded-md bg-foreground px-2 py-1 text-xs text-background shadow-md"
-				>
+				<Tooltip placement="top" offset={6} className={TOOLTIP}>
 					{current}
 				</Tooltip>
 			</TooltipTrigger>
-			<Popover
-				placement="top end"
-				offset={10}
-				className="w-72 rounded-xl border border-border bg-card p-1.5 shadow-lg"
-			>
+			<Popover placement="top end" className={`w-72 p-1.5 ${POPOVER}`}>
 				<Dialog aria-label="Model" className="outline-none">
 					<p className="px-2.5 pb-1 pt-1 text-xs font-medium text-muted-foreground">
 						Model

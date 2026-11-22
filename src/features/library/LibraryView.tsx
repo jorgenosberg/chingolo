@@ -29,7 +29,7 @@ import {
 import { useNav } from "../../app/nav";
 import { type Action, ActionMenu } from "../../components/ActionMenu";
 import { useDialogs } from "../../components/dialogs";
-import { Button, cx, focus, Spinner } from "../../components/ui";
+import { Button, cx, focus, POPOVER, Spinner } from "../../components/ui";
 import { api } from "../../lib/api";
 import type {
 	DocStatus,
@@ -340,10 +340,7 @@ function ImportMenu({
 			<Button variant="primary" isDisabled={isDisabled}>
 				<FilePlusIcon className="size-[17px]" /> Import
 			</Button>
-			<Popover
-				placement="bottom end"
-				className="min-w-40 rounded-xl border border-border bg-card p-1 shadow-lg"
-			>
+			<Popover placement="bottom end" className={`min-w-40 p-1 ${POPOVER}`}>
 				<Menu
 					aria-label="Import"
 					onAction={(k) =>
@@ -405,7 +402,9 @@ function ScopeSelect({
 				<SelectValue className="max-w-48 truncate" />
 				<CaretDownIcon className="size-4 shrink-0 text-muted-foreground" />
 			</RacButton>
-			<Popover className="max-h-72 min-w-(--trigger-width) overflow-auto rounded-xl border border-border bg-card p-1 shadow-lg">
+			<Popover
+				className={`max-h-72 min-w-(--trigger-width) overflow-auto p-1 ${POPOVER}`}
+			>
 				<ListBox items={items} className="outline-none">
 					{(i) => (
 						<ListBoxItem
