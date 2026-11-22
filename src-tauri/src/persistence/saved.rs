@@ -1,9 +1,11 @@
-//! Saved items: replies, selections and reader passages kept with a note. Each item copies its
+//! Saved items: replies, selections and reader passages kept with notes. Each item copies its
 //! text and the sources it cites, so it outlives the conversation and the document.
 
 use rusqlite::{Connection, OptionalExtension, Row, params};
 
-use crate::domain::{Id, SavedFilter, SavedItem, SavedKind, SavedSource, new_id, now_ms};
+use crate::domain::{
+    Id, SavedFilter, SavedItem, SavedKind, SavedNote, SavedSource, new_id, now_ms,
+};
 use crate::error::{AppError, Result};
 use crate::persistence::{chat, library, sources};
 
@@ -28,7 +30,7 @@ fn kind_from(s: &str) -> SavedKind {
 }
 
 const COLS: &str = "id, kind, project_id, conversation_id, message_id, conversation_title, body, \
-                    note, created_at, updated_at";
+                    created_at, updated_at";
 
 fn from_row(r: &Row) -> rusqlite::Result<SavedItem> {
     Ok(SavedItem {
@@ -39,9 +41,9 @@ fn from_row(r: &Row) -> rusqlite::Result<SavedItem> {
         message_id: r.get(4)?,
         conversation_title: r.get(5)?,
         body: r.get(6)?,
-        note: r.get(7)?,
-        created_at: r.get(8)?,
-        updated_at: r.get(9)?,
+        created_at: r.get(7)?,
+        updated_at: r.get(8)?,
+        notes: Vec::new(),
         sources: Vec::new(),
     })
 }
@@ -69,6 +71,24 @@ fn load_sources(conn: &Connection, item_id: &str) -> Result<Vec<SavedSource>> {
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
+fn note_from_row(r: &Row) -> rusqlite::Result<SavedNote> {
+    Ok(SavedNote {
+        id: r.get(0)?,
+        body: r.get(1)?,
+        created_at: r.get(2)?,
+        updated_at: r.get(3)?,
+    })
+}
+
+fn load_notes(conn: &Connection, item_id: &str) -> Result<Vec<SavedNote>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, body, created_at, updated_at FROM saved_notes
+          WHERE saved_item_id = ?1 ORDER BY created_at, id",
+    )?;
+    let rows = stmt.query_map([item_id], note_from_row)?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
 pub fn get(conn: &Connection, id: &str) -> Result<SavedItem> {
     let mut item = conn
         .query_row(
@@ -79,6 +99,7 @@ pub fn get(conn: &Connection, id: &str) -> Result<SavedItem> {
         .optional()?
         .ok_or(AppError::NotFound)?;
     item.sources = load_sources(conn, id)?;
+    item.notes = load_notes(conn, id)?;
     Ok(item)
 }
 
@@ -123,8 +144,29 @@ pub fn list(conn: &Connection, filter: &SavedFilter) -> Result<Vec<SavedItem>> {
         let (id, s) = row?;
         by_item.entry(id).or_default().push(s);
     }
+    let mut notes_by_item: std::collections::HashMap<String, Vec<SavedNote>> = Default::default();
+    let mut note_stmt = conn.prepare(
+        "SELECT saved_item_id, id, body, created_at, updated_at FROM saved_notes
+          ORDER BY created_at, id",
+    )?;
+    let note_rows = note_stmt.query_map([], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            SavedNote {
+                id: r.get(1)?,
+                body: r.get(2)?,
+                created_at: r.get(3)?,
+                updated_at: r.get(4)?,
+            },
+        ))
+    })?;
+    for row in note_rows {
+        let (id, n) = row?;
+        notes_by_item.entry(id).or_default().push(n);
+    }
     for item in &mut items {
         item.sources = by_item.remove(&item.id).unwrap_or_default();
+        item.notes = notes_by_item.remove(&item.id).unwrap_or_default();
     }
     Ok(items)
 }
@@ -151,9 +193,9 @@ fn insert_item(
     let tx = conn.transaction()?;
     tx.execute(
         "INSERT INTO saved_items
-           (id, kind, project_id, conversation_id, message_id, conversation_title, body, note,
+           (id, kind, project_id, conversation_id, message_id, conversation_title, body,
             created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, '', ?8, ?8)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
         params![
             id,
             kind_str(kind),
@@ -351,26 +393,69 @@ pub fn match_passage(
     })
 }
 
-pub fn update_note(conn: &Connection, id: &str, note: &str) -> Result<SavedItem> {
-    let note = note.trim();
-    if note.chars().count() > MAX_NOTE_CHARS {
+fn clean_note(raw: &str) -> Result<String> {
+    let t = raw.trim();
+    if t.is_empty() {
+        return Err(AppError::Invalid("A note can't be empty.".into()));
+    }
+    if t.chars().count() > MAX_NOTE_CHARS {
         return Err(AppError::Invalid("The note is too long.".into()));
     }
-    let n = conn.execute(
-        "UPDATE saved_items SET note = ?2, updated_at = ?3 WHERE id = ?1",
-        params![id, note, now_ms()],
-    )?;
-    if n == 0 {
-        return Err(AppError::NotFound);
-    }
-    get(conn, id)
+    Ok(t.to_string())
 }
 
-/// Leaves `updated_at` alone: it is the time the note last changed, which the detail page shows.
+/// The item a note belongs to.
+fn item_of_note(conn: &Connection, note_id: &str) -> Result<String> {
+    conn.query_row(
+        "SELECT saved_item_id FROM saved_notes WHERE id = ?1",
+        [note_id],
+        |r| r.get(0),
+    )
+    .optional()?
+    .ok_or(AppError::NotFound)
+}
+
+/// Adds a note after the existing ones. Returns the updated item.
+pub fn add_note(conn: &Connection, item_id: &str, body: &str) -> Result<SavedItem> {
+    let body = clean_note(body)?;
+    let now = now_ms();
+    // The foreign key rejects an item that does not exist.
+    let exists: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM saved_items WHERE id = ?1)",
+        [item_id],
+        |r| r.get(0),
+    )?;
+    if !exists {
+        return Err(AppError::NotFound);
+    }
+    conn.execute(
+        "INSERT INTO saved_notes (id, saved_item_id, body, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?4)",
+        params![new_id(), item_id, body, now],
+    )?;
+    get(conn, item_id)
+}
+
+pub fn update_note(conn: &Connection, note_id: &str, body: &str) -> Result<SavedItem> {
+    let body = clean_note(body)?;
+    let item = item_of_note(conn, note_id)?;
+    conn.execute(
+        "UPDATE saved_notes SET body = ?2, updated_at = ?3 WHERE id = ?1",
+        params![note_id, body, now_ms()],
+    )?;
+    get(conn, &item)
+}
+
+pub fn delete_note(conn: &Connection, note_id: &str) -> Result<SavedItem> {
+    let item = item_of_note(conn, note_id)?;
+    conn.execute("DELETE FROM saved_notes WHERE id = ?1", [note_id])?;
+    get(conn, &item)
+}
+
 pub fn set_project(conn: &Connection, id: &str, project_id: Option<&str>) -> Result<SavedItem> {
     let n = conn.execute(
-        "UPDATE saved_items SET project_id = ?2 WHERE id = ?1",
-        params![id, project_id],
+        "UPDATE saved_items SET project_id = ?2, updated_at = ?3 WHERE id = ?1",
+        params![id, project_id, now_ms()],
     )?;
     if n == 0 {
         return Err(AppError::NotFound);
@@ -514,16 +599,11 @@ mod tests {
     }
 
     #[test]
-    fn note_project_and_delete() {
+    fn project_and_delete() {
         let mut conn = test_conn();
         let (project, _, msg) = setup(&conn);
         let item = save_reply(&mut conn, &msg).unwrap();
-        assert_eq!(
-            update_note(&conn, &item.id, "  use in chapter 2 ")
-                .unwrap()
-                .note,
-            "use in chapter 2"
-        );
+        add_note(&conn, &item.id, "a note").unwrap();
         assert_eq!(set_project(&conn, &item.id, None).unwrap().project_id, None);
         assert_eq!(
             set_project(&conn, &item.id, Some(&project))
@@ -542,6 +622,47 @@ mod tests {
             0,
             "sources go with the item"
         );
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM saved_notes", [], |r| r
+                .get::<_, i64>(0))
+                .unwrap(),
+            0,
+            "notes go with the item"
+        );
+    }
+
+    #[test]
+    fn an_item_keeps_a_thread_of_notes_in_the_order_they_were_written() {
+        let mut conn = test_conn();
+        let (_, _, msg) = setup(&conn);
+        let item = save_reply(&mut conn, &msg).unwrap();
+        assert!(item.notes.is_empty());
+
+        add_note(&conn, &item.id, "  first thought ").unwrap();
+        let two = add_note(&conn, &item.id, "later: use in chapter 2").unwrap();
+        let bodies: Vec<_> = two.notes.iter().map(|n| n.body.as_str()).collect();
+        assert_eq!(bodies, ["first thought", "later: use in chapter 2"]);
+        assert_eq!(list(&conn, &SavedFilter::All).unwrap()[0].notes.len(), 2);
+
+        let first = two.notes[0].id.clone();
+        let edited = update_note(&conn, &first, "first thought, revised").unwrap();
+        assert_eq!(edited.notes[0].body, "first thought, revised");
+        assert_eq!(edited.notes.len(), 2, "editing does not add");
+
+        let after = delete_note(&conn, &first).unwrap();
+        assert_eq!(after.notes.len(), 1);
+        assert_eq!(after.notes[0].body, "later: use in chapter 2");
+
+        assert!(add_note(&conn, &item.id, "   ").is_err());
+        assert!(update_note(&conn, &first, "gone").is_err());
+        assert!(matches!(
+            add_note(&conn, "missing", "x"),
+            Err(AppError::NotFound)
+        ));
+        assert!(matches!(
+            delete_note(&conn, &first),
+            Err(AppError::NotFound)
+        ));
     }
 
     #[test]

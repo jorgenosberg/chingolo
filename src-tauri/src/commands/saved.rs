@@ -54,16 +54,42 @@ pub async fn save_passage(
         .await?)
 }
 
+/// Adds a note to the end of the item's thread. Returns the updated item.
+#[tauri::command]
+#[specta::specta]
+pub async fn add_saved_note(
+    state: State<'_, AppState>,
+    item_id: String,
+    body: String,
+) -> CmdResult<SavedItem> {
+    Ok(state
+        .db
+        .call(move |c| repo::add_note(c, &item_id, &body))
+        .await?)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn update_saved_note(
     state: State<'_, AppState>,
-    id: String,
-    note: String,
+    note_id: String,
+    body: String,
 ) -> CmdResult<SavedItem> {
     Ok(state
         .db
-        .call(move |c| repo::update_note(c, &id, &note))
+        .call(move |c| repo::update_note(c, &note_id, &body))
+        .await?)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn delete_saved_note(
+    state: State<'_, AppState>,
+    note_id: String,
+) -> CmdResult<SavedItem> {
+    Ok(state
+        .db
+        .call(move |c| repo::delete_note(c, &note_id))
         .await?)
 }
 

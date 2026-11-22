@@ -89,7 +89,10 @@ export const commands = {
 	/**  `handles` are the `[S<n>]` numbers of the citation chips inside the selection. */
 	saveSelection: (messageId: string, text: string, handles: number[]) => typedError<SavedItem, CmdError>(__TAURI_INVOKE("save_selection", { messageId, text, handles })),
 	savePassage: (documentId: string, page: number, text: string, projectId: string | null) => typedError<SavedItem, CmdError>(__TAURI_INVOKE("save_passage", { documentId, page, text, projectId })),
-	updateSavedNote: (id: string, note: string) => typedError<SavedItem, CmdError>(__TAURI_INVOKE("update_saved_note", { id, note })),
+	/**  Adds a note to the end of the item's thread. Returns the updated item. */
+	addSavedNote: (itemId: string, body: string) => typedError<SavedItem, CmdError>(__TAURI_INVOKE("add_saved_note", { itemId, body })),
+	updateSavedNote: (noteId: string, body: string) => typedError<SavedItem, CmdError>(__TAURI_INVOKE("update_saved_note", { noteId, body })),
+	deleteSavedNote: (noteId: string) => typedError<SavedItem, CmdError>(__TAURI_INVOKE("delete_saved_note", { noteId })),
 	moveSaved: (id: string, projectId: string | null) => typedError<SavedItem, CmdError>(__TAURI_INVOKE("move_saved", { id, projectId })),
 	deleteSaved: (id: string) => typedError<null, CmdError>(__TAURI_INVOKE("delete_saved", { id })),
 	getSavedSource: (itemId: string, handle: number) => typedError<SavedSource | null, CmdError>(__TAURI_INVOKE("get_saved_source", { itemId, handle })),
@@ -549,7 +552,8 @@ export type SavedItem = {
 	/**  The conversation's title when the item was saved. */
 	conversationTitle: string,
 	body: string,
-	note: string,
+	/**  Oldest first, like comments under a post. */
+	notes: SavedNote[],
 	sources: SavedSource[],
 	createdAt: number,
 	updatedAt: number,
@@ -563,6 +567,13 @@ export type SavedKind =
 "selection" | 
 /**  Text selected in the reader. */
 "passage";
+
+export type SavedNote = {
+	id: string,
+	body: string,
+	createdAt: number,
+	updatedAt: number,
+};
 
 /**
  *  A source copied into a saved item. Opens the reader even if the conversation or the document

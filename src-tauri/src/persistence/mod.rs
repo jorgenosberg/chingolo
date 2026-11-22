@@ -22,6 +22,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../migrations/0001_init.sql"),
     include_str!("../../migrations/0002_drafts.sql"),
     include_str!("../../migrations/0003_saved.sql"),
+    include_str!("../../migrations/0004_saved_notes.sql"),
 ];
 
 #[derive(Clone)]
@@ -163,6 +164,33 @@ mod tests {
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
         assert_eq!(v as usize, MIGRATIONS.len());
+    }
+
+    #[test]
+    fn single_notes_become_the_first_note_of_their_item() {
+        // A database as 0.2.0 development left it: schema version 3, one item with a note.
+        let mut conn = Connection::open_in_memory().unwrap();
+        for sql in &MIGRATIONS[..3] {
+            conn.execute_batch(sql).unwrap();
+        }
+        conn.pragma_update(None, "user_version", 3i64).unwrap();
+        for (id, note) in [("a", "  my note "), ("b", ""), ("c", "   ")] {
+            conn.execute(
+                "INSERT INTO saved_items (id, kind, body, note, created_at, updated_at)
+                 VALUES (?1, 'reply', 'text', ?2, 10, 20)",
+                rusqlite::params![id, note],
+            )
+            .unwrap();
+        }
+        migrate(&mut conn).unwrap();
+        let notes: Vec<(String, String, i64)> = conn
+            .prepare("SELECT saved_item_id, body, created_at FROM saved_notes")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .collect::<std::result::Result<_, _>>()
+            .unwrap();
+        assert_eq!(notes, [("a".to_string(), "my note".to_string(), 20)]);
     }
 
     #[test]

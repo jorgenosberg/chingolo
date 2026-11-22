@@ -234,6 +234,17 @@ pub struct SavedSource {
     pub doi: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedNote {
+    pub id: Id,
+    pub body: String,
+    #[specta(type = Number)]
+    pub created_at: i64,
+    #[specta(type = Number)]
+    pub updated_at: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SavedItem {
@@ -246,7 +257,8 @@ pub struct SavedItem {
     /// The conversation's title when the item was saved.
     pub conversation_title: String,
     pub body: String,
-    pub note: String,
+    /// Oldest first, like comments under a post.
+    pub notes: Vec<SavedNote>,
     pub sources: Vec<SavedSource>,
     #[specta(type = Number)]
     pub created_at: i64,
