@@ -5,8 +5,10 @@ import {
 	GitForkIcon,
 } from "@phosphor-icons/react";
 import { math } from "@streamdown/math";
-import { memo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { memo, type RefObject, useRef, useState } from "react";
 import { Streamdown } from "streamdown";
+import { SelectionPill } from "../../components/SelectionPill";
 import { IconButton } from "../../components/ui";
 import { api } from "../../lib/api";
 import type { Citation, Message } from "../../lib/bindings";
@@ -106,6 +108,9 @@ export const MessageItem = memo(function MessageItem({
 					{liveStatus ?? "Thinking…"}
 				</p>
 			) : null}
+			{!streaming && text && message.status === "complete" && (
+				<SaveSelection messageId={message.id} proseRef={proseRef} />
+			)}
 			{text && streaming && liveStatus && (
 				<p className="text-sm text-muted-foreground" aria-live="polite">
 					{liveStatus}
@@ -171,6 +176,31 @@ function describeNote(m: Message): string | null {
 		default:
 			return null;
 	}
+}
+
+/** The Save pill for text selected in a reply. Remembers which sources the selection cites. */
+function SaveSelection({
+	messageId,
+	proseRef,
+}: {
+	messageId: string;
+	proseRef: RefObject<HTMLDivElement | null>;
+}) {
+	const qc = useQueryClient();
+	return (
+		<SelectionPill
+			containerRef={proseRef}
+			onSave={async (range) => {
+				const fragment = range.cloneContents();
+				const handles = [...fragment.querySelectorAll("[data-cite]")]
+					.map((c) => /^S(\d+)$/.exec(c.textContent?.trim() ?? "")?.[1])
+					.filter((h): h is string => h !== undefined)
+					.map(Number);
+				await api.saveSelection(messageId, cleanCopy(fragment).text, handles);
+				qc.invalidateQueries({ queryKey: keys.saved });
+			}}
+		/>
+	);
 }
 
 /** Saves the reply to its project's Saved page, or removes it again. */
