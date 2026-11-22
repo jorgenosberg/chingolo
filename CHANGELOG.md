@@ -6,7 +6,8 @@ Copying a reply now gives clean text, and scans are read once the text recogniti
 
 - Copying a reply, with the copy button or by selecting text, no longer includes markdown marks or citation handles like [S2]. Bold, italics, headings, lists and tables stay formatted when you paste into Word or Google Docs.
 - Scans imported before the text recognition model was downloaded are read again when the download finishes.
-- Menus, popovers and tooltips now share one look.
+- Icon buttons show a tooltip, and menus, popovers and tooltips share one look. Menu rows highlight and show a pointer cursor on hover.
+- A new conversation you leave without writing anything is no longer kept in the list.
 
 ## 0.1.1
 
