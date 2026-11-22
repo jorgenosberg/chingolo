@@ -137,8 +137,11 @@ export const api = {
 		text: string,
 		projectId: string | null,
 	) => unwrap(commands.savePassage(documentId, page, text, projectId)),
-	updateSavedNote: (id: string, note: string) =>
-		unwrap(commands.updateSavedNote(id, note)),
+	addSavedNote: (itemId: string, body: string) =>
+		unwrap(commands.addSavedNote(itemId, body)),
+	updateSavedNote: (noteId: string, body: string) =>
+		unwrap(commands.updateSavedNote(noteId, body)),
+	deleteSavedNote: (noteId: string) => unwrap(commands.deleteSavedNote(noteId)),
 	moveSaved: (id: string, projectId: string | null) =>
 		unwrap(commands.moveSaved(id, projectId)),
 	deleteSaved: (id: string) => unwrap(commands.deleteSaved(id)),

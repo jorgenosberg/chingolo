@@ -61,7 +61,9 @@ type Nav = {
 	openSaved: (scope?: SavedScope) => void;
 	/** One saved item on its own page. `openSaved` goes back to the list. */
 	savedItemId: string | null;
-	openSavedItem: (id: string) => void;
+	/** `compose` puts the cursor in the new-note box. */
+	openSavedItem: (id: string, opts?: { compose?: boolean }) => void;
+	savedCompose: boolean;
 	setSavedScope: (scope: SavedScope) => void;
 	conversationId: string | null;
 	/** Opens a conversation, optionally at one of its messages (a search hit). */
@@ -121,6 +123,7 @@ export function NavProvider({ children }: { children: ReactNode }) {
 	const [libraryScope, setLibraryScope] = useState<string | null>(null);
 	const [savedScope, setSavedScope] = useState<SavedScope>("all");
 	const [savedItemId, setSavedItemId] = useState<string | null>(null);
+	const [savedCompose, setSavedCompose] = useState(false);
 	const [reader, setReader] = useState<ReaderTarget | null>(null);
 	const [citation, setCitation] = useState<ReaderTarget | null>(null);
 	const contextPanel = usePanelRef();
@@ -159,12 +162,17 @@ export function NavProvider({ children }: { children: ReactNode }) {
 	const openSaved = useCallback((scope?: SavedScope) => {
 		if (scope !== undefined) setSavedScope(scope);
 		setSavedItemId(null);
+		setSavedCompose(false);
 		setView("saved");
 	}, []);
-	const openSavedItem = useCallback((id: string) => {
-		setSavedItemId(id);
-		setView("saved");
-	}, []);
+	const openSavedItem = useCallback(
+		(id: string, opts?: { compose?: boolean }) => {
+			setSavedItemId(id);
+			setSavedCompose(opts?.compose ?? false);
+			setView("saved");
+		},
+		[],
+	);
 
 	// A conversation left without a message or a draft is not kept.
 	const openId = useRef(conversationId);
@@ -267,6 +275,7 @@ export function NavProvider({ children }: { children: ReactNode }) {
 			openSaved,
 			savedItemId,
 			openSavedItem,
+			savedCompose,
 			setSavedScope,
 			conversationId,
 			select,
@@ -300,6 +309,7 @@ export function NavProvider({ children }: { children: ReactNode }) {
 			openSaved,
 			savedItemId,
 			openSavedItem,
+			savedCompose,
 			conversationId,
 			select,
 			messageTarget,

@@ -4,7 +4,6 @@ import {
 	CaretDownIcon,
 	CheckIcon,
 	CopyIcon,
-	EraserIcon,
 	FolderMinusIcon,
 	FolderSimpleIcon,
 	GridNineIcon,
@@ -16,7 +15,7 @@ import {
 } from "@phosphor-icons/react";
 import { math } from "@streamdown/math";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
 	ListBox,
 	ListBoxItem,
@@ -324,35 +323,17 @@ function ClampedText({
 	);
 }
 
-/** Note text for one item. It saves half a second after typing stops, and when the editor goes
- * away (another view, another filter), so switching views never loses it. */
-export function useNoteEditor(item: SavedItem) {
+/** Refreshes the saved lists, and reports a failed change. */
+export function useSavedRefresh() {
 	const qc = useQueryClient();
 	const { alert } = useDialogs();
-	const [note, setNote] = useState(item.note);
 	const refresh = () => qc.invalidateQueries({ queryKey: keys.saved });
 	const fail = (title: string) => (e: unknown) =>
 		alert({
 			title,
 			message: e instanceof Error ? e.message : String(e),
 		});
-	const latest = useRef({ note, saved: item.note });
-	latest.current = { note, saved: item.note };
-	const saveNote = useRef(() => {});
-	saveNote.current = () => {
-		if (latest.current.note.trim() === latest.current.saved) return;
-		latest.current.saved = latest.current.note.trim();
-		api
-			.updateSavedNote(item.id, latest.current.note)
-			.then(refresh, fail("Couldn't save the note"));
-	};
-	// biome-ignore lint/correctness/useExhaustiveDependencies: restart the timer on every edit
-	useEffect(() => {
-		const t = setTimeout(() => saveNote.current(), 500);
-		return () => clearTimeout(t);
-	}, [note]);
-	useEffect(() => () => saveNote.current(), []);
-	return { note, setNote, saveNote, refresh, fail };
+	return { refresh, fail };
 }
 
 /** Move to a project, take out of its project, delete. Shared by the card and the detail page. */
@@ -401,7 +382,7 @@ export function itemActions({
 				const ok = await confirm({
 					title: "Delete saved item?",
 					message:
-						"The item and its note are removed. The conversation and the documents are not touched.",
+						"The item and its notes are removed. The conversation and the documents are not touched.",
 					confirmLabel: "Delete",
 					danger: true,
 				});
@@ -430,17 +411,13 @@ function SavedCard({
 	const { select, savedScope, openSavedItem } = useNav();
 	const { confirm } = useDialogs();
 	const proseRef = useRef<HTMLDivElement>(null);
-	const [editing, setEditing] = useState(false);
-	const noteField = useRef<HTMLTextAreaElement>(null);
-	useEffect(() => {
-		if (editing) noteField.current?.focus();
-	}, [editing]);
-	const { note, setNote, saveNote, refresh, fail } = useNoteEditor(item);
+	const { refresh, fail } = useSavedRefresh();
 	const citations = useMemo(
 		() => savedAsCitations(item.sources),
 		[item.sources],
 	);
 	const project = projects.find((p) => p.id === item.projectId);
+	const latestNote = item.notes[item.notes.length - 1];
 	const open = () => {
 		// A click that ends a text selection is not a request to open.
 		if (window.getSelection()?.isCollapsed === false) return;
@@ -451,22 +428,9 @@ function SavedCard({
 		{
 			id: "note",
 			icon: <PencilSimpleIcon className="size-4" />,
-			label: note.trim() ? "Edit note" : "Add note",
-			run: () => setEditing(true),
+			label: "Add note",
+			run: () => openSavedItem(item.id, { compose: true }),
 		},
-		...(note.trim()
-			? [
-					{
-						id: "remove-note",
-						icon: <EraserIcon className="size-4" />,
-						label: "Remove note",
-						run: () => {
-							setNote("");
-							setEditing(false);
-						},
-					},
-				]
-			: []),
 		...itemActions({ item, projects, refresh, fail, confirm }),
 	];
 
@@ -588,32 +552,22 @@ function SavedCard({
 					</span>
 				))}
 
-			{editing ? (
-				<textarea
-					ref={noteField}
-					aria-label="Note"
-					placeholder="Write a note"
-					rows={3}
-					value={note}
-					onChange={(e) => setNote(e.target.value)}
-					onBlur={() => {
-						saveNote.current();
-						if (!note.trim()) setEditing(false);
-					}}
-					onKeyDown={(e) => e.key === "Escape" && e.currentTarget.blur()}
-					className="shrink-0 resize-none rounded-lg border border-transparent bg-muted px-3 py-1.5 text-[13px] outline-none placeholder:text-muted-foreground focus:border-primary/50"
-				/>
-			) : (
-				note.trim() && (
+			{latestNote && (
+				<div className="shrink-0">
 					<p
 						className={cx(
-							"shrink-0 whitespace-pre-wrap rounded-lg bg-muted px-3 py-1.5 text-[13px]",
+							"whitespace-pre-wrap rounded-lg bg-muted px-3 py-1.5 text-[13px]",
 							mode === "list" ? "" : "line-clamp-3",
 						)}
 					>
-						{note.trim()}
+						{latestNote.body}
 					</p>
-				)
+					{item.notes.length > 1 && (
+						<p className="mt-1 px-1 text-xs text-muted-foreground">
+							{item.notes.length} notes
+						</p>
+					)}
+				</div>
 			)}
 		</li>
 	);
@@ -669,11 +623,11 @@ export function SavedView() {
 				(kind === "all" || i.kind === kind) &&
 				(sourceKey === ALL ||
 					i.sources.some((x) => x.documentId === sourceKey)) &&
-				(!withNote || i.note.trim() !== "") &&
+				(!withNote || i.notes.length > 0) &&
 				(!q ||
 					[
 						i.body,
-						i.note,
+						...i.notes.map((n) => n.body),
 						i.conversationTitle,
 						...i.sources.flatMap((x) => [x.title, x.label]),
 					]

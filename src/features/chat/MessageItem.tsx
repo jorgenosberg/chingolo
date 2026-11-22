@@ -220,12 +220,16 @@ function BookmarkButton({ messageId }: { messageId: string }) {
 			label={item ? "Remove from Saved" : "Save reply"}
 			isDisabled={!saved.isSuccess || toggle.isPending}
 			onPress={async () => {
-				// Removing it also drops the note written on the Saved page.
+				// Removing it also drops the notes written on the Saved page.
 				if (
-					item?.note &&
+					item &&
+					item.notes.length > 0 &&
 					!(await confirm({
 						title: "Remove from Saved?",
-						message: "The note you wrote on this item is removed with it.",
+						message:
+							item.notes.length === 1
+								? "The note you wrote on this item is removed with it."
+								: `The ${item.notes.length} notes you wrote on this item are removed with it.`,
 						confirmLabel: "Remove",
 						danger: true,
 					}))

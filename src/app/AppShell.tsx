@@ -215,7 +215,10 @@ export function AppShell() {
 							<LibraryView />
 						) : nav.view === "saved" ? (
 							nav.savedItemId ? (
-								<SavedDetail itemId={nav.savedItemId} />
+								<SavedDetail
+									itemId={nav.savedItemId}
+									compose={nav.savedCompose}
+								/>
 							) : (
 								<SavedView />
 							)
