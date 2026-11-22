@@ -50,6 +50,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
             commands::chat::set_conversation_model,
             commands::chat::set_conversation_scope,
             commands::chat::delete_conversation,
+            commands::chat::discard_empty_conversation,
             commands::chat::list_messages,
             commands::chat::send_message,
             commands::chat::cancel_generation,

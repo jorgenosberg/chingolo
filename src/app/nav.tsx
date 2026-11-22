@@ -144,8 +144,20 @@ export function NavProvider({ children }: { children: ReactNode }) {
 		setView("library");
 	}, []);
 
+	// A conversation left without a message is not kept.
+	const openId = useRef(conversationId);
 	const select = useCallback(
 		(id: string | null, opts?: { messageId?: string }) => {
+			const left = openId.current;
+			openId.current = id;
+			if (left && left !== id) {
+				api
+					.discardEmptyConversation(left)
+					.then((gone) => {
+						if (gone) qc.invalidateQueries({ queryKey: keys.conversations });
+					})
+					.catch(() => {});
+			}
 			setConversationId(id);
 			setMessageTarget(
 				id && opts?.messageId
@@ -165,7 +177,7 @@ export function NavProvider({ children }: { children: ReactNode }) {
 				// remembering the selection is a convenience only
 			}
 		},
-		[],
+		[qc],
 	);
 	const clearMessageTarget = useCallback(() => setMessageTarget(null), []);
 

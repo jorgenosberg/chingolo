@@ -23,6 +23,8 @@ export const commands = {
 	/**  Chooses what a conversation may read. `None` goes back to the default. */
 	setConversationScope: (id: string, scope: Scope | null) => typedError<Conversation, CmdError>(__TAURI_INVOKE("set_conversation_scope", { id, scope })),
 	deleteConversation: (id: string) => typedError<null, CmdError>(__TAURI_INVOKE("delete_conversation", { id })),
+	/**  Removes a conversation the user left without writing anything. Returns whether it was removed. */
+	discardEmptyConversation: (id: string) => typedError<boolean, CmdError>(__TAURI_INVOKE("discard_empty_conversation", { id })),
 	listMessages: (conversationId: string) => typedError<Message[], CmdError>(__TAURI_INVOKE("list_messages", { conversationId })),
 	/**  Saves the user's message, then streams the reply over `on_event`. */
 	sendMessage: (conversationId: string, content: string, onEvent: Channel<ChatEvent>) => typedError<SendResult, CmdError>(__TAURI_INVOKE("send_message", { conversationId, content, onEvent })),

@@ -376,6 +376,16 @@ pub fn delete_conversation(conn: &Connection, id: &str) -> Result<()> {
     Ok(())
 }
 
+/// Deletes a conversation that never got a message. Returns whether it was deleted.
+pub fn delete_if_empty(conn: &Connection, id: &str) -> Result<bool> {
+    let n = conn.execute(
+        "DELETE FROM conversations WHERE id = ?1
+           AND NOT EXISTS (SELECT 1 FROM messages WHERE conversation_id = ?1)",
+        [id],
+    )?;
+    Ok(n > 0)
+}
+
 pub fn list_messages(conn: &Connection, conversation_id: &str) -> Result<Vec<Message>> {
     let mut stmt = conn.prepare(&format!(
         "SELECT {MSG_COLS} FROM messages WHERE conversation_id = ?1 ORDER BY id"
@@ -1116,5 +1126,26 @@ mod tests {
             .map(|m| m.content)
             .collect();
         assert_eq!(texts, ["one", "two", "three"]);
+    }
+
+    #[test]
+    fn only_a_conversation_without_messages_is_discarded() {
+        let conn = test_conn();
+        let empty = create_conversation(&conn, None, None, "gemini", Some("m")).unwrap();
+        let used = create_conversation(&conn, None, None, "gemini", Some("m")).unwrap();
+        insert_message(
+            &conn,
+            &used.id,
+            Role::User,
+            "hello",
+            MessageStatus::Complete,
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(delete_if_empty(&conn, &empty.id).unwrap());
+        assert!(!delete_if_empty(&conn, &used.id).unwrap());
+        assert!(get_conversation(&conn, &empty.id).is_err());
+        assert!(get_conversation(&conn, &used.id).is_ok());
     }
 }

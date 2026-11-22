@@ -57,6 +57,16 @@ pub async fn create_conversation(
         .await?)
 }
 
+/// Removes a conversation the user left without writing anything. Returns whether it was removed.
+#[tauri::command]
+#[specta::specta]
+pub async fn discard_empty_conversation(state: State<'_, AppState>, id: String) -> CmdResult<bool> {
+    Ok(state
+        .db
+        .call(move |c| repo::delete_if_empty(c, &id))
+        .await?)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn rename_conversation(
