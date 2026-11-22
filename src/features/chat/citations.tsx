@@ -130,7 +130,10 @@ function Cite({ children }: { children?: ReactNode }) {
 	// While a reply streams, and for anything the app didn't check, show it as plain text.
 	if (!ctx || !c)
 		return (
-			<span className={`${base} border-transparent text-muted-foreground`}>
+			<span
+				data-cite
+				className={`${base} border-transparent text-muted-foreground`}
+			>
 				{label}
 			</span>
 		);
@@ -138,6 +141,7 @@ function Cite({ children }: { children?: ReactNode }) {
 	return (
 		<TooltipTrigger delay={300} closeDelay={100}>
 			<Button
+				data-cite
 				aria-label={`Open source ${c.handle}: ${where(c)}${flagged ? " (not fully supported)" : ""}`}
 				onPress={() => ctx.open(targetOf(c, ctx.conversationId))}
 				className={`${base} cursor-pointer outline-none transition-colors data-[focus-visible]:ring-2 data-[focus-visible]:ring-primary/60 ${

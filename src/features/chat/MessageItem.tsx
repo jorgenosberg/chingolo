@@ -1,6 +1,6 @@
 import { CheckIcon, CopyIcon, GitForkIcon } from "@phosphor-icons/react";
 import { math } from "@streamdown/math";
-import { memo, useState } from "react";
+import { memo, useRef, useState } from "react";
 import { Streamdown } from "streamdown";
 import { IconButton } from "../../components/ui";
 import type { Citation, Message } from "../../lib/bindings";
@@ -11,6 +11,7 @@ import {
 	citeTags,
 	SourcesList,
 } from "./citations";
+import { cleanCopy, writeRich } from "./copy";
 
 const plugins = { math };
 const NO_CITATIONS: Citation[] = [];
@@ -29,6 +30,7 @@ export const MessageItem = memo(function MessageItem({
 	/** What the model is doing while it streams, such as a library search. */
 	liveStatus?: string | null;
 }) {
+	const proseRef = useRef<HTMLDivElement>(null);
 	if (message.role === "user") {
 		return (
 			<div
@@ -62,7 +64,21 @@ export const MessageItem = memo(function MessageItem({
 	return (
 		<div data-message-id={message.id} className="group flex flex-col gap-1.5">
 			{text ? (
-				<div className="selectable chat-prose">
+				<div
+					ref={proseRef}
+					className="selectable chat-prose"
+					onCopy={(e) => {
+						const sel = window.getSelection();
+						if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
+						const range = sel.getRangeAt(0);
+						if (!proseRef.current?.contains(range.commonAncestorContainer))
+							return;
+						const { html, text } = cleanCopy(range.cloneContents());
+						e.clipboardData.setData("text/html", html);
+						e.clipboardData.setData("text/plain", text);
+						e.preventDefault();
+					}}
+				>
 					<CiteProvider
 						citations={message.citations ?? NO_CITATIONS}
 						conversationId={message.conversationId}
@@ -111,7 +127,10 @@ export const MessageItem = memo(function MessageItem({
 
 			{!streaming && text && (
 				<div className="flex items-center gap-2 text-xs text-muted-foreground">
-					<CopyButton text={text} />
+					<CopyButton
+						text={text}
+						rich={() => proseRef.current && cleanCopy(proseRef.current)}
+					/>
 					{onFork && message.status === "complete" && (
 						<IconButton
 							label="Fork conversation from here"
@@ -147,9 +166,12 @@ function describeNote(m: Message): string | null {
 function CopyButton({
 	text,
 	label = "Copy reply",
+	rich,
 }: {
 	text: string;
 	label?: string;
+	/** Clean HTML and text of the rendered reply; without it the raw text is copied. */
+	rich?: () => { html: string; text: string } | null;
 }) {
 	const [done, setDone] = useState(false);
 	return (
@@ -157,7 +179,9 @@ function CopyButton({
 			label={done ? "Copied" : label}
 			onPress={async () => {
 				try {
-					await navigator.clipboard.writeText(text);
+					const copy = rich?.();
+					if (copy) await writeRich(copy);
+					else await navigator.clipboard.writeText(text);
 					setDone(true);
 					setTimeout(() => setDone(false), 1500);
 				} catch {
