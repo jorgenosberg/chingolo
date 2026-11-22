@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.2
+
+Copying a reply now gives clean text, and scans are read once the text recognition model is ready.
+
+- Copying a reply, with the copy button or by selecting text, no longer includes markdown marks or citation handles like [S2]. Bold, italics, headings, lists and tables stay formatted when you paste into Word or Google Docs.
+- Scans imported before the text recognition model was downloaded are read again when the download finishes.
+- Menus, popovers and tooltips now share one look.
+
 ## 0.1.1
 
 Search now takes you to the exact message, and you can find text inside a chat.
