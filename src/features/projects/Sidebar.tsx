@@ -1,6 +1,7 @@
 import {
 	ArchiveIcon,
 	ArrowElbowDownRightIcon,
+	BookmarkSimpleIcon,
 	BooksIcon,
 	CaretRightIcon,
 	FolderIcon,
@@ -248,7 +249,8 @@ function ProjectItem({
 	conversations: Conversation[];
 }) {
 	const qc = useQueryClient();
-	const { newChat, select, conversationId } = useNav();
+	const { newChat, select, conversationId, openSaved, view, savedScope } =
+		useNav();
 	const { prompt, confirm } = useDialogs();
 	const chapters = useChapters(project.id);
 	const [open, setOpen] = useState(true);
@@ -259,6 +261,11 @@ function ProjectItem({
 			if (!next.delete(id)) next.add(id);
 			return next;
 		});
+
+	const projectSavedOpen =
+		view === "saved" &&
+		typeof savedScope === "object" &&
+		savedScope.projectId === project.id;
 
 	const inProject = conversations.filter((c) => c.projectId === project.id);
 	const loose = inProject.filter((c) => !c.chapterId);
@@ -347,6 +354,18 @@ function ProjectItem({
 			/>
 			{open && (
 				<div>
+					<Row
+						depth={1}
+						icon={
+							<BookmarkSimpleIcon
+								className="size-[17px]"
+								weight={projectSavedOpen ? "fill" : "regular"}
+							/>
+						}
+						label="Saved"
+						selected={projectSavedOpen}
+						onPress={() => openSaved({ projectId: project.id })}
+					/>
 					{(chapters.data ?? []).map((ch) => (
 						<div key={ch.id}>
 							<Row
@@ -437,6 +456,8 @@ export function Sidebar() {
 		openSettings,
 		view,
 		openLibrary,
+		openSaved,
+		savedScope,
 		setSearchOpen,
 		sidebarCollapsed,
 		toggleSidebar,
@@ -458,6 +479,8 @@ export function Sidebar() {
 	const active = all.filter((c) => !c.archivedAt);
 	const archived = all.filter((c) => c.archivedAt);
 	const unassigned = active.filter((c) => !c.projectId);
+
+	const allSavedOpen = view === "saved" && typeof savedScope === "string";
 
 	const addProject = async () => {
 		const name = await prompt({
@@ -514,6 +537,18 @@ export function Sidebar() {
 						)}
 					>
 						<BooksIcon weight={view === "library" ? "fill" : "regular"} />
+					</IconButton>
+					<IconButton
+						label="Saved"
+						onPress={() => openSaved()}
+						className={cx(
+							"size-8",
+							view === "saved" && "bg-border/60 text-foreground",
+						)}
+					>
+						<BookmarkSimpleIcon
+							weight={view === "saved" ? "fill" : "regular"}
+						/>
 					</IconButton>
 				</div>
 				<div className="pb-3">
@@ -595,6 +630,17 @@ export function Sidebar() {
 						selected={view === "library"}
 						onPress={() => openLibrary()}
 						shortcut={SHORTCUTS.library}
+					/>
+					<Row
+						icon={
+							<BookmarkSimpleIcon
+								className="size-[17px]"
+								weight={allSavedOpen ? "fill" : "regular"}
+							/>
+						}
+						label="Saved"
+						selected={allSavedOpen}
+						onPress={() => openSaved("all")}
 					/>
 				</div>
 				<SectionHeader

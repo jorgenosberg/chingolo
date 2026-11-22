@@ -11,6 +11,7 @@ import { Button, IconButton, Kbd, SHORTCUTS, Spinner } from "../components/ui";
 import { ChatView } from "../features/chat/ChatView";
 import { LibraryView } from "../features/library/LibraryView";
 import { Sidebar } from "../features/projects/Sidebar";
+import { SavedView } from "../features/saved/SavedView";
 import { SearchModal } from "../features/search/SearchModal";
 import { SettingsView } from "../features/settings/SettingsView";
 import { UpdateBar } from "../features/updates/UpdateBar";
@@ -211,6 +212,8 @@ export function AppShell() {
 							</Suspense>
 						) : nav.view === "library" ? (
 							<LibraryView />
+						) : nav.view === "saved" ? (
+							<SavedView />
 						) : nav.conversationId ? (
 							<ChatView
 								key={nav.conversationId}

@@ -5,7 +5,7 @@ import {
 	useQueryClient,
 } from "@tanstack/react-query";
 import { api, Channel, sendMessageRaw } from "./api";
-import type { ChatEvent, Message } from "./bindings";
+import type { ChatEvent, Message, SavedFilter } from "./bindings";
 import { appendDelta, bindMessage, endStream, setStatus } from "./streams";
 
 export const keys = {
@@ -25,6 +25,11 @@ export const keys = {
 	layout: (id: string) => ["layout", id] as const,
 	source: (conversationId: string, handle: number) =>
 		["source", conversationId, handle] as const,
+	savedSource: (itemId: string, handle: number) =>
+		["saved-source", itemId, handle] as const,
+	/** Prefix of every saved-items list, whatever the filter. */
+	saved: ["saved"] as const,
+	savedIn: (filter: SavedFilter) => ["saved", filter] as const,
 	librarySearch: (q: string, scope: string | null, meaning: boolean) =>
 		["library-search", scope, meaning, q] as const,
 };
@@ -115,21 +120,36 @@ export function useLibrarySearch(
 	});
 }
 
-/** A stored passage with its line boxes. Passages never change, so it is cached for good. */
 /** The saved copy of a cited passage. Only asked for when the document or passage is gone. */
-export function useSource(
-	source: { conversationId: string; handle: number } | null,
-	enabled: boolean,
-) {
+export type SourceRef =
+	| { conversationId: string; handle: number }
+	| { savedItemId: string; handle: number };
+
+export function useSource(source: SourceRef | null, enabled: boolean) {
 	return useQuery({
-		queryKey: keys.source(source?.conversationId ?? "", source?.handle ?? 0),
-		queryFn: () =>
-			api.getSource(
-				(source as { conversationId: string }).conversationId,
-				(source as { handle: number }).handle,
-			),
+		queryKey:
+			source && "savedItemId" in source
+				? keys.savedSource(source.savedItemId, source.handle)
+				: keys.source(
+						source && "conversationId" in source ? source.conversationId : "",
+						source?.handle ?? 0,
+					),
+		queryFn: () => {
+			if (!source) throw new Error("No source");
+			return "savedItemId" in source
+				? api.getSavedSource(source.savedItemId, source.handle)
+				: api.getSource(source.conversationId, source.handle);
+		},
 		enabled: enabled && source !== null,
 		staleTime: Number.POSITIVE_INFINITY,
+	});
+}
+
+/** Saved items, newest first. */
+export function useSaved(filter: SavedFilter) {
+	return useQuery({
+		queryKey: keys.savedIn(filter),
+		queryFn: () => api.listSaved(filter),
 	});
 }
 
@@ -144,6 +164,7 @@ export function useLayout(documentId: string, enabled: boolean) {
 	});
 }
 
+/** A stored passage with its line boxes. Passages never change, so it is cached for good. */
 export function usePassage(passageId: string | null) {
 	return useQuery({
 		queryKey: keys.passage(passageId ?? ""),

@@ -15,20 +15,23 @@ import {
 } from "react-resizable-panels";
 import { flushDraft } from "../features/chat/drafts";
 import { api } from "../lib/api";
-import { keys } from "../lib/queries";
+import { keys, type SourceRef } from "../lib/queries";
 
 const STORAGE_KEY = "chingolo.conversation";
 
 /** What the reader shows: a document, a page, and optionally a passage to highlight. */
-type View = "chat" | "library" | "reader" | "settings";
+type View = "chat" | "library" | "reader" | "saved" | "settings";
 
 export type ReaderTarget = {
 	documentId: string;
 	page: number;
 	passageId: string | null;
-	/** Set by a citation: the saved copy to show if the document or passage is gone. */
-	source?: { conversationId: string; handle: number };
+	/** Set by a citation or a saved item: the saved copy to show if the document or passage is gone. */
+	source?: SourceRef;
 };
+
+/** Which saved items the Saved page lists: all, one project's, or those with no project. */
+export type SavedScope = "all" | "none" | { projectId: string };
 
 /** `nonce` changes on every request, so picking the same message twice still jumps. */
 export type MessageTarget = {
@@ -54,6 +57,9 @@ type Nav = {
 	libraryScope: string | null;
 	openLibrary: (scope?: string | null) => void;
 	setLibraryScope: (scope: string | null) => void;
+	savedScope: SavedScope;
+	openSaved: (scope?: SavedScope) => void;
+	setSavedScope: (scope: SavedScope) => void;
 	conversationId: string | null;
 	/** Opens a conversation, optionally at one of its messages (a search hit). */
 	select: (id: string | null, opts?: { messageId?: string }) => void;
@@ -110,6 +116,7 @@ export function NavProvider({ children }: { children: ReactNode }) {
 	const targetNonce = useRef(0);
 	const [view, setView] = useState<View>("chat");
 	const [libraryScope, setLibraryScope] = useState<string | null>(null);
+	const [savedScope, setSavedScope] = useState<SavedScope>("all");
 	const [reader, setReader] = useState<ReaderTarget | null>(null);
 	const [citation, setCitation] = useState<ReaderTarget | null>(null);
 	const contextPanel = usePanelRef();
@@ -143,6 +150,11 @@ export function NavProvider({ children }: { children: ReactNode }) {
 	const openLibrary = useCallback((scope?: string | null) => {
 		if (scope !== undefined) setLibraryScope(scope);
 		setView("library");
+	}, []);
+
+	const openSaved = useCallback((scope?: SavedScope) => {
+		if (scope !== undefined) setSavedScope(scope);
+		setView("saved");
 	}, []);
 
 	// A conversation left without a message or a draft is not kept.
@@ -242,6 +254,9 @@ export function NavProvider({ children }: { children: ReactNode }) {
 			libraryScope,
 			openLibrary,
 			setLibraryScope,
+			savedScope,
+			openSaved,
+			setSavedScope,
 			conversationId,
 			select,
 			messageTarget,
@@ -270,6 +285,8 @@ export function NavProvider({ children }: { children: ReactNode }) {
 			view,
 			libraryScope,
 			openLibrary,
+			savedScope,
+			openSaved,
 			conversationId,
 			select,
 			messageTarget,

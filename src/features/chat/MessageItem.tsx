@@ -1,9 +1,16 @@
-import { CheckIcon, CopyIcon, GitForkIcon } from "@phosphor-icons/react";
+import {
+	BookmarkSimpleIcon,
+	CheckIcon,
+	CopyIcon,
+	GitForkIcon,
+} from "@phosphor-icons/react";
 import { math } from "@streamdown/math";
 import { memo, useRef, useState } from "react";
 import { Streamdown } from "streamdown";
 import { IconButton } from "../../components/ui";
+import { api } from "../../lib/api";
 import type { Citation, Message } from "../../lib/bindings";
+import { keys, useApiMutation, useSaved } from "../../lib/queries";
 import {
 	CiteProvider,
 	citeComponents,
@@ -131,6 +138,9 @@ export const MessageItem = memo(function MessageItem({
 						text={text}
 						rich={() => proseRef.current && cleanCopy(proseRef.current)}
 					/>
+					{message.status === "complete" && (
+						<BookmarkButton messageId={message.id} />
+					)}
 					{onFork && message.status === "complete" && (
 						<IconButton
 							label="Fork conversation from here"
@@ -161,6 +171,27 @@ function describeNote(m: Message): string | null {
 		default:
 			return null;
 	}
+}
+
+/** Saves the reply to its project's Saved page, or removes it again. */
+function BookmarkButton({ messageId }: { messageId: string }) {
+	const saved = useSaved({ kind: "all" });
+	const item = saved.data?.find(
+		(i) => i.kind === "reply" && i.messageId === messageId,
+	);
+	const toggle = useApiMutation(
+		() => (item ? api.deleteSaved(item.id) : api.saveReply(messageId)),
+		[keys.saved],
+	);
+	return (
+		<IconButton
+			label={item ? "Remove from Saved" : "Save reply"}
+			isDisabled={!saved.isSuccess || toggle.isPending}
+			onPress={() => toggle.mutate(undefined)}
+		>
+			<BookmarkSimpleIcon weight={item ? "fill" : "regular"} />
+		</IconButton>
+	);
 }
 
 function CopyButton({

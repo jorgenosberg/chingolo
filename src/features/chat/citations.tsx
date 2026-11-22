@@ -3,7 +3,7 @@ import { Button, Tooltip, TooltipTrigger } from "react-aria-components";
 import { defaultRemarkPlugins } from "streamdown";
 import { type ReaderTarget, useNav } from "../../app/nav";
 import { POPOVER } from "../../components/ui";
-import type { Citation } from "../../lib/bindings";
+import type { Citation, SavedSource } from "../../lib/bindings";
 
 const TOKEN = /\[S(\d+)\]/g;
 
@@ -67,7 +67,7 @@ function warningFor(c: Citation): string | null {
 			: null;
 }
 
-function where(c: Citation): string {
+export function where(c: Pick<Citation, "label" | "title" | "page">): string {
 	const name = c.label ? `${c.label} · ${c.title}` : c.title;
 	return c.page > 0 ? `${name}, p. ${c.page}` : name;
 }
@@ -97,6 +97,8 @@ function textOf(children: ReactNode): string {
 type Ctx = {
 	byHandle: Map<number, Citation>;
 	conversationId: string;
+	/** Set for a saved item: chips open its own copy of the source, not the conversation's. */
+	savedItemId?: string;
 	open: (target: ReaderTarget) => void;
 };
 const CiteContext = createContext<Ctx | null>(null);
@@ -105,10 +107,12 @@ const CiteContext = createContext<Ctx | null>(null);
 export function CiteProvider({
 	citations,
 	conversationId,
+	savedItemId,
 	children,
 }: {
 	citations: Citation[];
 	conversationId: string;
+	savedItemId?: string;
 	children: ReactNode;
 }) {
 	const { openCitation } = useNav();
@@ -116,9 +120,10 @@ export function CiteProvider({
 		() => ({
 			byHandle: new Map(citations.map((c) => [c.handle, c])),
 			conversationId,
+			savedItemId,
 			open: openCitation,
 		}),
-		[citations, conversationId, openCitation],
+		[citations, conversationId, savedItemId, openCitation],
 	);
 	return <CiteContext.Provider value={value}>{children}</CiteContext.Provider>;
 }
@@ -144,7 +149,9 @@ function Cite({ children }: { children?: ReactNode }) {
 			<Button
 				data-cite
 				aria-label={`Open source ${c.handle}: ${where(c)}${flagged ? " (not fully supported)" : ""}`}
-				onPress={() => ctx.open(targetOf(c, ctx.conversationId))}
+				onPress={() =>
+					ctx.open(targetOf(c, ctx.conversationId, ctx.savedItemId))
+				}
 				className={`${base} cursor-pointer outline-none transition-colors data-[focus-visible]:ring-2 data-[focus-visible]:ring-primary/60 ${
 					flagged
 						? "border-dashed border-problem text-problem data-[hovered]:bg-muted"
@@ -158,22 +165,45 @@ function Cite({ children }: { children?: ReactNode }) {
 	);
 }
 
-function targetOf(c: Citation, conversationId: string): ReaderTarget {
+function targetOf(
+	c: Citation,
+	conversationId: string,
+	savedItemId?: string,
+): ReaderTarget {
 	return {
 		documentId: c.documentId,
 		page: Math.max(c.page, 1),
-		passageId: c.passageId,
-		source: { conversationId, handle: c.handle },
+		passageId: c.passageId || null,
+		source: savedItemId
+			? { savedItemId, handle: c.handle }
+			: { conversationId, handle: c.handle },
 	};
+}
+
+/** A saved item's sources in the shape the citation chips take. They were checked when saved. */
+export function savedAsCitations(sources: SavedSource[]): Citation[] {
+	return sources.map((s) => ({
+		handle: s.handle,
+		status: "ok",
+		quoteVerified: null,
+		passageId: s.passageId,
+		documentId: s.documentId,
+		title: s.title,
+		label: s.label,
+		page: s.page,
+		snippet: s.text,
+	}));
 }
 
 /** The documents a reply cited, with a chip for each passage. Collapsed until opened. */
 export function SourcesList({
 	citations,
 	conversationId,
+	savedItemId,
 }: {
 	citations: Citation[];
 	conversationId: string;
+	savedItemId?: string;
 }) {
 	const { openCitation } = useNav();
 	const docs = useMemo(() => {
@@ -209,7 +239,9 @@ export function SourcesList({
 								<TooltipTrigger key={c.handle} delay={300} closeDelay={100}>
 									<Button
 										aria-label={`Open source ${c.handle}: ${where(c)}`}
-										onPress={() => openCitation(targetOf(c, conversationId))}
+										onPress={() =>
+											openCitation(targetOf(c, conversationId, savedItemId))
+										}
 										className={`${base} cursor-pointer outline-none data-[focus-visible]:ring-2 data-[focus-visible]:ring-primary/60 ${
 											c.status !== "ok"
 												? "border-dashed border-problem text-problem data-[hovered]:bg-muted"

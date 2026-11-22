@@ -4,6 +4,7 @@ import {
 	type ConversationFilter,
 	commands,
 	type MetadataPatch,
+	type SavedFilter,
 	type Scope,
 	type SettingsPatch,
 	type UsagePeriod,
@@ -126,6 +127,23 @@ export const api = {
 	getLayout: (documentId: string) => unwrap(commands.getLayout(documentId)),
 	getSource: (conversationId: string, handle: number) =>
 		unwrap(commands.getSource(conversationId, handle)),
+	listSaved: (filter: SavedFilter) => unwrap(commands.listSaved(filter)),
+	saveReply: (messageId: string) => unwrap(commands.saveReply(messageId)),
+	saveSelection: (messageId: string, text: string, handles: number[]) =>
+		unwrap(commands.saveSelection(messageId, text, handles)),
+	savePassage: (
+		documentId: string,
+		page: number,
+		text: string,
+		projectId: string | null,
+	) => unwrap(commands.savePassage(documentId, page, text, projectId)),
+	updateSavedNote: (id: string, note: string) =>
+		unwrap(commands.updateSavedNote(id, note)),
+	moveSaved: (id: string, projectId: string | null) =>
+		unwrap(commands.moveSaved(id, projectId)),
+	deleteSaved: (id: string) => unwrap(commands.deleteSaved(id)),
+	getSavedSource: (itemId: string, handle: number) =>
+		unwrap(commands.getSavedSource(itemId, handle)),
 	searchLibrary: (query: string, projectId: string | null, meaning: boolean) =>
 		unwrap(commands.searchLibrary(query, projectId, 30, meaning)),
 
