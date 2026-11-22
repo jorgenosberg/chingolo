@@ -117,112 +117,115 @@ function Detail({ item, projects }: { item: SavedItem; projects: Project[] }) {
 				/>
 			</Header>
 
-			<div className="min-h-0 flex-1 overflow-y-auto px-6 pb-10">
-				<article className="mx-auto flex max-w-3xl flex-col gap-6">
-					<p className="text-xs text-muted-foreground">
-						{KIND_LABEL[item.kind]} ·{" "}
-						{new Date(item.createdAt).toLocaleString()}
-						{project ? ` · ${project.name}` : ""}
-					</p>
+			<div className="@container min-h-0 flex-1 overflow-y-auto px-6 pb-10">
+				<article className="mx-auto grid max-w-6xl gap-8 @3xl:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
+					<div className="flex min-w-0 max-w-3xl flex-col gap-6">
+						<p className="text-xs text-muted-foreground">
+							{KIND_LABEL[item.kind]} ·{" "}
+							{new Date(item.createdAt).toLocaleString()}
+							{project ? ` · ${project.name}` : ""}
+						</p>
 
-					{item.kind === "reply" ? (
-						<div ref={proseRef} className="selectable chat-prose text-[15px]">
-							<CiteProvider
-								citations={citations}
-								conversationId={item.conversationId ?? ""}
-								savedItemId={item.id}
-							>
-								<Streamdown
-									plugins={plugins}
-									remarkPlugins={citePlugins}
-									components={citeComponents}
-									allowedTags={citeTags}
+						{item.kind === "reply" ? (
+							<div ref={proseRef} className="selectable chat-prose text-[15px]">
+								<CiteProvider
+									citations={citations}
+									conversationId={item.conversationId ?? ""}
+									savedItemId={item.id}
 								>
-									{item.body}
-								</Streamdown>
-							</CiteProvider>
-						</div>
-					) : (
-						<blockquote className="selectable whitespace-pre-wrap border-l-2 border-primary/50 pl-4 text-[15px] leading-relaxed">
-							{item.body}
-						</blockquote>
-					)}
-
-					<Section title="Note">
-						<textarea
-							aria-label="Note"
-							placeholder="Add a note"
-							rows={4}
-							value={note}
-							onChange={(e) => setNote(e.target.value)}
-							onBlur={() => saveNote.current()}
-							className="resize-y rounded-lg border border-transparent bg-muted px-3 py-2 text-[13px] outline-none placeholder:text-muted-foreground focus:border-primary/50"
-						/>
-					</Section>
-
-					{item.sources.length > 0 && (
-						<Section title={item.sources.length === 1 ? "Source" : "Sources"}>
-							<ul className="flex flex-col gap-3">
-								{citations.map((c, i) => (
-									<li
-										key={c.handle}
-										className="flex flex-col gap-1.5 rounded-xl border border-border bg-card px-4 py-3"
+									<Streamdown
+										plugins={plugins}
+										remarkPlugins={citePlugins}
+										components={citeComponents}
+										allowedTags={citeTags}
 									>
-										<div className="flex items-start justify-between gap-3">
-											<div className="min-w-0 text-[13px]">
-												<p className="font-medium">{where(c)}</p>
-												{item.sources[i].doi && (
-													<p className="truncate text-xs text-muted-foreground">
-														doi:{item.sources[i].doi}
-													</p>
-												)}
-											</div>
-											<Button
-												className="shrink-0"
-												onPress={() =>
-													openCitation(
-														targetOf(c, item.conversationId ?? "", item.id),
-													)
-												}
-											>
-												Open document
-											</Button>
-										</div>
-										{/* A passage item's source text is the item's own text. */}
-										{item.kind !== "passage" && (
-											<blockquote className="selectable line-clamp-5 border-l-2 border-border pl-3 text-[13px] leading-relaxed text-muted-foreground">
-												{c.snippet}
-											</blockquote>
-										)}
-									</li>
-								))}
-							</ul>
+										{item.body}
+									</Streamdown>
+								</CiteProvider>
+							</div>
+						) : (
+							<blockquote className="selectable whitespace-pre-wrap border-l-2 border-primary/50 pl-4 text-[15px] leading-relaxed">
+								{item.body}
+							</blockquote>
+						)}
+					</div>
+					<aside className="flex min-w-0 flex-col gap-6">
+						<Section title="Note">
+							<textarea
+								aria-label="Note"
+								placeholder="Add a note"
+								rows={4}
+								value={note}
+								onChange={(e) => setNote(e.target.value)}
+								onBlur={() => saveNote.current()}
+								className="resize-y rounded-lg border border-transparent bg-muted px-3 py-2 text-[13px] outline-none placeholder:text-muted-foreground focus:border-primary/50"
+							/>
 						</Section>
-					)}
 
-					{item.conversationTitle && (
-						<Section title="From">
-							{item.conversationId && item.messageId ? (
-								<RacButton
-									onPress={() =>
-										select(item.conversationId, {
-											messageId: item.messageId ?? undefined,
-										})
-									}
-									className={cx(
-										"w-fit max-w-full truncate rounded text-[13px] text-primary underline-offset-2 hover:underline",
-										focus,
-									)}
-								>
-									“{item.conversationTitle}”
-								</RacButton>
-							) : (
-								<p className="text-[13px] text-muted-foreground">
-									“{item.conversationTitle}” (conversation deleted)
-								</p>
-							)}
-						</Section>
-					)}
+						{item.sources.length > 0 && (
+							<Section title={item.sources.length === 1 ? "Source" : "Sources"}>
+								<ul className="flex flex-col gap-3">
+									{citations.map((c, i) => (
+										<li
+											key={c.handle}
+											className="flex flex-col gap-1.5 rounded-xl border border-border bg-card px-4 py-3"
+										>
+											<div className="flex items-start justify-between gap-3">
+												<div className="min-w-0 text-[13px]">
+													<p className="font-medium">{where(c)}</p>
+													{item.sources[i].doi && (
+														<p className="truncate text-xs text-muted-foreground">
+															doi:{item.sources[i].doi}
+														</p>
+													)}
+												</div>
+												<Button
+													className="shrink-0"
+													onPress={() =>
+														openCitation(
+															targetOf(c, item.conversationId ?? "", item.id),
+														)
+													}
+												>
+													Open document
+												</Button>
+											</div>
+											{/* A passage item's source text is the item's own text. */}
+											{item.kind !== "passage" && (
+												<blockquote className="selectable line-clamp-5 border-l-2 border-border pl-3 text-[13px] leading-relaxed text-muted-foreground">
+													{c.snippet}
+												</blockquote>
+											)}
+										</li>
+									))}
+								</ul>
+							</Section>
+						)}
+
+						{item.conversationTitle && (
+							<Section title="From">
+								{item.conversationId && item.messageId ? (
+									<RacButton
+										onPress={() =>
+											select(item.conversationId, {
+												messageId: item.messageId ?? undefined,
+											})
+										}
+										className={cx(
+											"w-fit max-w-full truncate rounded text-[13px] text-primary underline-offset-2 hover:underline",
+											focus,
+										)}
+									>
+										“{item.conversationTitle}”
+									</RacButton>
+								) : (
+									<p className="text-[13px] text-muted-foreground">
+										“{item.conversationTitle}” (conversation deleted)
+									</p>
+								)}
+							</Section>
+						)}
+					</aside>
 				</article>
 			</div>
 		</div>
