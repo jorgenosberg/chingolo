@@ -42,7 +42,7 @@ export function ProjectsDialog({
 						isSelected={doc.projectIds.includes(p.id)}
 						onChange={(on) => toggle(p.id, on)}
 						className={cx(
-							"group flex cursor-default items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] data-[hovered]:bg-muted",
+							"group flex cursor-pointer data-[disabled]:cursor-default items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] data-[hovered]:bg-muted",
 							focus,
 						)}
 					>

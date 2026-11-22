@@ -58,7 +58,7 @@ function savedTab(): string {
 }
 
 const tabClass = cx(
-	"-mb-px flex cursor-default items-center gap-1.5 border-b-2 border-transparent px-3 py-2 text-[13px] text-muted-foreground",
+	"-mb-px flex cursor-pointer data-[disabled]:cursor-default items-center gap-1.5 border-b-2 border-transparent px-3 py-2 text-[13px] text-muted-foreground",
 	"data-[hovered]:text-foreground data-[selected]:border-foreground data-[selected]:font-medium data-[selected]:text-foreground",
 	focus,
 );
@@ -280,7 +280,7 @@ function SharpenResults() {
 				isSelected={settings.rerankEnabled}
 				onChange={toggle}
 				className={cx(
-					"group flex cursor-default items-center gap-2.5 text-[13px]",
+					"group flex cursor-pointer data-[disabled]:cursor-default items-center gap-2.5 text-[13px]",
 					focus,
 				)}
 			>
@@ -338,7 +338,7 @@ function DetailsLookup() {
 				isSelected={settings[key]}
 				onChange={toggle(key)}
 				className={cx(
-					"group flex cursor-default items-center gap-2.5 text-[13px]",
+					"group flex cursor-pointer data-[disabled]:cursor-default items-center gap-2.5 text-[13px]",
 					focus,
 				)}
 			>
@@ -394,7 +394,7 @@ function DetailsModel() {
 				isSelected={settings.metadataAiEnabled}
 				onChange={toggle}
 				className={cx(
-					"group flex cursor-default items-center gap-2.5 text-[13px]",
+					"group flex cursor-pointer data-[disabled]:cursor-default items-center gap-2.5 text-[13px]",
 					focus,
 				)}
 			>
@@ -486,7 +486,7 @@ function SearchModel() {
 						key={b.id}
 						value={b.id}
 						className={cx(
-							"group flex cursor-default flex-col gap-2 rounded-xl border border-border bg-card p-4 transition-colors",
+							"group flex cursor-pointer data-[disabled]:cursor-default flex-col gap-2 rounded-xl border border-border bg-card p-4 transition-colors",
 							"data-[hovered]:border-foreground/30 data-[selected]:border-primary data-[selected]:bg-primary/5",
 							"data-[focus-visible]:ring-2 data-[focus-visible]:ring-primary/60",
 						)}
@@ -734,7 +734,7 @@ function LayoutViewSwitch() {
 				isSelected={on}
 				onChange={setLayoutOverlay}
 				className={cx(
-					"group flex cursor-default items-center gap-2.5 text-[13px]",
+					"group flex cursor-pointer data-[disabled]:cursor-default items-center gap-2.5 text-[13px]",
 					focus,
 				)}
 			>
@@ -849,7 +849,7 @@ export function SettingsView() {
 											key={t.id}
 											value={t.id}
 											className={cx(
-												"cursor-default rounded-md px-3 py-1 text-[13px] text-muted-foreground",
+												"cursor-pointer data-[disabled]:cursor-default rounded-md px-3 py-1 text-[13px] text-muted-foreground",
 												"data-[selected]:bg-card data-[selected]:font-medium data-[selected]:text-foreground data-[selected]:shadow-sm",
 												focus,
 											)}

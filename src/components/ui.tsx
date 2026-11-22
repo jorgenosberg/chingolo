@@ -88,17 +88,44 @@ export function Kbd({
 	);
 }
 
-/** Icon-only button. `label` is required so screen readers have a name. */
+/** Shows `label` (and a ⌘ shortcut, if any) in a tooltip when the trigger is hovered or focused. */
+export function Tip({
+	label,
+	shortcut,
+	isDisabled,
+	children,
+}: {
+	label: string;
+	shortcut?: string;
+	isDisabled?: boolean;
+	/** The trigger: a react-aria button. */
+	children: ReactNode;
+}) {
+	return (
+		<TooltipTrigger delay={400} isDisabled={isDisabled}>
+			{children}
+			<Tooltip offset={6} className={`flex items-center gap-2 ${TOOLTIP}`}>
+				{label}
+				{shortcut && <Kbd keys={shortcut} />}
+			</Tooltip>
+		</TooltipTrigger>
+	);
+}
+
+/** Icon-only button. `label` names it for screen readers and shows as its tooltip. */
 export function IconButton({
 	label,
 	shortcut,
+	tooltipDisabled,
 	className,
 	children,
 	...props
 }: Omit<RacButtonProps, "children"> & {
 	label: string;
-	/** Key of a ⌘ shortcut. Shown in a tooltip. */
+	/** Key of a ⌘ shortcut. Shown in the tooltip. */
 	shortcut?: string;
+	/** For a button whose popover is open, where a tooltip would get in the way. */
+	tooltipDisabled?: boolean;
 	className?: string;
 	children: ReactNode;
 }) {
@@ -117,20 +144,21 @@ export function IconButton({
 			{children}
 		</RacButton>
 	);
-	if (!shortcut) return button;
 	return (
-		<TooltipTrigger delay={500}>
+		<Tip label={label} shortcut={shortcut} isDisabled={tooltipDisabled}>
 			{button}
-			<Tooltip offset={6} className={`flex items-center gap-2 ${TOOLTIP}`}>
-				{label}
-				<Kbd keys={shortcut} />
-			</Tooltip>
-		</TooltipTrigger>
+		</Tip>
 	);
 }
 
 /** Surface of every popover and menu. Add padding at the use site. */
 export const POPOVER = "rounded-xl border border-border bg-card shadow-lg";
+/**
+ * A row in a menu or list popover. Add `flex` and alignment at the use site. It lights up under
+ * the pointer and on keyboard focus only, so nothing stays highlighted after a click.
+ */
+export const ITEM =
+	"cursor-pointer rounded-md px-2.5 py-1.5 text-[13px] outline-none data-[hovered]:bg-muted data-[focus-visible]:bg-muted data-[disabled]:cursor-default data-[disabled]:opacity-50";
 /** A short label that appears on hover. */
 export const TOOLTIP =
 	"rounded-md border border-border bg-card px-2 py-1 text-xs shadow-md";

@@ -123,7 +123,7 @@ export function Onboarding() {
 									key={p.id}
 									value={p.id}
 									className={cx(
-										"cursor-default rounded-md px-3 py-1 text-[13px] text-muted-foreground",
+										"cursor-pointer data-[disabled]:cursor-default rounded-md px-3 py-1 text-[13px] text-muted-foreground",
 										"data-[selected]:bg-card data-[selected]:font-medium data-[selected]:text-foreground data-[selected]:shadow-sm",
 										focus,
 									)}

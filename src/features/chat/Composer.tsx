@@ -1,7 +1,7 @@
 import { ArrowUpIcon, StopIcon } from "@phosphor-icons/react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Button as RacButton } from "react-aria-components";
-import { cx, focus } from "../../components/ui";
+import { cx, focus, Tip } from "../../components/ui";
 
 // Unsent text per conversation, kept for the session.
 const drafts = new Map<string, string>();
@@ -86,29 +86,33 @@ export function Composer({
 			/>
 			{extra}
 			{busy ? (
-				<RacButton
-					aria-label="Stop"
-					isDisabled={!canStop}
-					onPress={onStop}
-					className={cx(
-						"flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background data-[disabled]:opacity-40",
-						focus,
-					)}
-				>
-					<StopIcon weight="fill" />
-				</RacButton>
+				<Tip label="Stop">
+					<RacButton
+						aria-label="Stop"
+						isDisabled={!canStop}
+						onPress={onStop}
+						className={cx(
+							"flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background data-[disabled]:opacity-40",
+							focus,
+						)}
+					>
+						<StopIcon weight="fill" />
+					</RacButton>
+				</Tip>
 			) : (
-				<RacButton
-					type="submit"
-					aria-label="Send"
-					isDisabled={!text.trim()}
-					className={cx(
-						"flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground data-[disabled]:opacity-30",
-						focus,
-					)}
-				>
-					<ArrowUpIcon />
-				</RacButton>
+				<Tip label="Send">
+					<RacButton
+						type="submit"
+						aria-label="Send"
+						isDisabled={!text.trim()}
+						className={cx(
+							"flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground data-[disabled]:opacity-30",
+							focus,
+						)}
+					>
+						<ArrowUpIcon />
+					</RacButton>
+				</Tip>
 			)}
 		</form>
 	);

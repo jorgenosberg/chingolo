@@ -11,7 +11,7 @@ import {
 	type Selection,
 } from "react-aria-components";
 import type { Document, Scope } from "../lib/bindings";
-import { cx, focus, POPOVER } from "./ui";
+import { cx, focus, ITEM, POPOVER } from "./ui";
 
 type Kind = "project" | "library" | "documents";
 
@@ -167,7 +167,7 @@ export function ScopePopover({
 										key={d.id}
 										id={d.id}
 										textValue={d.title || d.originalName}
-										className="flex cursor-default items-center justify-between gap-3 rounded-md px-2.5 py-1.5 text-[13px] outline-none data-[disabled]:opacity-50 data-[focused]:bg-muted"
+										className={`${ITEM} flex items-center justify-between gap-3`}
 									>
 										{({ isSelected }) => (
 											<>
@@ -233,7 +233,7 @@ export function ScopePopover({
 										key={o.kind}
 										id={o.kind}
 										textValue={o.name}
-										className="flex cursor-default items-start justify-between gap-3 rounded-md px-2.5 py-1.5 outline-none data-[focused]:bg-muted"
+										className={`${ITEM} flex items-start justify-between gap-3`}
 									>
 										{({ isSelected }) => (
 											<>

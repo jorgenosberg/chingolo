@@ -1,7 +1,7 @@
 import { DotsThreeIcon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import { Menu, MenuItem, MenuTrigger, Popover } from "react-aria-components";
-import { cx, IconButton, POPOVER } from "./ui";
+import { cx, IconButton, ITEM, POPOVER } from "./ui";
 
 export type Action = {
 	id: string;
@@ -34,7 +34,8 @@ export function ActionMenu({
 							key={a.id}
 							id={a.id}
 							className={cx(
-								"flex cursor-default items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] outline-none data-[focused]:bg-muted",
+								ITEM,
+								"flex items-center gap-2",
 								a.danger && "text-problem",
 							)}
 						>

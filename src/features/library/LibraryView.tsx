@@ -29,7 +29,7 @@ import {
 import { useNav } from "../../app/nav";
 import { type Action, ActionMenu } from "../../components/ActionMenu";
 import { useDialogs } from "../../components/dialogs";
-import { Button, cx, focus, POPOVER, Spinner } from "../../components/ui";
+import { Button, cx, focus, ITEM, POPOVER, Spinner } from "../../components/ui";
 import { api } from "../../lib/api";
 import type {
 	DocStatus,
@@ -348,24 +348,15 @@ function ImportMenu({
 					}
 					className="outline-none"
 				>
-					<MenuItem
-						id="files"
-						className="flex cursor-default items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] outline-none data-[focused]:bg-muted"
-					>
+					<MenuItem id="files" className={`${ITEM} flex items-center gap-2`}>
 						<FileIcon className="size-4" />
 						Files…
 					</MenuItem>
-					<MenuItem
-						id="folder"
-						className="flex cursor-default items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] outline-none data-[focused]:bg-muted"
-					>
+					<MenuItem id="folder" className={`${ITEM} flex items-center gap-2`}>
 						<FolderPlusIcon className="size-4" />
 						Folder…
 					</MenuItem>
-					<MenuItem
-						id="refresh"
-						className="flex cursor-default items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] outline-none data-[focused]:bg-muted"
-					>
+					<MenuItem id="refresh" className={`${ITEM} flex items-center gap-2`}>
 						<ArrowClockwiseIcon className="size-4" />
 						Refresh all details
 					</MenuItem>
@@ -410,7 +401,7 @@ function ScopeSelect({
 						<ListBoxItem
 							id={i.id}
 							textValue={i.name}
-							className="cursor-default truncate rounded-md px-2.5 py-1.5 text-[13px] outline-none data-[focused]:bg-muted data-[selected]:font-medium"
+							className={`${ITEM} truncate data-[selected]:font-medium`}
 						>
 							{i.name}
 						</ListBoxItem>

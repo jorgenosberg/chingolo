@@ -162,7 +162,7 @@ export function MetadataDialog({
 					/>
 				</div>
 				<details className="group rounded-lg border border-border px-3 py-2">
-					<summary className="cursor-default text-[13px] font-medium outline-none">
+					<summary className="cursor-pointer data-[disabled]:cursor-default text-[13px] font-medium outline-none">
 						More details
 					</summary>
 					<div className="mt-3 grid grid-cols-2 gap-3">

@@ -234,7 +234,7 @@ function SearchPanel({ close }: { close: () => void }) {
 						key={m.id}
 						value={m.id}
 						className={cx(
-							"cursor-default rounded-md px-2.5 py-1 text-xs text-muted-foreground",
+							"cursor-pointer data-[disabled]:cursor-default rounded-md px-2.5 py-1 text-xs text-muted-foreground",
 							"data-[hovered]:text-foreground data-[selected]:bg-muted data-[selected]:font-medium data-[selected]:text-foreground",
 							focus,
 						)}
@@ -263,7 +263,7 @@ function SearchPanel({ close }: { close: () => void }) {
 						onClick={() => choose(r)}
 						onMouseMove={() => active !== i && setActive(i)}
 						className={cx(
-							"flex cursor-default items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px]",
+							"flex cursor-pointer data-[disabled]:cursor-default items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px]",
 							i === active && "bg-muted",
 						)}
 					>

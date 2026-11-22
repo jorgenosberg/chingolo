@@ -8,8 +8,6 @@ import {
 	ListBoxItem,
 	ListBoxSection,
 	Popover,
-	Tooltip,
-	TooltipTrigger,
 } from "react-aria-components";
 import type { ModelInfo, ProviderError } from "../lib/bindings";
 import {
@@ -22,7 +20,7 @@ import {
 } from "../lib/providers";
 import { useSettings } from "../lib/queries";
 import { ModelOption, modelHints, ShowAllButton } from "./ModelOption";
-import { IconButton, POPOVER, TOOLTIP } from "./ui";
+import { IconButton, ITEM, POPOVER } from "./ui";
 
 /** Small button that opens a popover to see and change the conversation's model. */
 export function ModelPopover({
@@ -55,18 +53,14 @@ export function ModelPopover({
 
 	return (
 		<DialogTrigger isOpen={open} onOpenChange={setOpen}>
-			<TooltipTrigger delay={400} isDisabled={open}>
-				<IconButton
-					label={`Model: ${current}`}
-					isDisabled={isDisabled}
-					className="size-8 rounded-full"
-				>
-					<SparkleIcon />
-				</IconButton>
-				<Tooltip placement="top" offset={6} className={TOOLTIP}>
-					{current}
-				</Tooltip>
-			</TooltipTrigger>
+			<IconButton
+				label={`Model: ${current}`}
+				tooltipDisabled={open}
+				isDisabled={isDisabled}
+				className="size-8 rounded-full"
+			>
+				<SparkleIcon />
+			</IconButton>
 			<Popover placement="top end" className={`w-72 p-1.5 ${POPOVER}`}>
 				<Dialog aria-label="Model" className="outline-none">
 					<p className="px-2.5 pb-1 pt-1 text-xs font-medium text-muted-foreground">
@@ -103,7 +97,7 @@ export function ModelPopover({
 										key={modelKey(m)}
 										id={modelKey(m)}
 										textValue={m.displayName}
-										className="flex cursor-default items-center justify-between gap-3 rounded-md px-2.5 py-1.5 text-[13px] outline-none data-[focused]:bg-muted data-[selected]:font-medium"
+										className={`${ITEM} flex items-center justify-between gap-3 data-[selected]:font-medium`}
 									>
 										{({ isSelected }) => (
 											<>

@@ -20,7 +20,7 @@ import {
 } from "../lib/providers";
 import { useSettings } from "../lib/queries";
 import { ModelOption, modelHints, ShowAllButton } from "./ModelOption";
-import { cx, focus, POPOVER } from "./ui";
+import { cx, focus, ITEM, POPOVER } from "./ui";
 
 export function ModelSelect({
 	models,
@@ -94,7 +94,7 @@ export function ModelSelect({
 									key={modelKey(m)}
 									id={modelKey(m)}
 									textValue={m.displayName}
-									className="flex cursor-default items-center justify-between gap-3 rounded-md px-2.5 py-1.5 text-[13px] outline-none data-[focused]:bg-muted data-[selected]:font-medium"
+									className={`${ITEM} flex items-center justify-between gap-3 data-[selected]:font-medium`}
 								>
 									<ModelOption model={m} hints={hints.get(modelKey(m)) ?? []} />
 								</ListBoxItem>
