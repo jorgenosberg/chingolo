@@ -23,9 +23,12 @@ export function SelectionPill({
 		"idle",
 	);
 	const range = useRef<Range | null>(null);
+	const pill = useRef<HTMLButtonElement>(null);
 
 	useEffect(() => {
-		const show = () =>
+		const show = (e: MouseEvent) => {
+			// A click on the pill is not a new selection.
+			if (pill.current?.contains(e.target as Node)) return;
 			requestAnimationFrame(() => {
 				const el = containerRef.current;
 				const sel = window.getSelection();
@@ -44,6 +47,7 @@ export function SelectionPill({
 					),
 				});
 			});
+		};
 		const hide = () => setPos(null);
 		const onSelectionChange = () => {
 			if (window.getSelection()?.isCollapsed) setPos(null);
@@ -66,6 +70,7 @@ export function SelectionPill({
 	if (!pos) return null;
 	return (
 		<button
+			ref={pill}
 			type="button"
 			// Keep the selection: pressing a button would otherwise clear it first.
 			onMouseDown={(e) => e.preventDefault()}

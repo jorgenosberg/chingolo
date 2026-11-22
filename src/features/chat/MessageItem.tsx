@@ -8,6 +8,7 @@ import { math } from "@streamdown/math";
 import { useQueryClient } from "@tanstack/react-query";
 import { memo, type RefObject, useRef, useState } from "react";
 import { Streamdown } from "streamdown";
+import { useDialogs } from "../../components/dialogs";
 import { SelectionPill } from "../../components/SelectionPill";
 import { IconButton } from "../../components/ui";
 import { api } from "../../lib/api";
@@ -209,6 +210,7 @@ function BookmarkButton({ messageId }: { messageId: string }) {
 	const item = saved.data?.find(
 		(i) => i.kind === "reply" && i.messageId === messageId,
 	);
+	const { confirm } = useDialogs();
 	const toggle = useApiMutation(
 		() => (item ? api.deleteSaved(item.id) : api.saveReply(messageId)),
 		[keys.saved],
@@ -217,7 +219,20 @@ function BookmarkButton({ messageId }: { messageId: string }) {
 		<IconButton
 			label={item ? "Remove from Saved" : "Save reply"}
 			isDisabled={!saved.isSuccess || toggle.isPending}
-			onPress={() => toggle.mutate(undefined)}
+			onPress={async () => {
+				// Removing it also drops the note written on the Saved page.
+				if (
+					item?.note &&
+					!(await confirm({
+						title: "Remove from Saved?",
+						message: "The note you wrote on this item is removed with it.",
+						confirmLabel: "Remove",
+						danger: true,
+					}))
+				)
+					return;
+				toggle.mutate(undefined);
+			}}
 		>
 			<BookmarkSimpleIcon weight={item ? "fill" : "regular"} />
 		</IconButton>

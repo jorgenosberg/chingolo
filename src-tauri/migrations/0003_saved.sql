@@ -16,6 +16,9 @@ CREATE TABLE saved_items (
     updated_at INTEGER NOT NULL
 );
 CREATE INDEX saved_items_project ON saved_items(project_id, created_at);
+-- the SET NULL child keys, and what save_reply looks up
+CREATE INDEX saved_items_message ON saved_items(message_id);
+CREATE INDEX saved_items_conversation ON saved_items(conversation_id);
 
 -- Same columns as conversation_sources, plus the DOI for reference lines. A passage item has
 -- one row, handle 1, for the document it was selected in.

@@ -10,7 +10,7 @@ import {
 } from "@phosphor-icons/react";
 import { math } from "@streamdown/math";
 import { useQueryClient } from "@tanstack/react-query";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
 	ListBox,
 	ListBoxItem,
@@ -200,6 +200,24 @@ function SavedCard({
 			title,
 			message: e instanceof Error ? e.message : String(e),
 		});
+	// The note saves half a second after typing stops, and when the card goes away (another
+	// view, another filter), so switching views never loses it.
+	const latest = useRef({ note, saved: item.note });
+	latest.current = { note, saved: item.note };
+	const saveNote = useRef(() => {});
+	saveNote.current = () => {
+		if (latest.current.note.trim() === latest.current.saved) return;
+		latest.current.saved = latest.current.note.trim();
+		api
+			.updateSavedNote(item.id, latest.current.note)
+			.then(refresh, fail("Couldn't save the note"));
+	};
+	// biome-ignore lint/correctness/useExhaustiveDependencies: restart the timer on every edit
+	useEffect(() => {
+		const t = setTimeout(() => saveNote.current(), 500);
+		return () => clearTimeout(t);
+	}, [note]);
+	useEffect(() => () => saveNote.current(), []);
 	const citations = useMemo(
 		() => savedAsCitations(item.sources),
 		[item.sources],
@@ -326,12 +344,7 @@ function SavedCard({
 				rows={note ? 2 : 1}
 				value={note}
 				onChange={(e) => setNote(e.target.value)}
-				onBlur={() => {
-					if (note.trim() === item.note) return;
-					api
-						.updateSavedNote(item.id, note)
-						.then(refresh, fail("Couldn't save"));
-				}}
+				onBlur={() => saveNote.current()}
 				className="resize-none rounded-lg border border-transparent bg-muted px-3 py-1.5 text-[13px] outline-none placeholder:text-muted-foreground focus:border-primary/50"
 			/>
 		</li>
