@@ -286,11 +286,9 @@ function preview(markdown: string): string {
 function ClampedText({
 	children,
 	className,
-	onClick,
 }: {
 	children: string;
 	className?: string;
-	onClick?: () => void;
 }) {
 	const box = useRef<HTMLDivElement>(null);
 	const [lines, setLines] = useState(3);
@@ -310,16 +308,7 @@ function ClampedText({
 		return () => watch.disconnect();
 	}, []);
 	return (
-		// biome-ignore lint/a11y/noStaticElementInteractions: the Open button is the keyboard route
-		// biome-ignore lint/a11y/useKeyWithClickEvents: same
-		<div
-			ref={box}
-			onClick={onClick}
-			className={cx(
-				"min-h-0 flex-1 overflow-hidden",
-				onClick && "cursor-pointer",
-			)}
-		>
+		<div ref={box} className="min-h-0 flex-1 overflow-hidden">
 			<p
 				className={cx("selectable whitespace-pre-line", className)}
 				style={{
@@ -491,7 +480,21 @@ function SavedCard({
 	});
 
 	return (
-		<li className="group flex min-h-0 flex-col gap-2 rounded-xl border border-border bg-card px-4 py-3">
+		// biome-ignore lint/a11y/useKeyWithClickEvents: the Open button is the keyboard route
+		<li
+			onClick={(e) => {
+				// Chips, buttons, links, the note field and the open menu keep their own clicks.
+				const t = e.target as Element;
+				if (
+					t.closest(
+						"button, a, textarea, input, [role=menu], [role=menuitem], [data-cite]",
+					)
+				)
+					return;
+				open();
+			}}
+			className="group flex min-h-0 cursor-pointer flex-col gap-2 rounded-xl border border-border bg-card px-4 py-3 transition-colors hover:border-primary/70 hover:ring-1 hover:ring-primary/30"
+		>
 			<div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
 				<span className="min-w-0 truncate">
 					{KIND_LABEL[item.kind]} · {date}
@@ -511,7 +514,6 @@ function SavedCard({
 				<>
 					{mode !== "list" && (
 						<ClampedText
-							onClick={open}
 							className={cx(
 								"leading-relaxed",
 								mode === "small" ? "text-[13px]" : "text-[15px]",
@@ -550,7 +552,6 @@ function SavedCard({
 				</blockquote>
 			) : (
 				<ClampedText
-					onClick={open}
 					className={cx(
 						"border-l-2 border-primary/50 pl-3 leading-relaxed",
 						mode === "small" ? "text-[13px]" : "text-[15px]",
