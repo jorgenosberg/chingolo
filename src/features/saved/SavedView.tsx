@@ -3,11 +3,13 @@ import {
 	CaretDownIcon,
 	CheckIcon,
 	CopyIcon,
+	EraserIcon,
 	FolderMinusIcon,
 	FolderSimpleIcon,
 	GridNineIcon,
 	ListIcon,
 	MagnifyingGlassIcon,
+	PencilSimpleIcon,
 	SquaresFourIcon,
 	TrashIcon,
 } from "@phosphor-icons/react";
@@ -205,6 +207,12 @@ const KIND_LABEL = {
 
 type ViewMode = "list" | "small" | "large";
 const VIEW_KEY = "chingolo.savedView";
+/** Grid cards share one height, so a long reply scrolls inside its card. */
+const ROW_HEIGHT: Record<ViewMode, string> = {
+	list: "auto",
+	large: "24rem",
+	small: "17rem",
+};
 const COLUMNS: Record<ViewMode, string> = {
 	list: "1fr",
 	// As many columns as fit, so 2 or 3 on a typical window and 1 on a narrow pane.
@@ -258,8 +266,8 @@ function Chip({
 /** How much of a long reply a card shows before it scrolls inside itself. */
 const BODY_HEIGHT: Record<ViewMode, string> = {
 	list: "",
-	large: "max-h-72 overflow-y-auto",
-	small: "max-h-44 overflow-y-auto",
+	large: "min-h-0 flex-1 overflow-y-auto",
+	small: "min-h-0 flex-1 overflow-y-auto",
 };
 
 function SavedCard({
@@ -276,6 +284,11 @@ function SavedCard({
 	const { confirm, alert } = useDialogs();
 	const proseRef = useRef<HTMLDivElement>(null);
 	const [note, setNote] = useState(item.note);
+	const [editing, setEditing] = useState(false);
+	const noteField = useRef<HTMLTextAreaElement>(null);
+	useEffect(() => {
+		if (editing) noteField.current?.focus();
+	}, [editing]);
 	const refresh = () => qc.invalidateQueries({ queryKey: keys.saved });
 	const fail = (title: string) => (e: unknown) =>
 		alert({
@@ -307,6 +320,25 @@ function SavedCard({
 	const project = projects.find((p) => p.id === item.projectId);
 
 	const actions: Action[] = [
+		{
+			id: "note",
+			icon: <PencilSimpleIcon className="size-4" />,
+			label: note.trim() ? "Edit note" : "Add note",
+			run: () => setEditing(true),
+		},
+		...(note.trim()
+			? [
+					{
+						id: "remove-note",
+						icon: <EraserIcon className="size-4" />,
+						label: "Remove note",
+						run: () => {
+							setNote("");
+							setEditing(false);
+						},
+					},
+				]
+			: []),
 		...projects
 			.filter((p) => p.id !== item.projectId)
 			.map((p) => ({
@@ -356,7 +388,7 @@ function SavedCard({
 	});
 
 	return (
-		<li className="flex flex-col gap-2 rounded-xl border border-border bg-card px-4 py-3">
+		<li className="flex min-h-0 flex-col gap-2 rounded-xl border border-border bg-card px-4 py-3">
 			<div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
 				<span className="min-w-0 truncate">
 					{KIND_LABEL[item.kind]} · {date}
@@ -433,15 +465,33 @@ function SavedCard({
 					</span>
 				))}
 
-			<textarea
-				aria-label="Note"
-				placeholder="Add a note"
-				rows={note ? 2 : 1}
-				value={note}
-				onChange={(e) => setNote(e.target.value)}
-				onBlur={() => saveNote.current()}
-				className="resize-none rounded-lg border border-transparent bg-muted px-3 py-1.5 text-[13px] outline-none placeholder:text-muted-foreground focus:border-primary/50"
-			/>
+			{editing ? (
+				<textarea
+					ref={noteField}
+					aria-label="Note"
+					placeholder="Write a note"
+					rows={3}
+					value={note}
+					onChange={(e) => setNote(e.target.value)}
+					onBlur={() => {
+						saveNote.current();
+						if (!note.trim()) setEditing(false);
+					}}
+					onKeyDown={(e) => e.key === "Escape" && e.currentTarget.blur()}
+					className="shrink-0 resize-none rounded-lg border border-transparent bg-muted px-3 py-1.5 text-[13px] outline-none placeholder:text-muted-foreground focus:border-primary/50"
+				/>
+			) : (
+				note.trim() && (
+					<p
+						className={cx(
+							"shrink-0 whitespace-pre-wrap rounded-lg bg-muted px-3 py-1.5 text-[13px]",
+							mode === "list" ? "" : "line-clamp-3",
+						)}
+					>
+						{note.trim()}
+					</p>
+				)
+			)}
 		</li>
 	);
 }
@@ -644,8 +694,11 @@ export function SavedView() {
 					</p>
 				)}
 				<ul
-					className="grid items-start gap-3"
-					style={{ gridTemplateColumns: COLUMNS[mode] }}
+					className="grid gap-3"
+					style={{
+						gridTemplateColumns: COLUMNS[mode],
+						gridAutoRows: ROW_HEIGHT[mode],
+					}}
 				>
 					{shown.map((i) => (
 						<SavedCard
