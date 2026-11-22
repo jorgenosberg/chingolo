@@ -59,6 +59,9 @@ type Nav = {
 	setLibraryScope: (scope: string | null) => void;
 	savedScope: SavedScope;
 	openSaved: (scope?: SavedScope) => void;
+	/** One saved item on its own page. `openSaved` goes back to the list. */
+	savedItemId: string | null;
+	openSavedItem: (id: string) => void;
 	setSavedScope: (scope: SavedScope) => void;
 	conversationId: string | null;
 	/** Opens a conversation, optionally at one of its messages (a search hit). */
@@ -117,6 +120,7 @@ export function NavProvider({ children }: { children: ReactNode }) {
 	const [view, setView] = useState<View>("chat");
 	const [libraryScope, setLibraryScope] = useState<string | null>(null);
 	const [savedScope, setSavedScope] = useState<SavedScope>("all");
+	const [savedItemId, setSavedItemId] = useState<string | null>(null);
 	const [reader, setReader] = useState<ReaderTarget | null>(null);
 	const [citation, setCitation] = useState<ReaderTarget | null>(null);
 	const contextPanel = usePanelRef();
@@ -154,6 +158,11 @@ export function NavProvider({ children }: { children: ReactNode }) {
 
 	const openSaved = useCallback((scope?: SavedScope) => {
 		if (scope !== undefined) setSavedScope(scope);
+		setSavedItemId(null);
+		setView("saved");
+	}, []);
+	const openSavedItem = useCallback((id: string) => {
+		setSavedItemId(id);
 		setView("saved");
 	}, []);
 
@@ -256,6 +265,8 @@ export function NavProvider({ children }: { children: ReactNode }) {
 			setLibraryScope,
 			savedScope,
 			openSaved,
+			savedItemId,
+			openSavedItem,
 			setSavedScope,
 			conversationId,
 			select,
@@ -287,6 +298,8 @@ export function NavProvider({ children }: { children: ReactNode }) {
 			openLibrary,
 			savedScope,
 			openSaved,
+			savedItemId,
+			openSavedItem,
 			conversationId,
 			select,
 			messageTarget,

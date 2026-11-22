@@ -1,4 +1,5 @@
 import {
+	ArrowsOutSimpleIcon,
 	BookmarkSimpleIcon,
 	CaretDownIcon,
 	CheckIcon,
@@ -49,12 +50,11 @@ import {
 	citeComponents,
 	citePlugins,
 	citeTags,
-	SourcesList,
 	savedAsCitations,
 } from "../chat/citations";
 import { cleanCopy, writeRich } from "../chat/copy";
 
-const plugins = { math };
+export const plugins = { math };
 const ALL = "__all__";
 const NONE = "__none__";
 
@@ -164,7 +164,7 @@ export function referenceLines(sources: SavedSource[]): string[] {
 	});
 }
 
-function CopyItem({
+export function CopyItem({
 	item,
 	proseRef,
 }: {
@@ -199,7 +199,7 @@ function CopyItem({
 	);
 }
 
-const KIND_LABEL = {
+export const KIND_LABEL = {
 	reply: "Reply",
 	selection: "Selection",
 	passage: "From a document",
@@ -285,9 +285,11 @@ function preview(markdown: string): string {
 function ClampedText({
 	children,
 	className,
+	onClick,
 }: {
 	children: string;
 	className?: string;
+	onClick?: () => void;
 }) {
 	const box = useRef<HTMLDivElement>(null);
 	const [lines, setLines] = useState(3);
@@ -307,7 +309,16 @@ function ClampedText({
 		return () => watch.disconnect();
 	}, []);
 	return (
-		<div ref={box} className="min-h-0 flex-1 overflow-hidden">
+		// biome-ignore lint/a11y/noStaticElementInteractions: the Open button is the keyboard route
+		// biome-ignore lint/a11y/useKeyWithClickEvents: same
+		<div
+			ref={box}
+			onClick={onClick}
+			className={cx(
+				"min-h-0 flex-1 overflow-hidden",
+				onClick && "cursor-pointer",
+			)}
+		>
 			<p
 				className={cx("selectable whitespace-pre-line", className)}
 				style={{
@@ -323,33 +334,18 @@ function ClampedText({
 	);
 }
 
-function SavedCard({
-	item,
-	projects,
-	mode,
-}: {
-	item: SavedItem;
-	projects: Project[];
-	mode: ViewMode;
-}) {
+/** Note text for one item. It saves half a second after typing stops, and when the editor goes
+ * away (another view, another filter), so switching views never loses it. */
+export function useNoteEditor(item: SavedItem) {
 	const qc = useQueryClient();
-	const { select, savedScope } = useNav();
-	const { confirm, alert } = useDialogs();
-	const proseRef = useRef<HTMLDivElement>(null);
+	const { alert } = useDialogs();
 	const [note, setNote] = useState(item.note);
-	const [editing, setEditing] = useState(false);
-	const noteField = useRef<HTMLTextAreaElement>(null);
-	useEffect(() => {
-		if (editing) noteField.current?.focus();
-	}, [editing]);
 	const refresh = () => qc.invalidateQueries({ queryKey: keys.saved });
 	const fail = (title: string) => (e: unknown) =>
 		alert({
 			title,
 			message: e instanceof Error ? e.message : String(e),
 		});
-	// The note saves half a second after typing stops, and when the card goes away (another
-	// view, another filter), so switching views never loses it.
 	const latest = useRef({ note, saved: item.note });
 	latest.current = { note, saved: item.note };
 	const saveNote = useRef(() => {});
@@ -366,32 +362,26 @@ function SavedCard({
 		return () => clearTimeout(t);
 	}, [note]);
 	useEffect(() => () => saveNote.current(), []);
-	const citations = useMemo(
-		() => savedAsCitations(item.sources),
-		[item.sources],
-	);
-	const project = projects.find((p) => p.id === item.projectId);
+	return { note, setNote, saveNote, refresh, fail };
+}
 
-	const actions: Action[] = [
-		{
-			id: "note",
-			icon: <PencilSimpleIcon className="size-4" />,
-			label: note.trim() ? "Edit note" : "Add note",
-			run: () => setEditing(true),
-		},
-		...(note.trim()
-			? [
-					{
-						id: "remove-note",
-						icon: <EraserIcon className="size-4" />,
-						label: "Remove note",
-						run: () => {
-							setNote("");
-							setEditing(false);
-						},
-					},
-				]
-			: []),
+/** Move to a project, take out of its project, delete. Shared by the card and the detail page. */
+export function itemActions({
+	item,
+	projects,
+	refresh,
+	fail,
+	confirm,
+	onDeleted,
+}: {
+	item: SavedItem;
+	projects: Project[];
+	refresh: () => void;
+	fail: (title: string) => (e: unknown) => void;
+	confirm: ReturnType<typeof useDialogs>["confirm"];
+	onDeleted?: () => void;
+}): Action[] {
+	return [
 		...projects
 			.filter((p) => p.id !== item.projectId)
 			.map((p) => ({
@@ -426,9 +416,68 @@ function SavedCard({
 					danger: true,
 				});
 				if (!ok) return;
-				await api.deleteSaved(item.id).then(refresh, fail("Couldn't delete"));
+				try {
+					await api.deleteSaved(item.id);
+					refresh();
+					onDeleted?.();
+				} catch (e) {
+					fail("Couldn't delete")(e);
+				}
 			},
 		},
+	];
+}
+
+function SavedCard({
+	item,
+	projects,
+	mode,
+}: {
+	item: SavedItem;
+	projects: Project[];
+	mode: ViewMode;
+}) {
+	const { select, savedScope, openSavedItem } = useNav();
+	const { confirm } = useDialogs();
+	const proseRef = useRef<HTMLDivElement>(null);
+	const [editing, setEditing] = useState(false);
+	const noteField = useRef<HTMLTextAreaElement>(null);
+	useEffect(() => {
+		if (editing) noteField.current?.focus();
+	}, [editing]);
+	const { note, setNote, saveNote, refresh, fail } = useNoteEditor(item);
+	const citations = useMemo(
+		() => savedAsCitations(item.sources),
+		[item.sources],
+	);
+	const project = projects.find((p) => p.id === item.projectId);
+	const open = () => {
+		// A click that ends a text selection is not a request to open.
+		if (window.getSelection()?.isCollapsed === false) return;
+		openSavedItem(item.id);
+	};
+
+	const actions: Action[] = [
+		{
+			id: "note",
+			icon: <PencilSimpleIcon className="size-4" />,
+			label: note.trim() ? "Edit note" : "Add note",
+			run: () => setEditing(true),
+		},
+		...(note.trim()
+			? [
+					{
+						id: "remove-note",
+						icon: <EraserIcon className="size-4" />,
+						label: "Remove note",
+						run: () => {
+							setNote("");
+							setEditing(false);
+						},
+					},
+				]
+			: []),
+		...itemActions({ item, projects, refresh, fail, confirm }),
 	];
 
 	const date = new Date(item.createdAt).toLocaleDateString(undefined, {
@@ -441,13 +490,17 @@ function SavedCard({
 	});
 
 	return (
-		<li className="flex min-h-0 flex-col gap-2 rounded-xl border border-border bg-card px-4 py-3">
+		<li className="group flex min-h-0 flex-col gap-2 rounded-xl border border-border bg-card px-4 py-3">
 			<div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
 				<span className="min-w-0 truncate">
 					{KIND_LABEL[item.kind]} · {date}
 					{savedScope === "all" && project ? ` · ${project.name}` : ""}
 				</span>
-				<span className="flex shrink-0 items-center gap-0.5">
+				{/* Shown on hover or focus, and while the menu is open. */}
+				<span className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 has-[[aria-expanded=true]]:opacity-100">
+					<IconButton label="Open" className="size-6" onPress={open}>
+						<ArrowsOutSimpleIcon />
+					</IconButton>
 					<CopyItem item={item} proseRef={proseRef} />
 					<ActionMenu label="Saved item actions" actions={actions} />
 				</span>
@@ -457,6 +510,7 @@ function SavedCard({
 				<>
 					{mode !== "list" && (
 						<ClampedText
+							onClick={open}
 							className={cx(
 								"leading-relaxed",
 								mode === "small" ? "text-[13px]" : "text-[15px]",
@@ -495,6 +549,7 @@ function SavedCard({
 				</blockquote>
 			) : (
 				<ClampedText
+					onClick={open}
 					className={cx(
 						"border-l-2 border-primary/50 pl-3 leading-relaxed",
 						mode === "small" ? "text-[13px]" : "text-[15px]",
@@ -502,14 +557,6 @@ function SavedCard({
 				>
 					{item.body}
 				</ClampedText>
-			)}
-
-			{item.sources.length > 0 && (
-				<SourcesList
-					citations={citations}
-					conversationId={item.conversationId ?? ""}
-					savedItemId={item.id}
-				/>
 			)}
 
 			{item.conversationTitle &&

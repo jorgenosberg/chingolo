@@ -165,7 +165,7 @@ function Cite({ children }: { children?: ReactNode }) {
 	);
 }
 
-function targetOf(
+export function targetOf(
 	c: Citation,
 	conversationId: string,
 	savedItemId?: string,
