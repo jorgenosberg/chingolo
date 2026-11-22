@@ -2,18 +2,15 @@ import { ArrowUpIcon, StopIcon } from "@phosphor-icons/react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Button as RacButton } from "react-aria-components";
 import { cx, focus, Tip } from "../../components/ui";
+import { getDraft, setDraft } from "./drafts";
 
-// Unsent text per conversation, kept for the session.
-const drafts = new Map<string, string>();
-
-/** Puts text in a conversation's composer before it is opened. */
-export function setDraft(conversationId: string, text: string) {
-	if (text) drafts.set(conversationId, text);
-	else drafts.delete(conversationId);
+function toEnd(el: HTMLTextAreaElement | null) {
+	el?.setSelectionRange(el.value.length, el.value.length);
 }
 
 export function Composer({
 	conversationId,
+	savedDraft,
 	busy,
 	canStop,
 	onSend,
@@ -21,6 +18,8 @@ export function Composer({
 	extra,
 }: {
 	conversationId: string;
+	/** The text saved with the conversation, for when nothing was typed this session. */
+	savedDraft: string;
 	busy: boolean;
 	canStop: boolean;
 	/** Return false if the message wasn't sent, so the text stays in the box. */
@@ -29,13 +28,28 @@ export function Composer({
 	/** Controls shown next to the send button, such as the model picker. */
 	extra?: ReactNode;
 }) {
-	const [text, setText] = useState(() => drafts.get(conversationId) ?? "");
+	const [text, setText] = useState(() => getDraft(conversationId, savedDraft));
 	const ref = useRef<HTMLTextAreaElement>(null);
 
-	// Switching chats swaps the draft.
+	const caretToEnd = useRef(false);
+
+	// Switching chats swaps the draft, and a saved one shows once the conversation has loaded.
 	useEffect(() => {
-		setText(drafts.get(conversationId) ?? "");
+		const next = getDraft(conversationId, savedDraft);
+		// New text arrives on the next render, so the caret moves then.
+		if (ref.current && ref.current.value !== next) caretToEnd.current = true;
+		setText(next);
+	}, [conversationId, savedDraft]);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: runs after each text change
+	useEffect(() => {
+		if (!caretToEnd.current) return;
+		caretToEnd.current = false;
+		toEnd(ref.current);
+	}, [text]);
+	useEffect(() => {
+		if (!conversationId) return;
 		ref.current?.focus();
+		toEnd(ref.current);
 	}, [conversationId]);
 
 	// Grow with the text, up to about eight lines.
@@ -49,8 +63,7 @@ export function Composer({
 
 	const update = (v: string) => {
 		setText(v);
-		if (v) drafts.set(conversationId, v);
-		else drafts.delete(conversationId);
+		setDraft(conversationId, v);
 	};
 
 	const submit = async () => {

@@ -16,7 +16,8 @@ const CONV_COLS: &str =
     (SELECT CASE WHEN m.status <> 'error' THEN NULLIF(m.input_tokens, 0) END
        FROM messages m WHERE m.conversation_id = conversations.id AND m.role = 'assistant'
        ORDER BY m.id DESC LIMIT 1),
-    forked_from_title, fork_boundary_message_id, source_scope";
+    forked_from_title, fork_boundary_message_id, source_scope, draft,
+    EXISTS (SELECT 1 FROM messages m2 WHERE m2.conversation_id = conversations.id)";
 const MSG_COLS: &str = "id, conversation_id, role, content, status, provider, model_id, input_tokens, output_tokens, error, created_at, updated_at, cached_input_tokens, citations";
 
 fn conversation_from_row(r: &Row) -> rusqlite::Result<Conversation> {
@@ -38,6 +39,8 @@ fn conversation_from_row(r: &Row) -> rusqlite::Result<Conversation> {
                 .map_err(|e| log::warn!("unreadable source_scope, using the default: {e}"))
                 .ok()
         }),
+        draft: r.get(13)?,
+        has_messages: r.get(14)?,
     })
 }
 
@@ -376,10 +379,20 @@ pub fn delete_conversation(conn: &Connection, id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Deletes a conversation that never got a message. Returns whether it was deleted.
+/// Stores the unsent text of a conversation. A conversation that no longer exists is not an error:
+/// a delayed save can arrive after it was deleted. Does not change `updated_at`.
+pub fn set_draft(conn: &Connection, id: &str, text: &str) -> Result<()> {
+    conn.execute(
+        "UPDATE conversations SET draft = ?1 WHERE id = ?2",
+        params![text, id],
+    )?;
+    Ok(())
+}
+
+/// Deletes a conversation that never got a message or a draft. Returns whether it was deleted.
 pub fn delete_if_empty(conn: &Connection, id: &str) -> Result<bool> {
     let n = conn.execute(
-        "DELETE FROM conversations WHERE id = ?1
+        "DELETE FROM conversations WHERE id = ?1 AND draft = ''
            AND NOT EXISTS (SELECT 1 FROM messages WHERE conversation_id = ?1)",
         [id],
     )?;
@@ -1147,5 +1160,23 @@ mod tests {
         assert!(!delete_if_empty(&conn, &used.id).unwrap());
         assert!(get_conversation(&conn, &empty.id).is_err());
         assert!(get_conversation(&conn, &used.id).is_ok());
+    }
+
+    #[test]
+    fn a_conversation_with_a_draft_is_kept_and_reports_it() {
+        let conn = test_conn();
+        let c = create_conversation(&conn, None, None, "gemini", Some("m")).unwrap();
+        assert!(!c.has_messages && c.draft.is_empty());
+        set_draft(&conn, &c.id, "half a thought").unwrap();
+        assert!(!delete_if_empty(&conn, &c.id).unwrap());
+        let got = get_conversation(&conn, &c.id).unwrap();
+        assert_eq!(
+            (got.draft.as_str(), got.has_messages),
+            ("half a thought", false)
+        );
+        assert_eq!(got.updated_at, c.updated_at);
+        set_draft(&conn, &c.id, "").unwrap();
+        assert!(delete_if_empty(&conn, &c.id).unwrap());
+        set_draft(&conn, &c.id, "late save").unwrap();
     }
 }

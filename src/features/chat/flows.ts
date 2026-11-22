@@ -4,7 +4,7 @@ import { useDialogs } from "../../components/dialogs";
 import { api } from "../../lib/api";
 import type { Conversation } from "../../lib/bindings";
 import { keys } from "../../lib/queries";
-import { setDraft } from "./Composer";
+import { setDraft } from "./drafts";
 
 const HANDOFF_INTRO =
 	"Notes from my earlier conversation, to use as background:\n\n";

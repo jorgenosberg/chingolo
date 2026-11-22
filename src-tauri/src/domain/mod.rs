@@ -79,6 +79,10 @@ pub struct Conversation {
     /// What the conversation may read. `None` is the default: its project if that has ready
     /// documents, else the whole library.
     pub source_scope: Option<library::Scope>,
+    /// Text typed in the composer and not sent yet. Empty if none.
+    pub draft: String,
+    /// False for a conversation nobody has written in yet.
+    pub has_messages: bool,
     #[specta(type = Option<Number>)]
     pub archived_at: Option<i64>,
     #[specta(type = Number)]

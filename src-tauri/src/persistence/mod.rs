@@ -17,7 +17,10 @@ use rusqlite::Connection;
 use crate::error::{AppError, Result};
 
 /// Applied in order. The number of applied entries is stored in `PRAGMA user_version`.
-const MIGRATIONS: &[&str] = &[include_str!("../../migrations/0001_init.sql")];
+const MIGRATIONS: &[&str] = &[
+    include_str!("../../migrations/0001_init.sql"),
+    include_str!("../../migrations/0002_drafts.sql"),
+];
 
 #[derive(Clone)]
 pub struct Db(Arc<Mutex<Connection>>);
@@ -170,13 +173,16 @@ mod tests {
         conn.execute("INSERT INTO settings (key, value) VALUES ('k', 'v')", [])
             .unwrap();
 
+        // The copy is named after the schema version the database is at.
+        let backup = format!("test.sqlite.bak-v{}", MIGRATIONS.len());
+
         // Up to date: nothing to back up.
         back_up_before_migrating(&conn, &path, MIGRATIONS.len()).unwrap();
-        assert!(!dir.path().join("test.sqlite.bak-v1").exists());
+        assert!(!dir.path().join(&backup).exists());
 
         // A newer schema is coming: the copy has the data, including what sits in the WAL.
         back_up_before_migrating(&conn, &path, MIGRATIONS.len() + 1).unwrap();
-        let copy = Connection::open(dir.path().join("test.sqlite.bak-v1")).unwrap();
+        let copy = Connection::open(dir.path().join(&backup)).unwrap();
         let v: String = copy
             .query_row("SELECT value FROM settings WHERE key = 'k'", [], |r| {
                 r.get(0)
@@ -185,7 +191,11 @@ mod tests {
         assert_eq!(v, "v");
 
         // Only the newest two stay.
-        for n in [2, 3, 4] {
+        for n in [
+            MIGRATIONS.len() + 1,
+            MIGRATIONS.len() + 2,
+            MIGRATIONS.len() + 3,
+        ] {
             std::fs::write(dir.path().join(format!("test.sqlite.bak-v{n}")), b"x").unwrap();
         }
         prune_backups(&path, "test.sqlite");
@@ -196,7 +206,14 @@ mod tests {
             .filter(|n| n.contains(".bak-v"))
             .collect();
         left.sort();
-        assert_eq!(left, ["test.sqlite.bak-v3", "test.sqlite.bak-v4"]);
+        let (a, b) = (MIGRATIONS.len() + 2, MIGRATIONS.len() + 3);
+        assert_eq!(
+            left,
+            [
+                format!("test.sqlite.bak-v{a}"),
+                format!("test.sqlite.bak-v{b}")
+            ]
+        );
     }
 
     #[test]

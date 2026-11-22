@@ -431,6 +431,7 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 				)}
 				<Composer
 					conversationId={conversationId}
+					savedDraft={conversation?.draft ?? ""}
 					busy={busy}
 					canStop={!!live?.messageId}
 					onSend={onSend}

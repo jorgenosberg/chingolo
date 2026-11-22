@@ -51,6 +51,8 @@ export const api = {
 	setConversationScope: (id: string, scope: Scope | null) =>
 		unwrap(commands.setConversationScope(id, scope)),
 	deleteConversation: (id: string) => unwrap(commands.deleteConversation(id)),
+	setConversationDraft: (id: string, text: string) =>
+		unwrap(commands.setConversationDraft(id, text)),
 	discardEmptyConversation: (id: string) =>
 		unwrap(commands.discardEmptyConversation(id)),
 	forkConversation: (id: string, fromMessageId: string | null) =>

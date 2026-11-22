@@ -13,6 +13,7 @@ import {
 	type PanelImperativeHandle,
 	usePanelRef,
 } from "react-resizable-panels";
+import { flushDraft } from "../features/chat/drafts";
 import { api } from "../lib/api";
 import { keys } from "../lib/queries";
 
@@ -144,20 +145,25 @@ export function NavProvider({ children }: { children: ReactNode }) {
 		setView("library");
 	}, []);
 
-	// A conversation left without a message is not kept.
+	// A conversation left without a message or a draft is not kept.
 	const openId = useRef(conversationId);
+	const leave = useCallback(
+		async (id: string) => {
+			try {
+				await flushDraft(id);
+				await api.discardEmptyConversation(id);
+			} catch {
+				// leaving must not fail over a save
+			}
+			qc.invalidateQueries({ queryKey: keys.conversations });
+		},
+		[qc],
+	);
 	const select = useCallback(
 		(id: string | null, opts?: { messageId?: string }) => {
 			const left = openId.current;
 			openId.current = id;
-			if (left && left !== id) {
-				api
-					.discardEmptyConversation(left)
-					.then((gone) => {
-						if (gone) qc.invalidateQueries({ queryKey: keys.conversations });
-					})
-					.catch(() => {});
-			}
+			if (left && left !== id) leave(left);
 			setConversationId(id);
 			setMessageTarget(
 				id && opts?.messageId
@@ -177,7 +183,7 @@ export function NavProvider({ children }: { children: ReactNode }) {
 				// remembering the selection is a convenience only
 			}
 		},
-		[qc],
+		[leave],
 	);
 	const clearMessageTarget = useCallback(() => setMessageTarget(null), []);
 

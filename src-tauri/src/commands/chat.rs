@@ -57,6 +57,20 @@ pub async fn create_conversation(
         .await?)
 }
 
+/// Keeps the unsent text of a conversation, so it comes back after a restart.
+#[tauri::command]
+#[specta::specta]
+pub async fn set_conversation_draft(
+    state: State<'_, AppState>,
+    id: String,
+    text: String,
+) -> CmdResult<()> {
+    Ok(state
+        .db
+        .call(move |c| repo::set_draft(c, &id, &text))
+        .await?)
+}
+
 /// Removes a conversation the user left without writing anything. Returns whether it was removed.
 #[tauri::command]
 #[specta::specta]

@@ -11,6 +11,7 @@ import {
 	MagnifyingGlassIcon,
 	NotePencilIcon,
 	PencilSimpleIcon,
+	PencilSimpleLineIcon,
 	PlusIcon,
 	SidebarSimpleIcon,
 	TrashIcon,
@@ -34,6 +35,7 @@ import {
 	useDocuments,
 	useProjects,
 } from "../../lib/queries";
+import { isDraft } from "../chat/drafts";
 import { useConversationFlows } from "../chat/flows";
 
 /** One step of nesting: project children, and chats inside a folder. */
@@ -191,6 +193,48 @@ function ConversationRow({ c, depth }: { c: Conversation; depth: number }) {
 			onPress={() => select(c.id)}
 			menu={
 				<RowMenu label={`Actions for ${c.title}`} actions={actionsFor(c)} />
+			}
+		/>
+	);
+}
+
+/** A conversation with unsent text and no messages. Its label is the start of that text. */
+function DraftRow({ c }: { c: Conversation }) {
+	const qc = useQueryClient();
+	const { conversationId, select } = useNav();
+	const { confirm } = useDialogs();
+	const preview = c.draft.trim().replace(/\s+/g, " ");
+	return (
+		<Row
+			depth={1}
+			label={preview}
+			selected={conversationId === c.id}
+			onPress={() => select(c.id)}
+			menu={
+				<RowMenu
+					label={`Actions for the draft "${preview.slice(0, 30)}"`}
+					actions={[
+						{
+							id: "delete",
+							icon: <TrashIcon className="size-4" />,
+							label: "Delete draft…",
+							danger: true,
+							run: async () => {
+								const ok = await confirm({
+									title: "Delete draft?",
+									message:
+										"The text you wrote will be deleted. This can't be undone.",
+									confirmLabel: "Delete",
+									danger: true,
+								});
+								if (!ok) return;
+								await api.deleteConversation(c.id);
+								if (conversationId === c.id) select(null);
+								qc.invalidateQueries({ queryKey: keys.conversations });
+							},
+						},
+					]}
+				/>
 			}
 		/>
 	);
@@ -403,8 +447,14 @@ export function Sidebar() {
 	const projects = useProjects();
 	const conversations = useConversations();
 	const [showArchived, setShowArchived] = useState(false);
+	const [showDrafts, setShowDrafts] = useState(true);
 
-	const all = conversations.data ?? [];
+	const everything = conversations.data ?? [];
+	// Drafts get their own group, so they are not listed twice.
+	const drafts = everything
+		.filter((c) => isDraft(c) && !c.archivedAt)
+		.sort((a, b) => b.updatedAt - a.updatedAt);
+	const all = everything.filter((c) => !drafts.includes(c));
 	const active = all.filter((c) => !c.archivedAt);
 	const archived = all.filter((c) => c.archivedAt);
 	const unassigned = active.filter((c) => !c.projectId);
@@ -518,6 +568,17 @@ export function Sidebar() {
 			</div>
 
 			<div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+				{drafts.length > 0 && (
+					<div className="pt-2">
+						<Row
+							icon={<PencilSimpleLineIcon className="size-[17px]" />}
+							label={`Drafts (${drafts.length})`}
+							expanded={showDrafts}
+							onPress={() => setShowDrafts((s) => !s)}
+						/>
+						{showDrafts && drafts.map((c) => <DraftRow key={c.id} c={c} />)}
+					</div>
+				)}
 				<div className="pt-2">
 					<Row
 						icon={

@@ -25,6 +25,8 @@ export const commands = {
 	deleteConversation: (id: string) => typedError<null, CmdError>(__TAURI_INVOKE("delete_conversation", { id })),
 	/**  Removes a conversation the user left without writing anything. Returns whether it was removed. */
 	discardEmptyConversation: (id: string) => typedError<boolean, CmdError>(__TAURI_INVOKE("discard_empty_conversation", { id })),
+	/**  Keeps the unsent text of a conversation, so it comes back after a restart. */
+	setConversationDraft: (id: string, text: string) => typedError<null, CmdError>(__TAURI_INVOKE("set_conversation_draft", { id, text })),
 	listMessages: (conversationId: string) => typedError<Message[], CmdError>(__TAURI_INVOKE("list_messages", { conversationId })),
 	/**  Saves the user's message, then streams the reply over `on_event`. */
 	sendMessage: (conversationId: string, content: string, onEvent: Channel<ChatEvent>) => typedError<SendResult, CmdError>(__TAURI_INVOKE("send_message", { conversationId, content, onEvent })),
@@ -258,6 +260,10 @@ export type Conversation = {
 	 *  documents, else the whole library.
 	 */
 	sourceScope: Scope | null,
+	/**  Text typed in the composer and not sent yet. Empty if none. */
+	draft: string,
+	/**  False for a conversation nobody has written in yet. */
+	hasMessages: boolean,
 	archivedAt: number | null,
 	createdAt: number,
 	updatedAt: number,
