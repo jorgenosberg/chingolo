@@ -2,8 +2,9 @@ import {
 	ArrowLeftIcon,
 	ArrowRightIcon,
 	ChatCircleTextIcon,
+	UserIcon,
 } from "@phosphor-icons/react";
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button as RacButton } from "react-aria-components";
 import { Streamdown } from "streamdown";
 import { useNav } from "../../app/nav";
@@ -93,6 +94,88 @@ function Section({
 	);
 }
 
+/** The item's note, laid out like a comment under a post. */
+function NoteComment({
+	note,
+	setNote,
+	saveNote,
+}: {
+	note: string;
+	setNote: (n: string) => void;
+	saveNote: { current: () => void };
+}) {
+	const [editing, setEditing] = useState(false);
+	const field = useRef<HTMLTextAreaElement>(null);
+	useEffect(() => {
+		if (editing) field.current?.focus();
+	}, [editing]);
+	const text = note.trim();
+	const textButton = cx(
+		"rounded text-xs text-muted-foreground underline-offset-2 data-[hovered]:text-foreground data-[hovered]:underline",
+		focus,
+	);
+
+	return (
+		<Section title="Note">
+			<div className="flex items-start gap-3">
+				<span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent-soft text-primary">
+					<UserIcon className="size-[18px]" />
+				</span>
+				<div className="min-w-0 flex-1">
+					{editing ? (
+						<div className="flex flex-col items-end gap-2">
+							<textarea
+								ref={field}
+								aria-label="Note"
+								placeholder="Write a note"
+								rows={3}
+								value={note}
+								onChange={(e) => setNote(e.target.value)}
+								onKeyDown={(e) => e.key === "Escape" && e.currentTarget.blur()}
+								onBlur={() => {
+									saveNote.current();
+									setEditing(false);
+								}}
+								className="w-full resize-y rounded-2xl border border-primary/40 bg-muted px-4 py-2.5 text-[14px] outline-none placeholder:text-muted-foreground"
+							/>
+							<span className="text-xs text-muted-foreground">
+								Saves as you type
+							</span>
+						</div>
+					) : text ? (
+						<>
+							<p className="whitespace-pre-wrap rounded-2xl bg-muted px-4 py-2.5 text-[14px] leading-relaxed">
+								{text}
+							</p>
+							<div className="mt-1 flex gap-3 px-2">
+								<RacButton
+									className={textButton}
+									onPress={() => setEditing(true)}
+								>
+									Edit
+								</RacButton>
+								<RacButton className={textButton} onPress={() => setNote("")}>
+									Delete
+								</RacButton>
+							</div>
+						</>
+					) : (
+						<RacButton
+							onPress={() => setEditing(true)}
+							className={cx(
+								"flex h-10 w-full items-center rounded-full bg-muted px-4 text-left text-[14px] text-muted-foreground transition-colors data-[hovered]:bg-border/60",
+								focus,
+							)}
+						>
+							Add a note…
+						</RacButton>
+					)}
+				</div>
+			</div>
+		</Section>
+	);
+}
+
 function Detail({ item, projects }: { item: SavedItem; projects: Project[] }) {
 	const { openSaved, select, openCitation } = useNav();
 	const { confirm } = useDialogs();
@@ -152,6 +235,7 @@ function Detail({ item, projects }: { item: SavedItem; projects: Project[] }) {
 								{item.body}
 							</blockquote>
 						)}
+						<NoteComment note={note} setNote={setNote} saveNote={saveNote} />
 					</div>
 					<aside className="flex min-w-0 flex-col gap-6">
 						{item.conversationTitle &&
@@ -197,18 +281,6 @@ function Detail({ item, projects }: { item: SavedItem; projects: Project[] }) {
 									</span>
 								</div>
 							))}
-
-						<Section title="Note">
-							<textarea
-								aria-label="Note"
-								placeholder="Add a note"
-								rows={4}
-								value={note}
-								onChange={(e) => setNote(e.target.value)}
-								onBlur={() => saveNote.current()}
-								className="resize-y rounded-lg border border-transparent bg-muted px-3 py-2 text-[13px] outline-none placeholder:text-muted-foreground focus:border-primary/50"
-							/>
-						</Section>
 
 						{item.sources.length > 0 && (
 							<Section title={item.sources.length === 1 ? "Source" : "Sources"}>
