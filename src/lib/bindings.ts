@@ -83,6 +83,16 @@ export const commands = {
 	getLayout: (documentId: string) => typedError<PageRegion[], CmdError>(__TAURI_INVOKE("get_layout", { documentId })),
 	/**  The saved copy of a cited passage, for when its document was deleted or read again. */
 	getSource: (conversationId: string, handle: number) => typedError<SourceView, CmdError>(__TAURI_INVOKE("get_source", { conversationId, handle })),
+	listSaved: (filter: SavedFilter) => typedError<SavedItem[], CmdError>(__TAURI_INVOKE("list_saved", { filter })),
+	/**  Saving a reply that is already saved returns the existing item. */
+	saveReply: (messageId: string) => typedError<SavedItem, CmdError>(__TAURI_INVOKE("save_reply", { messageId })),
+	/**  `handles` are the `[S<n>]` numbers of the citation chips inside the selection. */
+	saveSelection: (messageId: string, text: string, handles: number[]) => typedError<SavedItem, CmdError>(__TAURI_INVOKE("save_selection", { messageId, text, handles })),
+	savePassage: (documentId: string, page: number, text: string, projectId: string | null) => typedError<SavedItem, CmdError>(__TAURI_INVOKE("save_passage", { documentId, page, text, projectId })),
+	updateSavedNote: (id: string, note: string) => typedError<SavedItem, CmdError>(__TAURI_INVOKE("update_saved_note", { id, note })),
+	moveSaved: (id: string, projectId: string | null) => typedError<SavedItem, CmdError>(__TAURI_INVOKE("move_saved", { id, projectId })),
+	deleteSaved: (id: string) => typedError<null, CmdError>(__TAURI_INVOKE("delete_saved", { id })),
+	getSavedSource: (itemId: string, handle: number) => typedError<SavedSource | null, CmdError>(__TAURI_INVOKE("get_saved_source", { itemId, handle })),
 	/**  Asks the release page whether a newer version exists. Nothing is downloaded. */
 	checkForUpdate: () => typedError<UpdateInfo | null, CmdError>(__TAURI_INVOKE("check_for_update")),
 	/**  Downloads the newer version, checks its signature, installs it and restarts the app. */
@@ -524,6 +534,52 @@ export type ProviderError = {
 };
 
 export type Role = "user" | "assistant";
+
+export type SavedFilter = { kind: "all" } | { kind: "project"; id: string } | 
+/**  Items with no project, or whose project was deleted. */
+{ kind: "unassigned" };
+
+export type SavedItem = {
+	id: string,
+	kind: SavedKind,
+	projectId: string | null,
+	/**  None once the conversation is deleted. */
+	conversationId: string | null,
+	messageId: string | null,
+	/**  The conversation's title when the item was saved. */
+	conversationTitle: string,
+	body: string,
+	note: string,
+	sources: SavedSource[],
+	createdAt: number,
+	updatedAt: number,
+};
+
+/**  What a saved item holds. */
+export type SavedKind = 
+/**  A whole reply, markdown with its `[S<n>]` handles. */
+"reply" | 
+/**  Text selected in a reply. */
+"selection" | 
+/**  Text selected in the reader. */
+"passage";
+
+/**
+ *  A source copied into a saved item. Opens the reader even if the conversation or the document
+ *  record is gone.
+ */
+export type SavedSource = {
+	handle: number,
+	/**  Empty if a selection in the reader matched no stored passage. */
+	passageId: string,
+	documentId: string,
+	title: string,
+	label: string,
+	/**  First page, 0 for Word documents. */
+	page: number,
+	text: string,
+	doi: string | null,
+};
 
 /**
  *  What a conversation may read, as chosen in the composer. Stored as JSON in

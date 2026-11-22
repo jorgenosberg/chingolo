@@ -205,6 +205,66 @@ pub struct Citation {
     pub snippet: String,
 }
 
+/// What a saved item holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "lowercase")]
+pub enum SavedKind {
+    /// A whole reply, markdown with its `[S<n>]` handles.
+    Reply,
+    /// Text selected in a reply.
+    Selection,
+    /// Text selected in the reader.
+    Passage,
+}
+
+/// A source copied into a saved item. Opens the reader even if the conversation or the document
+/// record is gone.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedSource {
+    pub handle: u32,
+    /// Empty if a selection in the reader matched no stored passage.
+    pub passage_id: String,
+    pub document_id: Id,
+    pub title: String,
+    pub label: String,
+    /// First page, 0 for Word documents.
+    pub page: u32,
+    pub text: String,
+    pub doi: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedItem {
+    pub id: Id,
+    pub kind: SavedKind,
+    pub project_id: Option<Id>,
+    /// None once the conversation is deleted.
+    pub conversation_id: Option<Id>,
+    pub message_id: Option<Id>,
+    /// The conversation's title when the item was saved.
+    pub conversation_title: String,
+    pub body: String,
+    pub note: String,
+    pub sources: Vec<SavedSource>,
+    #[specta(type = Number)]
+    pub created_at: i64,
+    #[specta(type = Number)]
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum SavedFilter {
+    All,
+    Project {
+        id: Id,
+    },
+    /// Items with no project, or whose project was deleted.
+    Unassigned,
+}
+
 #[derive(Debug, Clone, Default, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ConversationFilter {

@@ -4,6 +4,7 @@
 pub mod chat;
 pub mod library;
 pub mod projects;
+pub mod saved;
 pub mod settings;
 pub mod sources;
 pub mod usage;
@@ -20,6 +21,7 @@ use crate::error::{AppError, Result};
 const MIGRATIONS: &[&str] = &[
     include_str!("../../migrations/0001_init.sql"),
     include_str!("../../migrations/0002_drafts.sql"),
+    include_str!("../../migrations/0003_saved.sql"),
 ];
 
 #[derive(Clone)]
