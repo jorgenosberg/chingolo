@@ -1,4 +1,8 @@
-import { ArrowLeftIcon } from "@phosphor-icons/react";
+import {
+	ArrowLeftIcon,
+	ArrowRightIcon,
+	ChatCircleTextIcon,
+} from "@phosphor-icons/react";
 import { useMemo, useRef } from "react";
 import { Button as RacButton } from "react-aria-components";
 import { Streamdown } from "streamdown";
@@ -150,6 +154,50 @@ function Detail({ item, projects }: { item: SavedItem; projects: Project[] }) {
 						)}
 					</div>
 					<aside className="flex min-w-0 flex-col gap-6">
+						{item.conversationTitle &&
+							(item.conversationId && item.messageId ? (
+								<RacButton
+									onPress={() =>
+										select(item.conversationId, {
+											messageId: item.messageId ?? undefined,
+										})
+									}
+									className={cx(
+										"flex items-center gap-3 rounded-xl border border-primary/40 bg-accent-soft px-4 py-3 text-left transition-colors data-[hovered]:border-primary",
+										focus,
+									)}
+								>
+									<ChatCircleTextIcon className="size-5 shrink-0 text-primary" />
+									<span className="min-w-0 flex-1">
+										<span className="block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+											From conversation
+										</span>
+										<span className="block truncate text-[13px] font-medium">
+											{item.conversationTitle}
+										</span>
+										<span className="block text-xs text-muted-foreground">
+											Open at this message
+										</span>
+									</span>
+									<ArrowRightIcon className="size-4 shrink-0 text-primary" />
+								</RacButton>
+							) : (
+								<div className="flex items-center gap-3 rounded-xl border border-border bg-muted px-4 py-3">
+									<ChatCircleTextIcon className="size-5 shrink-0 text-muted-foreground" />
+									<span className="min-w-0 flex-1">
+										<span className="block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+											From conversation
+										</span>
+										<span className="block truncate text-[13px] font-medium">
+											{item.conversationTitle}
+										</span>
+										<span className="block text-xs text-muted-foreground">
+											The conversation was deleted
+										</span>
+									</span>
+								</div>
+							))}
+
 						<Section title="Note">
 							<textarea
 								aria-label="Note"
@@ -199,30 +247,6 @@ function Detail({ item, projects }: { item: SavedItem; projects: Project[] }) {
 										</li>
 									))}
 								</ul>
-							</Section>
-						)}
-
-						{item.conversationTitle && (
-							<Section title="From">
-								{item.conversationId && item.messageId ? (
-									<RacButton
-										onPress={() =>
-											select(item.conversationId, {
-												messageId: item.messageId ?? undefined,
-											})
-										}
-										className={cx(
-											"w-fit max-w-full truncate rounded text-[13px] text-primary underline-offset-2 hover:underline",
-											focus,
-										)}
-									>
-										“{item.conversationTitle}”
-									</RacButton>
-								) : (
-									<p className="text-[13px] text-muted-foreground">
-										“{item.conversationTitle}” (conversation deleted)
-									</p>
-								)}
 							</Section>
 						)}
 					</aside>
