@@ -2,7 +2,6 @@ import {
 	ArrowLeftIcon,
 	ArrowRightIcon,
 	ChatCircleTextIcon,
-	UserIcon,
 } from "@phosphor-icons/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button as RacButton } from "react-aria-components";
@@ -111,14 +110,6 @@ function Section({
 /** Text written but not posted yet, kept per item while the app runs so leaving the page is safe. */
 const drafts = new Map<string, string>();
 
-function Avatar() {
-	return (
-		<span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-accent-soft text-primary">
-			<UserIcon className="size-[18px]" />
-		</span>
-	);
-}
-
 /** "Nov 23, 12:21". */
 const stamp = (ms: number) =>
 	new Date(ms).toLocaleString(undefined, {
@@ -191,7 +182,6 @@ function NoteThread({ item, compose }: { item: SavedItem; compose: boolean }) {
 			<ul className="flex flex-col gap-4">
 				{item.notes.map((n) => (
 					<li key={n.id} className="flex items-start gap-3">
-						<Avatar />
 						<div className="min-w-0 flex-1">
 							{editing?.id === n.id ? (
 								<div className="flex flex-col gap-2">
@@ -269,7 +259,6 @@ function NoteThread({ item, compose }: { item: SavedItem; compose: boolean }) {
 				))}
 
 				<li className="flex items-start gap-3">
-					<Avatar />
 					<div className="flex min-w-0 flex-1 flex-col gap-2">
 						<textarea
 							ref={box}

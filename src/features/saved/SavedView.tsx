@@ -9,6 +9,7 @@ import {
 	GridNineIcon,
 	ListIcon,
 	MagnifyingGlassIcon,
+	NoteIcon,
 	PencilSimpleIcon,
 	SquaresFourIcon,
 	TrashIcon,
@@ -417,7 +418,6 @@ function SavedCard({
 		[item.sources],
 	);
 	const project = projects.find((p) => p.id === item.projectId);
-	const latestNote = item.notes[item.notes.length - 1];
 	const open = () => {
 		// A click that ends a text selection is not a request to open.
 		if (window.getSelection()?.isCollapsed === false) return;
@@ -552,22 +552,12 @@ function SavedCard({
 					</span>
 				))}
 
-			{latestNote && (
-				<div className="shrink-0">
-					<p
-						className={cx(
-							"whitespace-pre-wrap rounded-lg bg-muted px-3 py-1.5 text-[13px]",
-							mode === "list" ? "" : "line-clamp-3",
-						)}
-					>
-						{latestNote.body}
-					</p>
-					{item.notes.length > 1 && (
-						<p className="mt-1 px-1 text-xs text-muted-foreground">
-							{item.notes.length} notes
-						</p>
-					)}
-				</div>
+			{item.notes.length > 0 && (
+				<p className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+					<NoteIcon className="size-3.5" />
+					{item.notes.length > 9 ? "9+" : item.notes.length}{" "}
+					{item.notes.length === 1 ? "note" : "notes"}
+				</p>
 			)}
 		</li>
 	);
