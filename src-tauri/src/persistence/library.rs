@@ -613,6 +613,15 @@ pub fn documents_without_layout(conn: &Connection) -> Result<Vec<Document>> {
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
+/// PDFs where no text was found. Once the OCR model exists, reading them again can find some.
+pub fn no_text_pdfs(conn: &Connection) -> Result<Vec<Document>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {DOC_COLS} FROM documents WHERE status = 'no_text' AND kind = 'pdf' ORDER BY created_at, id"
+    ))?;
+    let rows = stmt.query_map([], document_from_row)?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
 /// (pages with layout, all pages, documents still without layout) over ready PDFs.
 pub fn layout_counts(conn: &Connection) -> Result<(u32, u32, u32)> {
     Ok(conn.query_row(
@@ -1468,6 +1477,26 @@ mod tests {
         let ids: Vec<_> = queued.iter().map(|d| d.id.as_str()).collect();
         assert_eq!(ids, [a.id.as_str(), b.id.as_str()]);
         assert_eq!(get_document(&conn, &c.id).unwrap().status, DocStatus::Ready);
+    }
+
+    #[test]
+    fn only_pdfs_without_text_are_listed_for_a_second_read() {
+        let mut conn = test_conn();
+        let scan = insert_document(&conn, "h1", "scan.pdf", DocKind::Pdf).unwrap();
+        let word = insert_document(&conn, "h2", "empty.docx", DocKind::Docx).unwrap();
+        let ok = ready_doc(&mut conn, "h3", "ok.pdf", &["x"]);
+        set_status(&conn, &scan.id, DocStatus::NoText, None).unwrap();
+        set_status(&conn, &word.id, DocStatus::NoText, None).unwrap();
+        let ids: Vec<_> = no_text_pdfs(&conn)
+            .unwrap()
+            .into_iter()
+            .map(|d| d.id)
+            .collect();
+        assert_eq!(ids, [scan.id]);
+        assert_eq!(
+            get_document(&conn, &ok.id).unwrap().status,
+            DocStatus::Ready
+        );
     }
 
     #[test]

@@ -86,7 +86,8 @@ export const commands = {
 	ocrStatus: () => __TAURI_INVOKE<ModelState>("ocr_status"),
 	/**
 	 *  Downloads the text recognition models (about 31 MB), if they aren't there yet. Documents read
-	 *  afterwards use them for pages without text. Returns at once, poll `ocr_status` for progress.
+	 *  afterwards use them for pages without text, and scans already in the library are read again once
+	 *  it is ready. Returns at once, poll `ocr_status` for progress.
 	 */
 	downloadOcrModel: () => __TAURI_INVOKE<ModelState>("download_ocr_model"),
 	layoutStatus: () => __TAURI_INVOKE<ModelState>("layout_status"),

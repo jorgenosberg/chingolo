@@ -93,8 +93,16 @@ pub struct Layout {
     adapter: LayoutDetectionAdapter,
 }
 
-fn fail(e: impl std::fmt::Display) -> AppError {
-    AppError::Internal(format!("Page layout failed: {e}"))
+/// The model library wraps the real cause (a bad shape, out of memory) as the error's source, so
+/// `{e}` alone gives only "PPDocLayout forward (batch_size=1)". Include the whole chain.
+fn fail(e: impl std::error::Error) -> AppError {
+    let mut msg = format!("Page layout failed: {e}");
+    let mut src = e.source();
+    while let Some(s) = src {
+        msg.push_str(&format!(": {s}"));
+        src = s.source();
+    }
+    AppError::Internal(msg)
 }
 
 impl Layout {

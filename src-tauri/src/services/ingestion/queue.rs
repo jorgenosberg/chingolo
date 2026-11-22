@@ -261,6 +261,24 @@ impl Ingestor {
         }
     }
 
+    /// Reads scans that came up empty again, for when the OCR model has just become ready.
+    pub async fn enqueue_scans(&self, db: &Db) -> Result<usize> {
+        let docs = db
+            .call(|c| {
+                let mut out = Vec::new();
+                for d in repo::no_text_pdfs(c)? {
+                    out.push(repo::set_status(c, &d.id, DocStatus::Queued, None)?);
+                }
+                Ok(out)
+            })
+            .await?;
+        for d in &docs {
+            self.enqueue(d);
+            self.emit(d.clone(), None);
+        }
+        Ok(docs.len())
+    }
+
     /// Puts documents that were unfinished when the app stopped back in the queue.
     pub async fn resume(&self, db: &Db) -> Result<usize> {
         let docs = db.call(|c| repo::requeue_unfinished(c)).await?;

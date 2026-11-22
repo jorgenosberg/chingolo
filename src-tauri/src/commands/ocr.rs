@@ -10,11 +10,21 @@ pub fn ocr_status(state: State<'_, AppState>) -> ModelState {
 }
 
 /// Downloads the text recognition models (about 31 MB), if they aren't there yet. Documents read
-/// afterwards use them for pages without text. Returns at once, poll `ocr_status` for progress.
+/// afterwards use them for pages without text, and scans already in the library are read again once
+/// it is ready. Returns at once, poll `ocr_status` for progress.
 #[tauri::command]
 #[specta::specta]
 pub fn download_ocr_model(state: State<'_, AppState>) -> ModelState {
     state.ocr.ensure();
+    let (model, ingest, db) = (state.ocr.clone(), state.ingest.clone(), state.db.clone());
+    tauri::async_runtime::spawn(async move {
+        while matches!(model.status(), ModelState::Downloading { .. }) {
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        }
+        if matches!(model.status(), ModelState::Ready) {
+            let _ = ingest.enqueue_scans(&db).await;
+        }
+    });
     state.ocr.status()
 }
 
