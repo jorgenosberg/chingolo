@@ -5,7 +5,10 @@ import {
 	CopyIcon,
 	FolderMinusIcon,
 	FolderSimpleIcon,
+	GridNineIcon,
+	ListIcon,
 	MagnifyingGlassIcon,
+	SquaresFourIcon,
 	TrashIcon,
 } from "@phosphor-icons/react";
 import { math } from "@streamdown/math";
@@ -61,30 +64,24 @@ function filterFor(scope: SavedScope): SavedFilter {
 			: { kind: "project", id: scope.projectId };
 }
 
-function ScopeSelect({
+type Choice = { id: string; name: string };
+
+function FilterSelect({
+	label,
 	value,
+	items,
 	onChange,
 }: {
-	value: SavedScope;
-	onChange: (scope: SavedScope) => void;
+	label: string;
+	value: string;
+	items: Choice[];
+	onChange: (id: string) => void;
 }) {
-	const projects = useProjects();
-	const items = [
-		{ id: ALL, name: "All saved" },
-		{ id: NONE, name: "No project" },
-		...(projects.data ?? []).map((p) => ({ id: p.id, name: p.name })),
-	];
-	const key = value === "all" ? ALL : value === "none" ? NONE : value.projectId;
 	return (
 		<Select
-			aria-label="Show saved items from"
-			selectedKey={key}
-			onSelectionChange={(k) => {
-				if (!k) return;
-				onChange(
-					k === ALL ? "all" : k === NONE ? "none" : { projectId: String(k) },
-				);
-			}}
+			aria-label={label}
+			selectedKey={value}
+			onSelectionChange={(k) => k && onChange(String(k))}
 		>
 			<RacButton
 				className={cx(
@@ -111,6 +108,30 @@ function ScopeSelect({
 				</ListBox>
 			</Popover>
 		</Select>
+	);
+}
+
+function ScopeSelect({
+	value,
+	onChange,
+}: {
+	value: SavedScope;
+	onChange: (scope: SavedScope) => void;
+}) {
+	const projects = useProjects();
+	return (
+		<FilterSelect
+			label="Show saved items from"
+			value={value === "all" ? ALL : value === "none" ? NONE : value.projectId}
+			items={[
+				{ id: ALL, name: "All saved" },
+				{ id: NONE, name: "No project" },
+				...(projects.data ?? []).map((p) => ({ id: p.id, name: p.name })),
+			]}
+			onChange={(k) =>
+				onChange(k === ALL ? "all" : k === NONE ? "none" : { projectId: k })
+			}
+		/>
 	);
 }
 
@@ -182,12 +203,73 @@ const KIND_LABEL = {
 	passage: "From a document",
 } as const;
 
+type ViewMode = "list" | "small" | "large";
+const VIEW_KEY = "chingolo.savedView";
+const COLUMNS: Record<ViewMode, string> = {
+	list: "1fr",
+	// As many columns as fit, so 2 or 3 on a typical window and 1 on a narrow pane.
+	large: "repeat(auto-fill, minmax(min(100%, 22rem), 1fr))",
+	small: "repeat(auto-fill, minmax(min(100%, 15rem), 1fr))",
+};
+
+function readView(): ViewMode {
+	try {
+		const v = localStorage.getItem(VIEW_KEY);
+		return v === "list" || v === "small" || v === "large" ? v : "large";
+	} catch {
+		return "large";
+	}
+}
+
+type KindFilter = "all" | SavedItem["kind"];
+const KIND_CHIPS: { id: KindFilter; name: string }[] = [
+	{ id: "all", name: "All" },
+	{ id: "reply", name: "Replies" },
+	{ id: "selection", name: "Selections" },
+	{ id: "passage", name: "From documents" },
+];
+
+function Chip({
+	pressed,
+	onPress,
+	children,
+}: {
+	pressed: boolean;
+	onPress: () => void;
+	children: React.ReactNode;
+}) {
+	return (
+		<RacButton
+			aria-pressed={pressed}
+			onPress={onPress}
+			className={cx(
+				"h-7 rounded-full border px-3 text-xs transition-colors",
+				pressed
+					? "border-primary/40 bg-accent-soft font-medium text-foreground"
+					: "border-border text-muted-foreground data-[hovered]:bg-muted data-[hovered]:text-foreground",
+				focus,
+			)}
+		>
+			{children}
+		</RacButton>
+	);
+}
+
+/** How much of a long reply a card shows before it scrolls inside itself. */
+const BODY_HEIGHT: Record<ViewMode, string> = {
+	list: "",
+	large: "max-h-72 overflow-y-auto",
+	small: "max-h-44 overflow-y-auto",
+};
+
 function SavedCard({
 	item,
 	projects,
+	mode,
 }: {
 	item: SavedItem;
 	projects: Project[];
+	mode: ViewMode;
 }) {
 	const qc = useQueryClient();
 	const { select, savedScope } = useNav();
@@ -287,7 +369,14 @@ function SavedCard({
 			</div>
 
 			{item.kind === "reply" ? (
-				<div ref={proseRef} className="selectable chat-prose text-[15px]">
+				<div
+					ref={proseRef}
+					className={cx(
+						"selectable chat-prose",
+						mode === "small" ? "text-[13px]" : "text-[15px]",
+						BODY_HEIGHT[mode],
+					)}
+				>
 					<CiteProvider
 						citations={citations}
 						conversationId={item.conversationId ?? ""}
@@ -304,7 +393,13 @@ function SavedCard({
 					</CiteProvider>
 				</div>
 			) : (
-				<blockquote className="selectable whitespace-pre-wrap border-l-2 border-primary/50 pl-3 text-[15px] leading-relaxed">
+				<blockquote
+					className={cx(
+						"selectable whitespace-pre-wrap border-l-2 border-primary/50 pl-3 leading-relaxed",
+						mode === "small" ? "text-[13px]" : "text-[15px]",
+						BODY_HEIGHT[mode],
+					)}
+				>
 					{item.body}
 				</blockquote>
 			)}
@@ -356,35 +451,109 @@ export function SavedView() {
 	const projects = useProjects();
 	const saved = useSaved(filterFor(savedScope));
 	const [query, setQuery] = useState("");
+	const [kind, setKind] = useState<KindFilter>("all");
+	const [source, setSource] = useState(ALL);
+	const [withNote, setWithNote] = useState(false);
+	const [oldestFirst, setOldestFirst] = useState(false);
+	const [mode, setMode] = useState<ViewMode>(readView);
+	const pickMode = (m: ViewMode) => {
+		setMode(m);
+		try {
+			localStorage.setItem(VIEW_KEY, m);
+		} catch {
+			// remembering the layout is a convenience only
+		}
+	};
+
+	const items = saved.data ?? [];
+	const counts = useMemo(() => {
+		const c: Record<KindFilter, number> = {
+			all: items.length,
+			reply: 0,
+			selection: 0,
+			passage: 0,
+		};
+		for (const i of items) c[i.kind] += 1;
+		return c;
+	}, [items]);
+	// Documents the saved items cite, for the source filter.
+	const sources = useMemo<Choice[]>(() => {
+		const byDoc = new Map<string, string>();
+		for (const i of items)
+			for (const x of i.sources)
+				byDoc.set(x.documentId, x.label ? `${x.label} · ${x.title}` : x.title);
+		return [...byDoc]
+			.map(([id, name]) => ({ id, name }))
+			.sort((a, b) => a.name.localeCompare(b.name));
+	}, [items]);
+	// A source that is not in this project's items falls back to all.
+	const sourceKey = sources.some((x) => x.id === source) ? source : ALL;
 
 	const shown = useMemo(() => {
 		const q = query.trim().toLowerCase();
-		if (!q) return saved.data ?? [];
-		return (saved.data ?? []).filter((i) =>
-			[
-				i.body,
-				i.note,
-				i.conversationTitle,
-				...i.sources.flatMap((s) => [s.title, s.label]),
-			]
-				.join("\n")
-				.toLowerCase()
-				.includes(q),
+		const list = items.filter(
+			(i) =>
+				(kind === "all" || i.kind === kind) &&
+				(sourceKey === ALL ||
+					i.sources.some((x) => x.documentId === sourceKey)) &&
+				(!withNote || i.note.trim() !== "") &&
+				(!q ||
+					[
+						i.body,
+						i.note,
+						i.conversationTitle,
+						...i.sources.flatMap((x) => [x.title, x.label]),
+					]
+						.join("\n")
+						.toLowerCase()
+						.includes(q)),
 		);
-	}, [saved.data, query]);
+		return oldestFirst ? [...list].reverse() : list;
+	}, [items, query, kind, sourceKey, withNote, oldestFirst]);
+
+	const filtering =
+		query.trim() !== "" || kind !== "all" || sourceKey !== ALL || withNote;
+	const clear = () => {
+		setQuery("");
+		setKind("all");
+		setSource(ALL);
+		setWithNote(false);
+	};
+
+	const views: { id: ViewMode; label: string; icon: React.ReactNode }[] = [
+		{ id: "list", label: "List", icon: <ListIcon /> },
+		{ id: "large", label: "Large grid", icon: <SquaresFourIcon /> },
+		{ id: "small", label: "Small grid", icon: <GridNineIcon /> },
+	];
 
 	return (
 		<div className="flex h-full flex-col">
 			<header
 				data-tauri-drag-region
-				className="flex h-12 shrink-0 items-center gap-3 px-6"
+				className="flex h-12 shrink-0 items-center justify-between gap-3 px-6"
 			>
-				<h1 className="text-[15px] font-semibold">Saved</h1>
-				<ScopeSelect value={savedScope} onChange={setSavedScope} />
+				<div className="flex items-center gap-3">
+					<h1 className="text-[15px] font-semibold">Saved</h1>
+					<ScopeSelect value={savedScope} onChange={setSavedScope} />
+				</div>
+				<fieldset className="m-0 flex min-w-0 items-center gap-0.5 border-0 p-0">
+					<legend className="sr-only">Layout</legend>
+					{views.map((v) => (
+						<IconButton
+							key={v.id}
+							label={v.label}
+							aria-pressed={mode === v.id}
+							onPress={() => pickMode(v.id)}
+							className={cx(mode === v.id && "bg-border/60 text-foreground")}
+						>
+							{v.icon}
+						</IconButton>
+					))}
+				</fieldset>
 			</header>
 
-			<div className="px-6 pb-3">
-				<div className="relative">
+			<div className="flex items-center gap-2 px-6 pb-3">
+				<div className="relative min-w-0 flex-1">
 					<MagnifyingGlassIcon className="pointer-events-none absolute left-2.5 top-2 size-4 text-muted-foreground" />
 					<input
 						type="search"
@@ -396,6 +565,56 @@ export function SavedView() {
 						className="h-8 w-full rounded-lg border border-transparent bg-muted pl-8 pr-3 text-[13px] outline-none placeholder:text-muted-foreground focus:border-primary/50"
 					/>
 				</div>
+				{sources.length > 0 && (
+					<FilterSelect
+						label="Source"
+						value={sourceKey}
+						items={[{ id: ALL, name: "Any source" }, ...sources]}
+						onChange={setSource}
+					/>
+				)}
+				<FilterSelect
+					label="Order"
+					value={oldestFirst ? "old" : "new"}
+					items={[
+						{ id: "new", name: "Newest first" },
+						{ id: "old", name: "Oldest first" },
+					]}
+					onChange={(k) => setOldestFirst(k === "old")}
+				/>
+			</div>
+
+			<div className="flex flex-wrap items-center gap-1.5 px-6 pb-3">
+				{KIND_CHIPS.map((k) => (
+					<Chip
+						key={k.id}
+						pressed={kind === k.id}
+						onPress={() => setKind(k.id)}
+					>
+						{k.name} {counts[k.id]}
+					</Chip>
+				))}
+				<Chip pressed={withNote} onPress={() => setWithNote((v) => !v)}>
+					With notes
+				</Chip>
+				{filtering && (
+					<RacButton
+						onPress={clear}
+						className={cx(
+							"ml-1 rounded text-xs text-primary underline-offset-2 hover:underline",
+							focus,
+						)}
+					>
+						Clear filters
+					</RacButton>
+				)}
+				{saved.isSuccess && items.length > 0 && (
+					<span className="ml-auto text-xs text-muted-foreground">
+						{shown.length === items.length
+							? `${items.length} saved`
+							: `${shown.length} of ${items.length}`}
+					</span>
+				)}
 			</div>
 
 			<div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6">
@@ -409,24 +628,32 @@ export function SavedView() {
 						{saved.error.message}
 					</p>
 				)}
-				{saved.isSuccess && saved.data.length === 0 && (
+				{saved.isSuccess && items.length === 0 && (
 					<div className="mx-auto max-w-sm py-16 text-center">
 						<BookmarkSimpleIcon className="mx-auto mb-2 size-6 text-muted-foreground" />
 						<p className="font-medium">Nothing saved yet</p>
 						<p className="mt-1 text-sm text-muted-foreground">
-							Use the bookmark under a reply to keep it here, with the sources
-							it cites.
+							Use the bookmark under a reply to keep it here, or select text in
+							a reply or a document and choose Save.
 						</p>
 					</div>
 				)}
-				{saved.isSuccess && saved.data.length > 0 && shown.length === 0 && (
+				{saved.isSuccess && items.length > 0 && shown.length === 0 && (
 					<p className="py-2 text-sm text-muted-foreground">
 						No saved items match.
 					</p>
 				)}
-				<ul className="mx-auto flex max-w-3xl flex-col gap-3">
+				<ul
+					className="grid items-start gap-3"
+					style={{ gridTemplateColumns: COLUMNS[mode] }}
+				>
 					{shown.map((i) => (
-						<SavedCard key={i.id} item={i} projects={projects.data ?? []} />
+						<SavedCard
+							key={i.id}
+							item={i}
+							projects={projects.data ?? []}
+							mode={mode}
+						/>
 					))}
 				</ul>
 			</div>
