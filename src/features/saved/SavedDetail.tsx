@@ -97,10 +97,13 @@ function Section({
 /** The item's note, laid out like a comment under a post. */
 function NoteComment({
 	note,
+	updatedAt,
 	setNote,
 	saveNote,
 }: {
 	note: string;
+	/** When the note last changed. */
+	updatedAt: number;
 	setNote: (n: string) => void;
 	saveNote: { current: () => void };
 }) {
@@ -118,7 +121,7 @@ function NoteComment({
 	return (
 		<Section title="Note">
 			<div className="flex items-start gap-3">
-				<span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent-soft text-primary">
+				<span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-accent-soft text-primary">
 					<UserIcon className="size-[18px]" />
 				</span>
 				<div className="min-w-0 flex-1">
@@ -147,7 +150,19 @@ function NoteComment({
 							<p className="whitespace-pre-wrap rounded-2xl bg-muted px-4 py-2.5 text-[14px] leading-relaxed">
 								{text}
 							</p>
-							<div className="mt-1 flex gap-3 px-2">
+							<div className="mt-1 flex items-center gap-3 px-2">
+								<time
+									dateTime={new Date(updatedAt).toISOString()}
+									title={new Date(updatedAt).toLocaleString()}
+									className="text-xs tabular-nums text-muted-foreground"
+								>
+									{new Date(updatedAt).toLocaleString(undefined, {
+										month: "short",
+										day: "numeric",
+										hour: "2-digit",
+										minute: "2-digit",
+									})}
+								</time>
 								<RacButton
 									className={textButton}
 									onPress={() => setEditing(true)}
@@ -235,7 +250,12 @@ function Detail({ item, projects }: { item: SavedItem; projects: Project[] }) {
 								{item.body}
 							</blockquote>
 						)}
-						<NoteComment note={note} setNote={setNote} saveNote={saveNote} />
+						<NoteComment
+							note={note}
+							updatedAt={item.updatedAt}
+							setNote={setNote}
+							saveNote={saveNote}
+						/>
 					</div>
 					<aside className="flex min-w-0 flex-col gap-6">
 						{item.conversationTitle &&

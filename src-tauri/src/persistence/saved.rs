@@ -366,10 +366,11 @@ pub fn update_note(conn: &Connection, id: &str, note: &str) -> Result<SavedItem>
     get(conn, id)
 }
 
+/// Leaves `updated_at` alone: it is the time the note last changed, which the detail page shows.
 pub fn set_project(conn: &Connection, id: &str, project_id: Option<&str>) -> Result<SavedItem> {
     let n = conn.execute(
-        "UPDATE saved_items SET project_id = ?2, updated_at = ?3 WHERE id = ?1",
-        params![id, project_id, now_ms()],
+        "UPDATE saved_items SET project_id = ?2 WHERE id = ?1",
+        params![id, project_id],
     )?;
     if n == 0 {
         return Err(AppError::NotFound);
