@@ -15,7 +15,7 @@ import {
 } from "@phosphor-icons/react";
 import { math } from "@streamdown/math";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
 	ListBox,
 	ListBoxItem,
@@ -263,12 +263,65 @@ function Chip({
 	);
 }
 
-/** How much of a long reply a card shows before it scrolls inside itself. */
-const BODY_HEIGHT: Record<ViewMode, string> = {
-	list: "",
-	large: "min-h-0 flex-1 overflow-y-auto",
-	small: "min-h-0 flex-1 overflow-y-auto",
-};
+/** The words of a reply as plain text, for the short previews in the grid. */
+function preview(markdown: string): string {
+	return markdown
+		.replace(/\s*\[S\d+\]/g, "")
+		.replace(/```\w*\n?/g, "")
+		.replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+		.replace(/^#{1,6}\s+/gm, "")
+		.replace(/^\s*[-*+]\s+/gm, "• ")
+		.replace(/(\*\*|__)(.+?)\1/g, "$2")
+		.replace(/(^|\s)[*_]([^*_\n]+)[*_](?=\s|[.,;:!?]|$)/g, "$1$2")
+		.replace(/`([^`]*)`/g, "$1")
+		.replace(/\n{2,}/g, "\n")
+		.trim();
+}
+
+/**
+ * Text cut after as many whole lines as fit the space it is given, with an ellipsis on the last
+ * one. The space is the parent's leftover height (`flex-1`), so every card cuts at its own edge.
+ */
+function ClampedText({
+	children,
+	className,
+}: {
+	children: string;
+	className?: string;
+}) {
+	const box = useRef<HTMLDivElement>(null);
+	const [lines, setLines] = useState(3);
+	useLayoutEffect(() => {
+		const el = box.current;
+		if (!el) return;
+		const fit = () => {
+			const p = el.firstElementChild;
+			if (!p) return;
+			const lineHeight = Number.parseFloat(getComputedStyle(p).lineHeight);
+			if (lineHeight > 0)
+				setLines(Math.max(1, Math.floor(el.clientHeight / lineHeight)));
+		};
+		fit();
+		const watch = new ResizeObserver(fit);
+		watch.observe(el);
+		return () => watch.disconnect();
+	}, []);
+	return (
+		<div ref={box} className="min-h-0 flex-1 overflow-hidden">
+			<p
+				className={cx("selectable whitespace-pre-line", className)}
+				style={{
+					display: "-webkit-box",
+					WebkitBoxOrient: "vertical",
+					WebkitLineClamp: lines,
+					overflow: "hidden",
+				}}
+			>
+				{children}
+			</p>
+		</div>
+	);
+}
 
 function SavedCard({
 	item,
@@ -401,39 +454,54 @@ function SavedCard({
 			</div>
 
 			{item.kind === "reply" ? (
-				<div
-					ref={proseRef}
-					className={cx(
-						"selectable chat-prose",
-						mode === "small" ? "text-[13px]" : "text-[15px]",
-						BODY_HEIGHT[mode],
-					)}
-				>
-					<CiteProvider
-						citations={citations}
-						conversationId={item.conversationId ?? ""}
-						savedItemId={item.id}
-					>
-						<Streamdown
-							plugins={plugins}
-							remarkPlugins={citePlugins}
-							components={citeComponents}
-							allowedTags={citeTags}
+				<>
+					{mode !== "list" && (
+						<ClampedText
+							className={cx(
+								"leading-relaxed",
+								mode === "small" ? "text-[13px]" : "text-[15px]",
+							)}
 						>
-							{item.body}
-						</Streamdown>
-					</CiteProvider>
-				</div>
+							{preview(item.body)}
+						</ClampedText>
+					)}
+					{/* Hidden in the grid, where the preview shows. Copy reads the formatted reply. */}
+					<div
+						ref={proseRef}
+						className={cx(
+							"selectable chat-prose text-[15px]",
+							mode !== "list" && "hidden",
+						)}
+					>
+						<CiteProvider
+							citations={citations}
+							conversationId={item.conversationId ?? ""}
+							savedItemId={item.id}
+						>
+							<Streamdown
+								plugins={plugins}
+								remarkPlugins={citePlugins}
+								components={citeComponents}
+								allowedTags={citeTags}
+							>
+								{item.body}
+							</Streamdown>
+						</CiteProvider>
+					</div>
+				</>
+			) : mode === "list" ? (
+				<blockquote className="selectable whitespace-pre-wrap border-l-2 border-primary/50 pl-3 text-[15px] leading-relaxed">
+					{item.body}
+				</blockquote>
 			) : (
-				<blockquote
+				<ClampedText
 					className={cx(
-						"selectable whitespace-pre-wrap border-l-2 border-primary/50 pl-3 leading-relaxed",
+						"border-l-2 border-primary/50 pl-3 leading-relaxed",
 						mode === "small" ? "text-[13px]" : "text-[15px]",
-						BODY_HEIGHT[mode],
 					)}
 				>
 					{item.body}
-				</blockquote>
+				</ClampedText>
 			)}
 
 			{item.sources.length > 0 && (
