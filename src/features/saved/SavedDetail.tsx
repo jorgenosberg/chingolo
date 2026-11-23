@@ -99,9 +99,7 @@ function Section({
 }) {
 	return (
 		<section className="flex flex-col gap-2">
-			<h2 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-				{title}
-			</h2>
+			<h2 className="text-[13px] font-semibold text-foreground">{title}</h2>
 			{children}
 		</section>
 	);
@@ -378,7 +376,7 @@ function Detail({
 								>
 									<ChatCircleTextIcon className="size-5 shrink-0 text-primary" />
 									<span className="min-w-0 flex-1">
-										<span className="block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+										<span className="block text-[13px] font-semibold text-foreground">
 											From conversation
 										</span>
 										<span className="block truncate text-[13px] font-medium">
@@ -394,7 +392,7 @@ function Detail({
 								<div className="flex items-center gap-3 rounded-xl border border-border bg-muted px-4 py-3">
 									<ChatCircleTextIcon className="size-5 shrink-0 text-muted-foreground" />
 									<span className="min-w-0 flex-1">
-										<span className="block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+										<span className="block text-[13px] font-semibold text-foreground">
 											From conversation
 										</span>
 										<span className="block truncate text-[13px] font-medium">
