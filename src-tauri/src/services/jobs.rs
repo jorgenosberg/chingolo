@@ -30,7 +30,7 @@ const IDLE_TICK: Duration = Duration::from_secs(10);
 /// Changes within this window are sent as one snapshot.
 const DEBOUNCE: Duration = Duration::from_millis(250);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum Lane {
     /// Reading files into passages (with text recognition for scans).

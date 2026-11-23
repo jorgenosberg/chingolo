@@ -1,16 +1,16 @@
 //! The background worker. One thread reads files one at a time, so pdfium never runs twice at once,
 //! and it uses its own database connection so a long import doesn't block chat.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::panic::AssertUnwindSafe;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use tokio::sync::{Notify, mpsc};
+use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
 use super::activity::Activity;
@@ -65,12 +65,43 @@ enum Job {
     Layout(Document),
 }
 
+impl Job {
+    fn doc(&self) -> &Document {
+        let (Job::Read(d) | Job::Details(d) | Job::Layout(d)) = self;
+        d
+    }
+
+    fn lane(&self) -> Lane {
+        match self {
+            Job::Read(_) => Lane::Read,
+            Job::Details(_) => Lane::Details,
+            Job::Layout(_) => Lane::Layout,
+        }
+    }
+
+    /// Lower runs first, so a new import never waits behind a backlog of layout work.
+    fn priority(&self) -> u8 {
+        match self {
+            Job::Read(_) => 0,
+            Job::Details(_) => 1,
+            Job::Layout(_) => 2,
+        }
+    }
+}
+
+fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// Called with a document after layout changed its passages.
 type LayoutHook = Arc<dyn Fn(&Document) + Send + Sync>;
 
 struct Inner {
-    tx: mpsc::UnboundedSender<Job>,
-    tokens: Mutex<HashMap<Id, CancellationToken>>,
+    /// Waiting jobs. The worker takes the best one that isn't in a paused lane.
+    queue: Mutex<VecDeque<Job>>,
+    wake: Condvar,
+    paused: Mutex<HashSet<Lane>>,
+    tokens: Mutex<HashMap<(Lane, Id), CancellationToken>>,
     library_dir: PathBuf,
     emit: Emit,
     /// Where the text recognition models are (or will be). None turns recognition off.
@@ -100,6 +131,28 @@ pub struct Running {
     pub progress: Option<Progress>,
 }
 
+impl Inner {
+    fn new(library_dir: PathBuf, emit: Emit) -> Self {
+        Inner {
+            queue: Mutex::new(VecDeque::new()),
+            wake: Condvar::new(),
+            paused: Mutex::new(HashSet::new()),
+            tokens: Mutex::new(HashMap::new()),
+            library_dir,
+            emit,
+            ocr_dir: Mutex::new(None),
+            layout_dir: Mutex::new(None),
+            tables_dir: Mutex::new(None),
+            on_layout: Mutex::new(None),
+            layout_live: AtomicU32::new(0),
+            tables_live: AtomicU32::new(0),
+            activity: Mutex::new(None),
+            running: Mutex::new(None),
+            poke: Mutex::new(None),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct Ingestor(Arc<Inner>);
 
@@ -113,26 +166,11 @@ pub fn library_path(library_dir: &Path, hash: &str, kind: DocKind) -> PathBuf {
 impl Ingestor {
     pub fn start(db_path: &Path, library_dir: PathBuf, emit: Emit) -> Result<Self> {
         let conn = Db::open_secondary(db_path)?;
-        let (tx, rx) = mpsc::unbounded_channel();
-        let inner = Arc::new(Inner {
-            tx,
-            tokens: Mutex::new(HashMap::new()),
-            library_dir,
-            emit,
-            ocr_dir: Mutex::new(None),
-            layout_dir: Mutex::new(None),
-            tables_dir: Mutex::new(None),
-            on_layout: Mutex::new(None),
-            layout_live: AtomicU32::new(0),
-            tables_live: AtomicU32::new(0),
-            activity: Mutex::new(None),
-            running: Mutex::new(None),
-            poke: Mutex::new(None),
-        });
+        let inner = Arc::new(Inner::new(library_dir, emit));
         let worker = inner.clone();
         std::thread::Builder::new()
             .name("ingest".into())
-            .spawn(move || worker_loop(conn, rx, worker))
+            .spawn(move || worker_loop(conn, worker))
             .map_err(|e| AppError::Internal(format!("couldn't start the import worker: {e}")))?;
         Ok(Ingestor(inner))
     }
@@ -202,7 +240,7 @@ impl Ingestor {
 
     /// Queues layout for one document, for a retry after earlier failures.
     pub fn enqueue_layout(&self, doc: &Document) {
-        let _ = self.0.tx.send(Job::Layout(doc.clone()));
+        queue_layout(&self.0, doc);
         self.poke();
     }
 
@@ -235,7 +273,7 @@ impl Ingestor {
             }
         }
         for d in &docs {
-            let _ = self.0.tx.send(Job::Layout(d.clone()));
+            queue_layout(&self.0, d);
         }
         self.poke();
         Ok(docs.len())
@@ -250,6 +288,35 @@ impl Ingestor {
 
     fn poke(&self) {
         poke(&self.0);
+    }
+
+    /// Stops the worker from starting jobs of this lane. A job already running finishes.
+    pub fn set_paused(&self, lane: Lane, paused: bool) {
+        {
+            let mut set = lock(&self.0.paused);
+            if paused {
+                set.insert(lane);
+            } else {
+                set.remove(&lane);
+            }
+        }
+        // Taking the queue lock first means the worker is either waiting or will see the change.
+        drop(lock(&self.0.queue));
+        self.0.wake.notify_all();
+        self.poke();
+    }
+
+    pub fn is_paused(&self, lane: Lane) -> bool {
+        lock(&self.0.paused).contains(&lane)
+    }
+
+    /// Jobs waiting in a lane, not counting the one running.
+    pub fn queued(&self, lane: Lane) -> u32 {
+        let n = lock(&self.0.queue)
+            .iter()
+            .filter(|j| j.lane() == lane)
+            .count();
+        u32::try_from(n).unwrap_or(u32::MAX)
     }
 
     /// The job the worker is on, if any.
@@ -277,10 +344,8 @@ impl Ingestor {
     }
 
     pub fn enqueue(&self, doc: &Document) {
-        if let Ok(mut t) = self.0.tokens.lock() {
-            t.insert(doc.id.clone(), CancellationToken::new());
-        }
-        let _ = self.0.tx.send(Job::Read(doc.clone()));
+        register_token(&self.0, Lane::Read, &doc.id);
+        push(&self.0, Job::Read(doc.clone()));
         self.poke();
     }
 
@@ -290,13 +355,18 @@ impl Ingestor {
         if let Some(a) = self.activity() {
             a.start(&doc.id);
         }
-        let _ = self.0.tx.send(Job::Details(doc.clone()));
+        push(&self.0, Job::Details(doc.clone()));
         self.poke();
     }
 
     /// True if the document was queued or running.
     pub fn cancel(&self, id: &str) -> bool {
-        match self.0.tokens.lock().ok().and_then(|t| t.get(id).cloned()) {
+        self.cancel_lane(Lane::Read, id)
+    }
+
+    /// Stops a queued or running job of one lane. True if there was one.
+    pub fn cancel_lane(&self, lane: Lane, id: &str) -> bool {
+        match lock(&self.0.tokens).get(&(lane, id.to_string())).cloned() {
             Some(token) => {
                 token.cancel();
                 true
@@ -334,6 +404,52 @@ impl Ingestor {
     }
 }
 
+/// A fresh cancel token for a queued job, replacing an older one for the same document.
+fn register_token(inner: &Inner, lane: Lane, id: &str) {
+    lock(&inner.tokens).insert((lane, id.to_string()), CancellationToken::new());
+}
+
+fn push(inner: &Inner, job: Job) {
+    lock(&inner.queue).push_back(job);
+    inner.wake.notify_all();
+}
+
+/// Queues layout for a document unless it is already queued or running.
+fn queue_layout(inner: &Inner, doc: &Document) {
+    let running = lock(&inner.running)
+        .as_ref()
+        .is_some_and(|r| r.lane == Lane::Layout && r.id == doc.id);
+    let mut queue = lock(&inner.queue);
+    let queued = queue
+        .iter()
+        .any(|j| j.lane() == Lane::Layout && j.doc().id == doc.id);
+    if running || queued {
+        return;
+    }
+    register_token(inner, Lane::Layout, &doc.id);
+    queue.push_back(Job::Layout(doc.clone()));
+    inner.wake.notify_all();
+}
+
+/// Blocks until a job is waiting in a lane that isn't paused, and takes the best one: reads before
+/// details before layout, oldest first within a kind.
+fn next_job(inner: &Inner) -> Job {
+    let mut queue = lock(&inner.queue);
+    loop {
+        let paused = lock(&inner.paused).clone();
+        let best = queue
+            .iter()
+            .enumerate()
+            .filter(|(_, j)| !paused.contains(&j.lane()))
+            .min_by_key(|(i, j)| (j.priority(), *i))
+            .map(|(i, _)| i);
+        if let Some(job) = best.and_then(|i| queue.remove(i)) {
+            return job;
+        }
+        queue = inner.wake.wait(queue).unwrap_or_else(|e| e.into_inner());
+    }
+}
+
 fn poke(inner: &Inner) {
     if let Some(p) = inner.poke.lock().ok().and_then(|p| p.clone()) {
         p.notify_one();
@@ -347,29 +463,23 @@ fn set_running(inner: &Inner, now: Option<Running>) {
     poke(inner);
 }
 
-fn worker_loop(mut conn: Connection, mut rx: mpsc::UnboundedReceiver<Job>, inner: Arc<Inner>) {
+fn worker_loop(mut conn: Connection, inner: Arc<Inner>) {
     let mut pdf: Option<PdfReader> = None;
     let mut ocr = OcrSlot::default();
     let mut layout = LayoutSlot::default();
     let mut tables = TableSlot::default();
-    while let Some(job) = rx.blocking_recv() {
-        let (Job::Read(doc) | Job::Details(doc) | Job::Layout(doc)) = &job;
-        let doc = doc.clone();
+    loop {
+        let job = next_job(&inner);
+        let doc = job.doc().clone();
         ocr.set_dir(inner.ocr_dir.lock().ok().and_then(|d| d.clone()));
         layout.set_dir(inner.layout_dir.lock().ok().and_then(|d| d.clone()));
         tables.set_dir(inner.tables_dir.lock().ok().and_then(|d| d.clone()));
-        let token = inner
-            .tokens
-            .lock()
-            .ok()
-            .and_then(|t| t.get(&doc.id).cloned())
+        let lane = job.lane();
+        let token = lock(&inner.tokens)
+            .get(&(lane, doc.id.clone()))
+            .cloned()
             .unwrap_or_default();
         let path = library_path(&inner.library_dir, &doc.content_hash, doc.kind);
-        let lane = match &job {
-            Job::Read(_) => Lane::Read,
-            Job::Details(_) => Lane::Details,
-            Job::Layout(_) => Lane::Layout,
-        };
         set_running(
             &inner,
             Some(Running {
@@ -449,16 +559,14 @@ fn worker_loop(mut conn: Connection, mut rx: mpsc::UnboundedReceiver<Job>, inner
         {
             a.finish(&doc.id);
         }
+        lock(&inner.tokens).remove(&(lane, doc.id.clone()));
         if matches!(job, Job::Read(_)) {
-            if let Ok(mut t) = inner.tokens.lock() {
-                t.remove(&doc.id);
-            }
             // the document is searchable now, so layout can improve it in the background
             if doc.kind == DocKind::Pdf
                 && layout.get().is_some()
                 && repo::get_document(&conn, &doc.id).is_ok_and(|d| d.status == DocStatus::Ready)
             {
-                let _ = inner.tx.send(Job::Layout(doc.clone()));
+                queue_layout(&inner, &doc);
             }
         }
     }
@@ -815,6 +923,117 @@ mod tests {
 
     use super::*;
     use crate::persistence::test_conn;
+
+    fn doc(conn: &Connection, hash: &str) -> Document {
+        repo::insert_document(conn, hash, &format!("{hash}.pdf"), DocKind::Pdf).unwrap()
+    }
+
+    fn inner() -> Inner {
+        Inner::new(PathBuf::new(), Arc::new(|_| {}))
+    }
+
+    fn order(inner: &Inner, n: usize) -> Vec<(Lane, String)> {
+        (0..n)
+            .map(|_| {
+                let j = next_job(inner);
+                (j.lane(), j.doc().original_name.clone())
+            })
+            .collect()
+    }
+
+    #[test]
+    fn reads_go_before_details_before_layout_and_each_kind_keeps_its_order() {
+        let conn = test_conn();
+        let (a, b, c, d, e) = (
+            doc(&conn, "a"),
+            doc(&conn, "b"),
+            doc(&conn, "c"),
+            doc(&conn, "d"),
+            doc(&conn, "e"),
+        );
+        let q = inner();
+        queue_layout(&q, &a);
+        push(&q, Job::Details(b));
+        push(&q, Job::Read(c));
+        queue_layout(&q, &d);
+        push(&q, Job::Read(e));
+        let got = order(&q, 5);
+        let names: Vec<&str> = got.iter().map(|(_, n)| n.as_str()).collect();
+        assert_eq!(names, ["c.pdf", "e.pdf", "b.pdf", "a.pdf", "d.pdf"]);
+    }
+
+    #[test]
+    fn a_paused_lane_is_skipped_and_its_jobs_wait() {
+        let conn = test_conn();
+        let (a, b) = (doc(&conn, "a"), doc(&conn, "b"));
+        let q = inner();
+        push(&q, Job::Read(a));
+        queue_layout(&q, &b);
+        lock(&q.paused).insert(Lane::Read);
+        let first = next_job(&q);
+        assert_eq!(first.lane(), Lane::Layout);
+        assert_eq!(lock(&q.queue).len(), 1, "the read stays queued");
+    }
+
+    #[test]
+    fn the_worker_wakes_when_a_paused_lane_is_resumed() {
+        let conn = test_conn();
+        let q = Arc::new(inner());
+        lock(&q.paused).insert(Lane::Read);
+        push(&q, Job::Read(doc(&conn, "a")));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let worker = q.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(next_job(&worker).lane());
+        });
+        assert!(
+            rx.recv_timeout(std::time::Duration::from_millis(200))
+                .is_err(),
+            "a paused lane must not start"
+        );
+        // what `Ingestor::set_paused` does
+        lock(&q.paused).remove(&Lane::Read);
+        drop(lock(&q.queue));
+        q.wake.notify_all();
+        assert_eq!(
+            rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap(),
+            Lane::Read
+        );
+    }
+
+    #[test]
+    fn layout_is_not_queued_twice_for_one_document() {
+        let conn = test_conn();
+        let a = doc(&conn, "a");
+        let q = inner();
+        queue_layout(&q, &a);
+        queue_layout(&q, &a);
+        assert_eq!(lock(&q.queue).len(), 1);
+        let job = next_job(&q);
+        // while it runs, a second request is also dropped
+        *lock(&q.running) = Some(Running {
+            lane: Lane::Layout,
+            id: job.doc().id.clone(),
+            title: String::new(),
+            progress: None,
+        });
+        queue_layout(&q, &a);
+        assert!(lock(&q.queue).is_empty());
+    }
+
+    #[test]
+    fn cancel_tokens_are_kept_per_lane_and_document() {
+        let conn = test_conn();
+        let a = doc(&conn, "a");
+        let q = inner();
+        register_token(&q, Lane::Read, &a.id);
+        register_token(&q, Lane::Layout, &a.id);
+        let read = lock(&q.tokens)[&(Lane::Read, a.id.clone())].clone();
+        let layout = lock(&q.tokens)[&(Lane::Layout, a.id.clone())].clone();
+        read.cancel();
+        assert!(read.is_cancelled());
+        assert!(!layout.is_cancelled());
+    }
 
     fn docx_file(dir: &Path, hash: &str, paragraphs: &[&str]) -> (Document, PathBuf, Connection) {
         let conn = test_conn();
