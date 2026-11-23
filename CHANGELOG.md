@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0
+
+Optionally send crash reports, bug reports and usage counts to a server you set up.
+
+- Settings > Privacy has a new "Reports to a server" section. Enter a server address and a token, then choose what to send. Everything is off until you turn it on.
+- Usage statistics are daily counts such as chats sent, documents imported, errors and how long chats get, with the model name. Crash reports send the error and where it happened, the next time you open the app. "Send a bug report" shows exactly what will be sent first.
+- Nothing you wrote or read is sent: no chat text, titles, file names or keys. The log no longer includes file names.
+
 ## 0.3.1
 
 See how full a chat is, and get a warning before it gets more expensive.
