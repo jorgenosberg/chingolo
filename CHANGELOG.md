@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.0
+
+Save replies, quotes and passages from your documents, and keep notes on them.
+
+- Bookmark a reply with the button under it. Or select text in a reply or in a document and choose Save. A saved item keeps its text and the sources it cites, so it still opens after the chat or the document is deleted.
+- The new Saved page (in the sidebar, and under each project) shows what you saved as a list or as a small or large grid. Filter by kind, source or notes, search the text, and move items between projects.
+- Open a saved item to see the full text, every source with a button to open the document, a link back to the message in its chat, and your notes. An item can have several notes, each with its own date.
+- Copying a saved item adds one plain reference line per source (author and year, title, page, DOI), ready to match against EndNote in Word.
+- The first start after the update upgrades the database. A backup copy is kept next to it, and older versions of Chingolo can't open the upgraded database.
+
 ## 0.1.2
 
 Copying a reply now gives clean text, and scans are read once the text recognition model is ready.
