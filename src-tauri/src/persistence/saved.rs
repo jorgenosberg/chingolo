@@ -380,8 +380,25 @@ fn clean_text(raw: &str) -> Result<String> {
     Ok(t.to_string())
 }
 
+/// Both sides of the comparison go through this. The reader's text layer keeps line-end hyphens
+/// ("physi-\nology") where stored passages are already joined ("physiology"), so hyphens and the
+/// space after them are dropped, as are soft hyphens.
 fn squash(s: &str) -> String {
-    s.split_whitespace()
+    let mut plain = String::with_capacity(s.len());
+    let mut after_hyphen = false;
+    for c in s.chars() {
+        match c {
+            '\u{ad}' => {}
+            '-' | '\u{2010}'..='\u{2013}' => after_hyphen = true,
+            c if c.is_whitespace() && after_hyphen => {}
+            c => {
+                after_hyphen = false;
+                plain.push(c);
+            }
+        }
+    }
+    plain
+        .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
         .to_lowercase()
@@ -711,6 +728,13 @@ mod tests {
                 .as_deref(),
             Some("p0"),
             "case and line breaks do not matter"
+        );
+        assert_eq!(
+            match_passage(&conn, &doc.id, 1, "iron lim-\nits plank\u{ad}ton")
+                .unwrap()
+                .as_deref(),
+            Some("p0"),
+            "line-end hyphens in the selection do not matter"
         );
         assert_eq!(
             match_passage(&conn, &doc.id, 2, "not in the paper").unwrap(),
