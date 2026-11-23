@@ -317,6 +317,8 @@ pub struct AppSettings {
     pub default_provider: Option<String>,
     /// Provider ids that have an API key saved in the Keychain.
     pub api_keys: Vec<String>,
+    /// Why the Keychain couldn't be read, if it couldn't. `api_keys` is then incomplete.
+    pub keychain_error: Option<String>,
     /// The user chose "Not now" on the search model download notice.
     pub embedding_notice_dismissed: bool,
     /// Search results are reordered by the chat model (sends the top passages to its provider).

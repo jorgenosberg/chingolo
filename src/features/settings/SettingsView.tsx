@@ -795,6 +795,18 @@ function LayoutViewSwitch() {
 	);
 }
 
+function KeychainProblem() {
+	const { data: settings } = useSettings();
+	if (!settings?.keychainError) return null;
+	return (
+		<p role="alert" className="mt-4 text-sm text-problem">
+			Chingolo couldn't read the macOS Keychain, so saved API keys can't be used
+			right now: {settings.keychainError}. Unlock the Keychain and restart
+			Chingolo.
+		</p>
+	);
+}
+
 export function SettingsView() {
 	const { closeSettings } = useNav();
 	const [tab, setTab] = useState(savedTab);
@@ -858,6 +870,7 @@ export function SettingsView() {
 				<div className="relative min-h-0 flex-1 overflow-y-auto">
 					<div className="mx-auto flex w-full max-w-2xl flex-col px-6 pt-2 pb-12">
 						<TabPanel id="general" className="outline-none">
+							<KeychainProblem />
 							{PROVIDERS.map((p) => (
 								<ApiKeySection key={p.id} provider={p} />
 							))}

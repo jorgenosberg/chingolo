@@ -179,6 +179,8 @@ export type AppSettings = {
 	defaultProvider: string | null,
 	/**  Provider ids that have an API key saved in the Keychain. */
 	apiKeys: string[],
+	/**  Why the Keychain couldn't be read, if it couldn't. `api_keys` is then incomplete. */
+	keychainError: string | null,
 	/**  The user chose "Not now" on the search model download notice. */
 	embeddingNoticeDismissed: boolean,
 	/**  Search results are reordered by the chat model (sends the top passages to its provider). */

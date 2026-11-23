@@ -6,15 +6,26 @@ use crate::persistence::settings as repo;
 use crate::security;
 use crate::state::AppState;
 
-/// Provider ids that have a key in the Keychain, in a fixed order.
-async fn providers_with_keys(state: &AppState) -> crate::error::Result<Vec<String>> {
+/// Provider ids that have a key in the Keychain, in a fixed order, and the Keychain's error if it
+/// couldn't be read. A locked or missing keychain reads as no keys, so the app still opens and
+/// Settings can show the problem.
+async fn scan_keys(state: &AppState) -> (Vec<String>, Option<String>) {
     let mut out = Vec::new();
     for id in state.providers.ids() {
-        if security::get_key(id).await?.is_some() {
-            out.push(id.to_string());
+        match security::get_key(id).await {
+            Ok(Some(_)) => out.push(id.to_string()),
+            Ok(None) => {}
+            Err(e) => {
+                log::warn!("couldn't read the {id} key: {e}");
+                return (out, Some(e.to_string()));
+            }
         }
     }
-    Ok(out)
+    (out, None)
+}
+
+async fn providers_with_keys(state: &AppState) -> Vec<String> {
+    scan_keys(state).await.0
 }
 
 /// The provider a new conversation starts with: the one the default model belongs to, else the
@@ -25,7 +36,7 @@ pub async fn pick_provider(state: &AppState) -> crate::error::Result<String> {
         return Ok(p);
     }
     Ok(providers_with_keys(state)
-        .await?
+        .await
         .into_iter()
         .next()
         .unwrap_or_else(|| "gemini".to_string()))
@@ -64,7 +75,7 @@ fn favorites_json(list: Vec<String>) -> String {
 }
 
 async fn read_settings(state: &AppState) -> crate::error::Result<AppSettings> {
-    let api_keys = providers_with_keys(state).await?;
+    let (api_keys, keychain_error) = scan_keys(state).await;
     state
         .db
         .call(move |c| {
@@ -74,6 +85,7 @@ async fn read_settings(state: &AppState) -> crate::error::Result<AppSettings> {
                 default_model: repo::get(c, "default_model")?,
                 default_provider: repo::get(c, "default_provider")?,
                 api_keys,
+                keychain_error,
                 embedding_notice_dismissed: repo::get_bool(c, "embedding_notice_dismissed")?,
                 rerank_enabled: repo::get_bool(c, "rerank_enabled")?,
                 rerank_model: repo::get(c, "rerank_model")?.filter(|m| !m.is_empty()),
@@ -213,7 +225,7 @@ pub async fn list_models(
 #[tauri::command]
 #[specta::specta]
 pub async fn list_all_models(state: State<'_, AppState>) -> CmdResult<ModelList> {
-    let ids = providers_with_keys(&state).await?;
+    let ids = providers_with_keys(&state).await;
     let loads = ids.into_iter().map(|id| {
         let providers = state.providers.clone();
         async move {
