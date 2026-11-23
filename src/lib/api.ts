@@ -96,6 +96,15 @@ export const api = {
 		unwrap(commands.connectReporting(url, token)),
 	disconnectReporting: () => unwrap(commands.disconnectReporting()),
 	testReportingConnection: () => unwrap(commands.testReportingConnection()),
+	/** For error handlers: never throws. */
+	reportFrontendError: (
+		message: string,
+		stack?: string | null,
+		location?: string | null,
+	) =>
+		commands
+			.reportFrontendError(message, stack ?? null, location ?? null)
+			.catch(() => {}),
 
 	pickAndImport: (folder: boolean, projectId: string | null) =>
 		unwrap(commands.pickAndImport(folder, projectId)),

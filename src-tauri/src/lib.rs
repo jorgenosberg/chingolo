@@ -68,6 +68,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
             commands::reporting::connect_reporting,
             commands::reporting::disconnect_reporting,
             commands::reporting::test_reporting_connection,
+            commands::reporting::report_frontend_error,
             commands::library::pick_and_import,
             commands::library::set_import_target,
             commands::library::list_documents,
@@ -197,13 +198,17 @@ pub fn run() {
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
             builder.mount_events(app);
-            std::panic::set_hook(Box::new(|info| log::error!("panic: {info}")));
-            log::info!("Chingolo {} starting", env!("CARGO_PKG_VERSION"));
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
+            crate::services::crashes::install_hook(crate::services::crashes::dir(&dir));
+            log::info!("Chingolo {} starting", env!("CARGO_PKG_VERSION"));
             let db_path = dir.join("chingolo.sqlite");
             let db = Db::open(&db_path)?;
             crate::services::pricing::load_saved(&dir);
+            tauri::async_runtime::spawn(crate::services::crashes::send_pending(
+                db.clone(),
+                crate::services::crashes::dir(&dir),
+            ));
             tauri::async_runtime::spawn(crate::services::pricing::keep_fresh(
                 db.clone(),
                 dir.clone(),

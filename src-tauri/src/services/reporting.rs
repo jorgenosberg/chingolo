@@ -191,7 +191,7 @@ fn rfc3339_now() -> String {
     rfc3339(now_ms())
 }
 
-fn rfc3339(ms: i64) -> String {
+pub fn rfc3339(ms: i64) -> String {
     let secs = ms.div_euclid(1000);
     let date = crate::services::pricing::civil_date(secs.div_euclid(86_400));
     let t = secs.rem_euclid(86_400);

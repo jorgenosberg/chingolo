@@ -1,9 +1,9 @@
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 
 use crate::error::{AppError, CmdResult};
 use crate::persistence::settings as repo;
 use crate::security;
-use crate::services::reporting;
+use crate::services::{crashes, reporting};
 use crate::state::AppState;
 
 /// Checks the address and token against the server, and saves both only if that works.
@@ -59,5 +59,28 @@ pub async fn test_reporting_connection(state: State<'_, AppState>) -> CmdResult<
         .db
         .call(|c| repo::set(c, reporting::ERROR_KEY, ""))
         .await?;
+    Ok(())
+}
+
+/// An uncaught error in the webview. Never fails, so the error handler can't loop.
+#[tauri::command]
+#[specta::specta]
+pub async fn report_frontend_error(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    message: String,
+    stack: Option<String>,
+    location: Option<String>,
+) -> CmdResult<()> {
+    if let Ok(data) = app.path().app_data_dir() {
+        crashes::report_frontend(
+            &state.db,
+            &crashes::dir(&data),
+            &message,
+            stack.as_deref(),
+            location.as_deref(),
+        )
+        .await;
+    }
     Ok(())
 }

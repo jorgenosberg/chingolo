@@ -51,6 +51,8 @@ export const commands = {
 	/**  Forgets the server and token and turns both reports off. */
 	disconnectReporting: () => typedError<null, CmdError>(__TAURI_INVOKE("disconnect_reporting")),
 	testReportingConnection: () => typedError<null, CmdError>(__TAURI_INVOKE("test_reporting_connection")),
+	/**  An uncaught error in the webview. Never fails, so the error handler can't loop. */
+	reportFrontendError: (message: string, stack: string | null, location: string | null) => typedError<null, CmdError>(__TAURI_INVOKE("report_frontend_error", { message, stack, location })),
 	/**
 	 *  Opens the system file or folder dialog and imports what the user picks. Paths never pass
 	 *  through the webview.
