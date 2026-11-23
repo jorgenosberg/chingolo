@@ -12,7 +12,6 @@ See everything Chingolo is working on in one place, and pause, retry or cancel i
 - A document whose page layout fails is tried twice, then left alone until you press Retry, and the Activity page shows why. Before, it was tried again at every start and the reason was only in the log.
 - A quote saved from a document now finds its passage more often when the selection runs over a line that ends in a hyphen, so it opens with the highlight.
 - If the macOS Keychain can't be read (locked or missing), Chingolo still opens. Settings says what went wrong, and saved API keys can't be used until it is unlocked.
-- The first start after the update upgrades the database. A backup copy is kept next to it, and older versions of Chingolo can't open the upgraded database.
 
 ## 0.2.0
 
@@ -22,7 +21,6 @@ Save replies, quotes and passages from your documents, and keep notes on them.
 - The new Saved page (in the sidebar, and under each project) shows what you saved as a list or as a small or large grid. Filter by kind, source or notes, search the text, and move items between projects.
 - Open a saved item to see the full text, every source with a button to open the document, a link back to the message in its chat, and your notes. An item can have several notes, each with its own date.
 - Copying a saved item adds one plain reference line per source (author and year, title, page, DOI), ready to match against EndNote in Word.
-- The first start after the update upgrades the database. A backup copy is kept next to it, and older versions of Chingolo can't open the upgraded database.
 
 ## 0.1.2
 
