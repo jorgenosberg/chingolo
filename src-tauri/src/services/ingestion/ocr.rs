@@ -56,6 +56,17 @@ pub struct OcrModel {
     dir: PathBuf,
     files: &'static [ManifestFile],
     state: Arc<Mutex<ModelState>>,
+    hooks: Arc<Hooks>,
+}
+
+/// Called when a download finishes and the files are usable.
+type ReadyHook = Arc<dyn Fn() + Send + Sync>;
+
+#[derive(Default)]
+struct Hooks {
+    /// Stops the download that is running, if any.
+    cancel: Mutex<Option<CancellationToken>>,
+    on_ready: Mutex<Option<ReadyHook>>,
 }
 
 impl OcrModel {
@@ -74,6 +85,23 @@ impl OcrModel {
             dir,
             files,
             state: Arc::new(Mutex::new(state)),
+            hooks: Arc::default(),
+        }
+    }
+
+    /// Runs `f` each time a download ends with the files in place, so work that was waiting for
+    /// the model can start.
+    pub fn set_on_ready(&self, f: ReadyHook) {
+        if let Ok(mut h) = self.hooks.on_ready.lock() {
+            *h = Some(f);
+        }
+    }
+
+    /// Stops a running download. The partial files stay, a later download continues from them.
+    pub fn cancel(&self) {
+        let token = self.hooks.cancel.lock().ok().and_then(|t| t.clone());
+        if let Some(t) = token {
+            t.cancel();
         }
     }
 
@@ -111,6 +139,10 @@ impl OcrModel {
             };
         }
         let me = self.clone();
+        let cancel = CancellationToken::new();
+        if let Ok(mut c) = self.hooks.cancel.lock() {
+            *c = Some(cancel.clone());
+        }
         tauri::async_runtime::spawn(async move {
             let progress = me.clone();
             let result = model::download(
@@ -118,7 +150,7 @@ impl OcrModel {
                 "",
                 me.files,
                 &me.dir,
-                &CancellationToken::new(),
+                &cancel,
                 &mut |done, total| {
                     progress.set(ModelState::Downloading {
                         done: done as f64,
@@ -127,12 +159,23 @@ impl OcrModel {
                 },
             )
             .await;
+            if let Ok(mut c) = me.hooks.cancel.lock() {
+                *c = None;
+            }
+            let ready = result.is_ok();
             me.set(match result {
                 Ok(()) => ModelState::Ready,
+                Err(AppError::Cancelled) => ModelState::Missing,
                 Err(e) => ModelState::Failed {
                     message: e.to_string(),
                 },
             });
+            if ready {
+                let hook = me.hooks.on_ready.lock().ok().and_then(|h| h.clone());
+                if let Some(f) = hook {
+                    f();
+                }
+            }
         });
     }
 }
@@ -339,6 +382,107 @@ pub fn to_pixels(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sha2::{Digest, Sha256};
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    /// A one-file HTTP server. `None` accepts connections and never answers.
+    fn serve(body: Option<&'static [u8]>) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/f.bin", listener.local_addr().unwrap());
+        std::thread::spawn(move || {
+            let mut held = Vec::new();
+            for mut conn in listener.incoming().flatten() {
+                let Some(body) = body else {
+                    held.push(conn);
+                    continue;
+                };
+                let mut buf = [0u8; 2048];
+                let _ = conn.read(&mut buf);
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = conn.write_all(head.as_bytes());
+                let _ = conn.write_all(body);
+            }
+        });
+        url
+    }
+
+    fn model_for(url: String, size: usize, sha: String, dir: &Path) -> OcrModel {
+        let url: &'static str = Box::leak(url.into_boxed_str());
+        let sha: &'static str = Box::leak(sha.into_boxed_str());
+        let files: &'static [ManifestFile] = Box::leak(Box::new([ManifestFile {
+            name: "f.bin",
+            remote: url,
+            size: size as u64,
+            sha256: sha,
+        }]));
+        OcrModel::with_files(dir.join("model"), files)
+    }
+
+    fn wait_for(model: &OcrModel, done: impl Fn(&ModelState) -> bool) {
+        for _ in 0..200 {
+            if done(&model.status()) {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        panic!(
+            "the download never reached the expected state: {:?}",
+            model.status()
+        );
+    }
+
+    #[test]
+    fn cancelling_stops_a_download_that_is_waiting_for_the_server() {
+        let dir = tempfile::tempdir().unwrap();
+        let model = model_for(serve(None), 100, "0".repeat(64), dir.path());
+        let ready = Arc::new(AtomicBool::new(false));
+        let flag = ready.clone();
+        model.set_on_ready(Arc::new(move || flag.store(true, Ordering::SeqCst)));
+
+        model.ensure();
+        assert!(matches!(model.status(), ModelState::Downloading { .. }));
+        model.cancel();
+        wait_for(&model, |s| matches!(s, ModelState::Missing));
+        assert!(
+            !ready.load(Ordering::SeqCst),
+            "a cancelled download is not ready"
+        );
+
+        // and it can be started again
+        model.ensure();
+        assert!(matches!(model.status(), ModelState::Downloading { .. }));
+        model.cancel();
+        wait_for(&model, |s| matches!(s, ModelState::Missing));
+    }
+
+    #[test]
+    fn the_ready_hook_runs_once_the_files_are_in_place() {
+        static BODY: &[u8] = b"model bytes";
+        let sha: String = Sha256::digest(BODY)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        let dir = tempfile::tempdir().unwrap();
+        let model = model_for(serve(Some(BODY)), BODY.len(), sha, dir.path());
+        let ready = Arc::new(AtomicBool::new(false));
+        let flag = ready.clone();
+        model.set_on_ready(Arc::new(move || flag.store(true, Ordering::SeqCst)));
+
+        model.ensure();
+        wait_for(&model, |s| matches!(s, ModelState::Ready));
+        for _ in 0..200 {
+            if ready.load(Ordering::SeqCst) {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        panic!("the ready hook never ran");
+    }
 
     #[test]
     fn user_space_boxes_round_trip_through_pixels() {

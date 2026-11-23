@@ -109,6 +109,8 @@ struct Inner {
     state: Mutex<ModelState>,
     counts: Mutex<(u32, u32)>,
     paused: AtomicBool,
+    /// Stops the model download that is running, if any.
+    download_cancel: Mutex<Option<CancellationToken>>,
     encoder: Mutex<Option<Box<dyn Encoder>>>,
     /// Searches waiting for the model. The worker steps aside for them between batches.
     waiting: AtomicUsize,
@@ -175,6 +177,7 @@ impl Embedder {
             }),
             counts: Mutex::new((0, 0)),
             paused: AtomicBool::new(false),
+            download_cancel: Mutex::new(None),
             encoder: Mutex::new(None),
             waiting: AtomicUsize::new(0),
             query_cache: Mutex::new(Vec::new()),
@@ -245,6 +248,13 @@ impl Embedder {
         self.publish();
     }
 
+    /// Stops the local model download that is running. The partial files stay.
+    pub fn cancel_download(&self) {
+        if let Some(t) = lock(&self.0.download_cancel).clone() {
+            t.cancel();
+        }
+    }
+
     /// Makes sure the model is usable. For Gemini that is the user's yes (or a retry after an
     /// error). For the local model it starts the download if files are missing (and resumes a
     /// partial one), or retries loading when they are all there. Returns at once.
@@ -279,9 +289,10 @@ impl Embedder {
             return;
         }
         let me = self.clone();
+        let cancel = CancellationToken::new();
+        *lock(&self.0.download_cancel) = Some(cancel.clone());
         tauri::async_runtime::spawn(async move {
             let client = model::http_client();
-            let cancel = CancellationToken::new();
             let progress_for = me.clone();
             let result = model::download(
                 &client,
@@ -297,6 +308,7 @@ impl Embedder {
                 },
             )
             .await;
+            *lock(&me.0.download_cancel) = None;
             match result {
                 Ok(()) => {
                     me.set_state(ModelState::Ready);

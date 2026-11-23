@@ -35,14 +35,14 @@ pub async fn retry_job(
     Ok(state.jobs.retry(lane, document_id).await?)
 }
 
-/// Stops a queued or running document. For layout it means skipping that document until a retry.
-/// True if something was stopped.
+/// Stops a queued or running document, or a model download. For layout it means skipping that
+/// document until a retry. True if something was stopped.
 #[tauri::command]
 #[specta::specta]
 pub async fn cancel_job(
     state: State<'_, AppState>,
     lane: Lane,
-    document_id: String,
+    document_id: Option<String>,
 ) -> CmdResult<bool> {
-    Ok(state.jobs.cancel(lane, &document_id).await?)
+    Ok(state.jobs.cancel(lane, document_id).await?)
 }

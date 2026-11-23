@@ -276,6 +276,23 @@ pub fn run() {
             ingest.set_layout_dir(Some(layout.dir().to_path_buf()));
             let tables = crate::services::ingestion::tables::model(&dir);
             ingest.set_tables_dir(Some(tables.dir().to_path_buf()));
+            // Work that was waiting for a model starts when its download finishes.
+            let scans = (db.clone(), ingest.clone());
+            ocr.set_on_ready(Arc::new(move || {
+                let (db, ingest) = scans.clone();
+                tauri::async_runtime::spawn(async move {
+                    let _ = ingest.enqueue_scans(&db).await;
+                });
+            }));
+            let layouts = (db.clone(), ingest.clone());
+            let on_layout_model: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+                let (db, ingest) = layouts.clone();
+                tauri::async_runtime::spawn(async move {
+                    let _ = ingest.enqueue_layouts(&db).await;
+                });
+            });
+            layout.set_on_ready(on_layout_model.clone());
+            tables.set_on_ready(on_layout_model);
             ingest.set_on_layout(Arc::new(move |d| {
                 after_layout.1(crate::services::ingestion::queue::DocumentChanged {
                     document: d.clone(),

@@ -104,7 +104,7 @@ export const commands = {
 	/**
 	 *  Downloads the text recognition models (about 31 MB), if they aren't there yet. Documents read
 	 *  afterwards use them for pages without text, and scans already in the library are read again once
-	 *  it is ready. Returns at once, poll `ocr_status` for progress.
+	 *  it is ready. Returns at once. Progress is on the job list.
 	 */
 	downloadOcrModel: () => __TAURI_INVOKE<ModelState>("download_ocr_model"),
 	layoutStatus: () => __TAURI_INVOKE<ModelState>("layout_status"),
@@ -112,13 +112,13 @@ export const commands = {
 	layoutProgress: () => typedError<LayoutProgress, CmdError>(__TAURI_INVOKE("layout_progress")),
 	/**
 	 *  Downloads the page layout model (about 130 MB), if it isn't there yet. When it is ready, documents
-	 *  already in the library get their layout in the background. Returns at once, poll `layout_status`.
+	 *  already in the library get their layout in the background. Returns at once. Progress is on the job list.
 	 */
 	downloadLayoutModel: () => __TAURI_INVOKE<ModelState>("download_layout_model"),
 	tablesStatus: () => __TAURI_INVOKE<ModelState>("tables_status"),
 	/**
 	 *  Downloads the table structure model (about 8 MB), if it isn't there yet. When it is ready, tables in
-	 *  documents that already have layout are read in the background. Poll `tables_status`.
+	 *  documents that already have layout are read in the background. Progress is on the job list.
 	 */
 	downloadTablesModel: () => __TAURI_INVOKE<ModelState>("download_tables_model"),
 	embeddingStatus: () => __TAURI_INVOKE<EmbeddingStatus>("embedding_status"),
@@ -158,10 +158,10 @@ export const commands = {
 	/**  Runs a failed item again. The document lanes need `document_id`. */
 	retryJob: (lane: Lane, documentId: string | null) => typedError<null, CmdError>(__TAURI_INVOKE("retry_job", { lane, documentId })),
 	/**
-	 *  Stops a queued or running document. For layout it means skipping that document until a retry.
-	 *  True if something was stopped.
+	 *  Stops a queued or running document, or a model download. For layout it means skipping that
+	 *  document until a retry. True if something was stopped.
 	 */
-	cancelJob: (lane: Lane, documentId: string) => typedError<boolean, CmdError>(__TAURI_INVOKE("cancel_job", { lane, documentId })),
+	cancelJob: (lane: Lane, documentId: string | null) => typedError<boolean, CmdError>(__TAURI_INVOKE("cancel_job", { lane, documentId })),
 };
 
 /** Events */

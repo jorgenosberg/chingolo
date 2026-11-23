@@ -206,7 +206,11 @@ async fn download_one(
     if have > 0 {
         req = req.header(reqwest::header::RANGE, format!("bytes={have}-"));
     }
-    let resp = req.send().await.map_err(net)?;
+    // Cancelling also has to work while the server is slow to answer.
+    let resp = tokio::select! {
+        _ = cancel.cancelled() => return Err(AppError::Cancelled),
+        r = req.send() => r.map_err(net)?,
+    };
     let status = resp.status();
     if status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
         // The partial file doesn't fit what the server has. Start that file over.

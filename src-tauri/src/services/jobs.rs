@@ -261,25 +261,51 @@ impl Jobs {
                 s.ingest.enqueue_layout(&doc);
             }
             Lane::Details => s.enricher.queue(&need()?),
-            Lane::Index => s.embedder.ensure_model(),
-            _ => {}
+            Lane::Index | Lane::DownloadEmbedding => s.embedder.ensure_model(),
+            Lane::DownloadOcr => s.ocr.ensure(),
+            Lane::DownloadLayout => s.layout.ensure(),
+            Lane::DownloadTables => s.tables.ensure(),
         }
         self.poke();
         Ok(())
     }
 
-    /// Stops a queued or running document. Layout is skipped for that document until a retry.
-    pub async fn cancel(&self, lane: Lane, document_id: &str) -> Result<bool> {
+    /// Stops a queued or running document, or a model download. Layout is skipped for that
+    /// document until a retry. A cancelled download keeps its partial files. Cancelling the
+    /// search model also withdraws the yes to download it, so it isn't started again at launch.
+    pub async fn cancel(&self, lane: Lane, document_id: Option<String>) -> Result<bool> {
         let s = &self.src;
+        let doc = || document_id.clone().ok_or(AppError::NotFound);
         let stopped = match lane {
-            Lane::Read => s.ingest.cancel(document_id),
+            Lane::Read => s.ingest.cancel(&doc()?),
             Lane::Layout => {
-                let id = document_id.to_string();
-                s.db.call(move |c| repo::skip_layout(c, &id)).await?;
-                s.ingest.cancel_lane(Lane::Layout, document_id);
+                let id = doc()?;
+                let skip = id.clone();
+                s.db.call(move |c| repo::skip_layout(c, &skip)).await?;
+                s.ingest.cancel_lane(Lane::Layout, &id);
                 true
             }
-            _ => false,
+            Lane::DownloadOcr => {
+                s.ocr.cancel();
+                true
+            }
+            Lane::DownloadLayout => {
+                s.layout.cancel();
+                true
+            }
+            Lane::DownloadTables => {
+                s.tables.cancel();
+                true
+            }
+            Lane::DownloadEmbedding => {
+                s.embedder.cancel_download();
+                s.db.call(|c| {
+                    settings::set_bool(c, crate::commands::embedding::DOWNLOAD_ACCEPTED, false)
+                })
+                .await?;
+                true
+            }
+            Lane::Details | Lane::Index => false,
         };
         self.poke();
         Ok(stopped)
@@ -686,7 +712,11 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(jobs.cancel(Lane::Layout, &doc.id).await.unwrap());
+        assert!(
+            jobs.cancel(Lane::Layout, Some(doc.id.clone()))
+                .await
+                .unwrap()
+        );
         let failed = db.call(|c| repo::failed_layouts(c, 10)).await.unwrap();
         assert_eq!(failed[0].0, doc.id);
         assert_eq!(failed[0].2, "Skipped");
