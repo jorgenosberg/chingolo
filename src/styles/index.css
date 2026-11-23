@@ -242,3 +242,26 @@
 		transparent 4px 8px
 	);
 }
+
+/* The mascot on the Activity page hops while work runs. It stays still for reduced motion. */
+.bird-bob {
+	transform-origin: 50% 100%;
+	animation: bird-bob 1.6s ease-in-out infinite;
+}
+.bird-bob-slow {
+	animation-duration: 3.2s;
+}
+@keyframes bird-bob {
+	0%,
+	100% {
+		transform: translateY(0) rotate(-2deg);
+	}
+	50% {
+		transform: translateY(-4px) rotate(2deg);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.bird-bob {
+		animation: none;
+	}
+}

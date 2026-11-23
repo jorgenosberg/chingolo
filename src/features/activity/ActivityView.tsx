@@ -5,6 +5,7 @@ import { Button, cx, focus, ProgressBar } from "../../components/ui";
 import { api } from "../../lib/api";
 import type { Lane, LaneSnapshot, LaneState } from "../../lib/bindings";
 import { formatCount, LANE_HINT, LANE_TITLE, useJobs } from "../../lib/jobs";
+import { Bird, type BirdMood, ReadingBird } from "./Bird";
 
 const STATE_LABEL: Record<LaneState, string> = {
 	idle: "Idle",
@@ -288,6 +289,18 @@ export default function ActivityView() {
 	const visible = (l: LaneSnapshot) =>
 		shown === "all" ? true : l.state === shown;
 	const idleOnly = counts.all === 0;
+	const mood: BirdMood = lanes.some((l) => l.state === "running")
+		? "busy"
+		: lanes.some((l) => l.state === "waiting")
+			? "waiting"
+			: "still";
+	const problem = counts.failed > 0;
+
+	const rowsOf = (g: { lanes: Lane[] }) =>
+		g.lanes
+			.map((id) => lanes.find((l) => l.lane === id))
+			.filter((l): l is LaneSnapshot => !!l && visible(l));
+	const first = GROUPS.findIndex((g) => rowsOf(g).length > 0);
 
 	return (
 		<div className="flex h-full flex-col">
@@ -312,18 +325,28 @@ export default function ActivityView() {
 			<div className="@container min-h-0 flex-1 overflow-y-auto px-6 pb-6">
 				<div className="flex w-full flex-col gap-5">
 					{idleOnly && (
-						<p className="text-[13px] text-muted-foreground">
-							Nothing is running. Idle work is listed below.
-						</p>
+						<div className="flex items-center gap-4">
+							<ReadingBird />
+							<div>
+								<p className="text-[14px] font-medium">Nothing is running.</p>
+								<p className="text-[13px] text-muted-foreground">
+									Idle work is listed below.
+								</p>
+							</div>
+						</div>
 					)}
-					{GROUPS.map((g) => {
-						const rows = g.lanes
-							.map((id) => lanes.find((l) => l.lane === id))
-							.filter((l): l is LaneSnapshot => !!l && visible(l));
+					{GROUPS.map((g, index) => {
+						const rows = rowsOf(g);
 						if (rows.length === 0) return null;
 						return (
 							<section key={g.name} aria-label={g.name}>
-								<h2 className="mb-2 text-[14px] font-semibold">{g.name}</h2>
+								{/* The first group carries the bird, perched on the list below. */}
+								<div className="flex items-end justify-between">
+									<h2 className="mb-2 text-[14px] font-semibold">{g.name}</h2>
+									{index === first && !idleOnly && (
+										<Bird mood={mood} problem={problem} />
+									)}
+								</div>
 								<ul className="divide-y divide-border rounded-lg border border-border">
 									{rows.map((l) => (
 										<LaneRow key={l.lane} lane={l} />
