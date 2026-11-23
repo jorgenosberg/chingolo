@@ -58,7 +58,6 @@ function Row({
 	onPress,
 	icon,
 	label,
-	marker,
 	pending,
 	menu,
 	expanded,
@@ -71,8 +70,6 @@ function Row({
 	/** Plain conversations have none: just their title. */
 	icon?: ReactNode;
 	label: string;
-	/** A small sign after the label, such as unsent text. */
-	marker?: ReactNode;
 	/** Something waits for the user, so the label is set heavier. */
 	pending?: boolean;
 	menu?: ReactNode;
@@ -96,7 +93,6 @@ function Row({
 			>
 				{icon && <span className="shrink-0 text-muted-foreground">{icon}</span>}
 				<span className="truncate">{label}</span>
-				{marker}
 				{shortcut && <Kbd keys={shortcut} className="ml-auto" />}
 			</RacButton>
 			{menu && (
@@ -255,12 +251,13 @@ function ConversationRow({ c, depth }: { c: Conversation; depth: number }) {
 			depth={depth}
 			label={c.title}
 			pending={unsent}
-			marker={
+			icon={
 				unsent && (
 					<PencilSimpleLineIcon
 						role="img"
 						aria-label="Has unsent text"
-						className="size-3.5 shrink-0 text-primary"
+						weight="bold"
+						className="size-3.5 text-primary"
 					/>
 				)
 			}
