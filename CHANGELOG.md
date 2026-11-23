@@ -8,6 +8,7 @@ See everything Chingolo is working on in one place, and pause, retry or cancel i
 - The Activity page lists reading, page layout and tables, paper details, indexing and the model downloads. Each shows its progress, the document it is on, and anything that failed. Filter by running, waiting, paused or needs attention.
 - Pause reading, page layout, paper details or indexing. The document being worked on finishes first, and the pause is kept after a restart. Cancel the document being read, skip one in page layout, retry anything that failed, and cancel or restart a model download, also from Settings.
 - New imports are read before the page layout backlog, so a new folder no longer waits behind it.
+- A chat with text you typed but didn't send shows a small pencil after its title in the sidebar. The text is kept, also after a restart.
 - A document whose page layout fails is tried twice, then left alone until you press Retry, and the Activity page shows why. Before, it was tried again at every start and the reason was only in the log.
 - The first start after the update upgrades the database. A backup copy is kept next to it, and older versions of Chingolo can't open the upgraded database.
 
