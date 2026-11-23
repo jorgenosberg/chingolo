@@ -57,6 +57,7 @@ export const commands = {
 	previewBugReport: (description: string, includeLog: boolean) => typedError<string, CmdError>(__TAURI_INVOKE("preview_bug_report", { description, includeLog })),
 	/**  Works with the other two reports off: the user presses send themselves. */
 	sendBugReport: (description: string, includeLog: boolean) => typedError<null, CmdError>(__TAURI_INVOKE("send_bug_report", { description, includeLog })),
+	countEvent: (event: UiEvent) => typedError<null, CmdError>(__TAURI_INVOKE("count_event", { event })),
 	/**
 	 *  Opens the system file or folder dialog and imports what the user picks. Paths never pass
 	 *  through the webview.
@@ -730,6 +731,9 @@ export type SourceView = {
 	page: number,
 	text: string,
 };
+
+/**  Events only the webview sees. */
+export type UiEvent = "reader_opened";
 
 export type Unit = "pages" | "passages" | "tables" | "bytes";
 

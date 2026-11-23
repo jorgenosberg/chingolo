@@ -71,6 +71,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
             commands::reporting::report_frontend_error,
             commands::reporting::preview_bug_report,
             commands::reporting::send_bug_report,
+            commands::reporting::count_event,
             commands::library::pick_and_import,
             commands::library::set_import_target,
             commands::library::list_documents,
@@ -207,6 +208,14 @@ pub fn run() {
             let db_path = dir.join("chingolo.sqlite");
             let db = Db::open(&db_path)?;
             crate::services::pricing::load_saved(&dir);
+            {
+                use crate::services::usage_counts as counts;
+                let counting = db.clone();
+                tauri::async_runtime::spawn(async move {
+                    counts::count(&counting, counts::Event::AppOpened, "", "", "").await;
+                    counts::keep_flushing(counting).await;
+                });
+            }
             tauri::async_runtime::spawn(crate::services::crashes::send_pending(
                 db.clone(),
                 crate::services::crashes::dir(&dir),

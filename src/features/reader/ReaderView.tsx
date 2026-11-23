@@ -50,6 +50,11 @@ export default function ReaderView({
 		reader?.source ?? null,
 		Boolean(removed) || passage.isError,
 	);
+	// Once per document opened, for the opt-in usage counts.
+	const openedId = reader?.documentId;
+	useEffect(() => {
+		if (openedId) api.countEvent("reader_opened");
+	}, [openedId]);
 	useEffect(() => {
 		if (removed && !reader?.source) closeReader();
 	}, [removed, reader?.source, closeReader]);

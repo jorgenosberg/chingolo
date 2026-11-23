@@ -3,6 +3,7 @@ use tauri::{AppHandle, Manager, State};
 use crate::error::{AppError, CmdResult};
 use crate::persistence::settings as repo;
 use crate::security;
+use crate::services::usage_counts::{self, Event};
 use crate::services::{crashes, reporting};
 use crate::state::AppState;
 
@@ -42,7 +43,8 @@ pub async fn disconnect_reporting(state: State<'_, AppState>) -> CmdResult<()> {
             repo::set(c, reporting::URL_KEY, "")?;
             repo::set(c, reporting::ERROR_KEY, "")?;
             repo::set_bool(c, reporting::USAGE_KEY, false)?;
-            repo::set_bool(c, reporting::CRASH_KEY, false)
+            repo::set_bool(c, reporting::CRASH_KEY, false)?;
+            usage_counts::clear(c)
         })
         .await?;
     Ok(())
@@ -132,4 +134,22 @@ pub async fn send_bug_report(
             Err(AppError::Provider("The server turned the report down.".into()).into())
         }
     }
+}
+
+/// Events only the webview sees.
+#[derive(Debug, Clone, Copy, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum UiEvent {
+    ReaderOpened,
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn count_event(state: State<'_, AppState>, event: UiEvent) -> CmdResult<()> {
+    match event {
+        UiEvent::ReaderOpened => {
+            usage_counts::count(&state.db, Event::ReaderOpened, "", "", "").await
+        }
+    }
+    Ok(())
 }

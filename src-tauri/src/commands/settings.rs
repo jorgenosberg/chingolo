@@ -191,6 +191,9 @@ pub async fn update_settings(
             }
             if let Some(v) = patch.usage_stats {
                 repo::set_bool(c, reporting::USAGE_KEY, v)?;
+                if !v {
+                    crate::services::usage_counts::clear(c)?;
+                }
             }
             if let Some(v) = patch.crash_reports {
                 repo::set_bool(c, reporting::CRASH_KEY, v)?;

@@ -3,6 +3,7 @@ use tauri::State;
 use crate::domain::{SavedFilter, SavedItem, SavedSource};
 use crate::error::CmdResult;
 use crate::persistence::saved as repo;
+use crate::services::usage_counts::{self, Event};
 use crate::state::AppState;
 
 #[tauri::command]
@@ -20,7 +21,11 @@ pub async fn list_saved(
 pub async fn save_reply(state: State<'_, AppState>, message_id: String) -> CmdResult<SavedItem> {
     Ok(state
         .db
-        .call(move |c| repo::save_reply(c, &message_id))
+        .call(move |c| {
+            let item = repo::save_reply(c, &message_id)?;
+            usage_counts::count_conn(c, Event::SavedItemCreated, "", "", "reply");
+            Ok(item)
+        })
         .await?)
 }
 
@@ -35,7 +40,11 @@ pub async fn save_selection(
 ) -> CmdResult<SavedItem> {
     Ok(state
         .db
-        .call(move |c| repo::save_selection(c, &message_id, &text, &handles))
+        .call(move |c| {
+            let item = repo::save_selection(c, &message_id, &text, &handles)?;
+            usage_counts::count_conn(c, Event::SavedItemCreated, "", "", "selection");
+            Ok(item)
+        })
         .await?)
 }
 
@@ -50,7 +59,11 @@ pub async fn save_passage(
 ) -> CmdResult<SavedItem> {
     Ok(state
         .db
-        .call(move |c| repo::save_passage(c, &document_id, page, &text, project_id.as_deref()))
+        .call(move |c| {
+            let item = repo::save_passage(c, &document_id, page, &text, project_id.as_deref())?;
+            usage_counts::count_conn(c, Event::SavedItemCreated, "", "", "passage");
+            Ok(item)
+        })
         .await?)
 }
 

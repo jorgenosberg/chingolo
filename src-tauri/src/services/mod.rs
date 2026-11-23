@@ -13,3 +13,4 @@ pub mod retrieval;
 #[cfg(test)]
 pub mod testserver;
 pub mod tools;
+pub mod usage_counts;

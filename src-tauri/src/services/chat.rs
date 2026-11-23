@@ -21,6 +21,7 @@ use crate::services::ai::{
 use crate::services::citations;
 use crate::services::rerank::RerankCtx;
 use crate::services::tools::{self, ToolCtx};
+use crate::services::usage_counts::{self, Event};
 use crate::state::{AppState, Generations};
 
 /// Used when the user has no documents to read, or the model can't call tools.
@@ -476,6 +477,7 @@ async fn run_generation(
 ) {
     let (provider_id, model_id) = (provider.id(), request.model.clone());
     let started = Instant::now();
+    usage_counts::count(&db, Event::ChatSent, provider_id, &model_id, "").await;
     let mut live = Live {
         db: &db,
         message_id: &assistant.id,
@@ -498,6 +500,8 @@ async fn run_generation(
         (None::<u32>, None::<u32>, None::<u32>);
     let mut finish_reason: Option<FinishReason> = None;
     let (mut round_no, mut tool_rounds) = (0usize, 0usize);
+    let (assistant_conversation, has_tools) =
+        (assistant.conversation_id.clone(), tool_ctx.is_some());
 
     let outcome = 'rounds: loop {
         round_no += 1;
@@ -698,6 +702,8 @@ async fn run_generation(
     let turns_json = (status == MessageStatus::Complete && tool_rounds > 0)
         .then(|| serde_json::to_string(&new_turns).ok())
         .flatten();
+    let error_bucket = (status == MessageStatus::Error)
+        .then(|| usage_counts::classify_error(note.as_deref().unwrap_or("")));
     let id = assistant.id.clone();
     let saved = db
         .call(move |c| {
@@ -729,6 +735,84 @@ async fn run_generation(
         ..assistant
     });
     let _ = on_event.send(ChatEvent::Finished { message });
+
+    // Opt-in usage counts. After the reply is delivered, so none of it delays the chat.
+    if let Some(bucket) = error_bucket {
+        usage_counts::count(&db, Event::ProviderError, provider_id, &model_id, bucket).await;
+    }
+    if status == MessageStatus::Complete {
+        let conversation_id = assistant_conversation;
+        let counting = db
+            .call(|c| Ok(usage_counts::enabled(c)))
+            .await
+            .unwrap_or(false);
+        if counting {
+            count_finished_reply(
+                &db,
+                provider.as_ref(),
+                &api_key,
+                &model_id,
+                conversation_id,
+                input_tokens.unwrap_or(0),
+                cached_input_tokens.unwrap_or(0),
+                has_tools.then_some(tool_rounds),
+            )
+            .await;
+        }
+    }
+}
+
+/// The counts a finished reply gives rise to: tool rounds, the Gemini cache check, and how big
+/// the conversation is against the model's window and price tier.
+#[allow(clippy::too_many_arguments)]
+async fn count_finished_reply(
+    db: &Db,
+    provider: &dyn Provider,
+    api_key: &str,
+    model_id: &str,
+    conversation_id: String,
+    input_tokens: u32,
+    cached_tokens: u32,
+    tool_rounds: Option<usize>,
+) {
+    let provider_id = provider.id();
+    if let Some(rounds) = tool_rounds {
+        usage_counts::count(
+            db,
+            Event::ToolRounds,
+            provider_id,
+            model_id,
+            &rounds.to_string(),
+        )
+        .await;
+    }
+    if provider_id == "gemini" && input_tokens > 4_096 {
+        let bucket = if cached_tokens > 0 { "hit" } else { "miss" };
+        usage_counts::count(db, Event::GeminiCacheOver4k, provider_id, model_id, bucket).await;
+    }
+    if input_tokens == 0 {
+        return;
+    }
+    // The window comes from the provider's model list, so only ask when it could matter.
+    let limit = if input_tokens >= 8_000 {
+        provider
+            .list_models(api_key)
+            .await
+            .ok()
+            .and_then(|list| list.into_iter().find(|m| m.id == model_id))
+            .and_then(|m| m.input_token_limit)
+    } else {
+        None
+    };
+    let jump =
+        crate::services::pricing::facts(provider_id, model_id).and_then(|f| f.price_jump_over);
+    let (p, m) = (provider_id.to_string(), model_id.to_string());
+    let _ = db
+        .call(move |c| {
+            usage_counts::count_context(c, &conversation_id, &p, &m, input_tokens, limit, jump);
+            Ok(())
+        })
+        .await;
 }
 
 const HANDOFF_REQUEST: &str = "Don't search or call any tool. Write a handoff note so a new \

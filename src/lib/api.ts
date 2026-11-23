@@ -8,6 +8,7 @@ import {
 	type SavedFilter,
 	type Scope,
 	type SettingsPatch,
+	type UiEvent,
 	type UsagePeriod,
 } from "./bindings";
 
@@ -100,6 +101,8 @@ export const api = {
 		unwrap(commands.previewBugReport(description, includeLog)),
 	sendBugReport: (description: string, includeLog: boolean) =>
 		unwrap(commands.sendBugReport(description, includeLog)),
+	/** Opt-in usage count. Never throws. */
+	countEvent: (event: UiEvent) => commands.countEvent(event).catch(() => {}),
 	/** For error handlers: never throws. */
 	reportFrontendError: (
 		message: string,

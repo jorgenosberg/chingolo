@@ -8,6 +8,7 @@ use crate::error::CmdResult;
 use crate::persistence::chat as repo;
 use crate::persistence::settings;
 use crate::services::chat::{self, ChatEvent, SendResult};
+use crate::services::usage_counts::{self, Event};
 use crate::state::AppState;
 
 #[tauri::command]
@@ -185,7 +186,12 @@ pub async fn fork_conversation(
 ) -> CmdResult<Conversation> {
     Ok(state
         .db
-        .call(move |c| repo::fork_conversation(c, &id, from_message_id.as_deref()))
+        .call(move |c| {
+            let bucket = warned_bucket(c, &id);
+            let conv = repo::fork_conversation(c, &id, from_message_id.as_deref())?;
+            usage_counts::count_conn(c, Event::ForkUsed, "", "", bucket);
+            Ok(conv)
+        })
         .await?)
 }
 
@@ -193,5 +199,24 @@ pub async fn fork_conversation(
 #[tauri::command]
 #[specta::specta]
 pub async fn summarize_for_handoff(state: State<'_, AppState>, id: String) -> CmdResult<String> {
-    Ok(chat::handoff_summary(&state, id).await?)
+    let counted = id.clone();
+    let note = chat::handoff_summary(&state, id).await?;
+    let _ = state
+        .db
+        .call(move |c| {
+            let bucket = warned_bucket(c, &counted);
+            usage_counts::count_conn(c, Event::HandoffUsed, "", "", bucket);
+            Ok(())
+        })
+        .await;
+    Ok(note)
+}
+
+/// Whether a context warning had shown in the conversation, for the fork and hand off counts.
+fn warned_bucket(c: &rusqlite::Connection, conversation_id: &str) -> &'static str {
+    if usage_counts::was_warned(c, conversation_id) {
+        "after_warning"
+    } else {
+        "no_warning"
+    }
 }

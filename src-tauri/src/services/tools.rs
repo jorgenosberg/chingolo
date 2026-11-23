@@ -17,6 +17,7 @@ use crate::services::embedding::engine::Embedder;
 use crate::services::ingestion::tables;
 use crate::services::rerank::{self, RerankCtx};
 use crate::services::retrieval;
+use crate::services::usage_counts::{self, Event};
 
 const SEARCH_LIMIT_DEFAULT: u32 = 6;
 const SEARCH_LIMIT_MAX: u32 = 8;
@@ -209,6 +210,9 @@ async fn search(ctx: &ToolCtx, args: &Value) -> Result<Value> {
 
     if let (Some(r), true) = (&ctx.rerank, hits.len() > 1) {
         let result = rerank::rerank(r, &query, hits.clone()).await;
+        if result.is_ok() {
+            usage_counts::count(&ctx.db, Event::RerankUsed, r.provider.id(), &r.model, "").await;
+        }
         let (tokens, latency_ms, ok) = match &result {
             Ok(x) => (x.tokens, x.latency_ms, true),
             Err(e) => {

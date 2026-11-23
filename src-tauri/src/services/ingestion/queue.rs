@@ -25,6 +25,7 @@ use crate::domain::library::{DocKind, DocStatus, Document};
 use crate::error::{AppError, Result};
 use crate::persistence::{Db, library as repo};
 use crate::services::jobs::Lane;
+use crate::services::usage_counts::{self, Event};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -532,9 +533,10 @@ fn worker_loop(mut conn: Connection, inner: Arc<Inner>) {
         } else if ran.is_err() && matches!(job, Job::Layout(_)) {
             log::warn!(
                 "page layout of {} crashed, its passages are unchanged",
-                doc.original_name
+                doc.id
             );
             let _ = repo::set_layout_error(&conn, &doc.id, Some("Page layout crashed"));
+            usage_counts::count_conn(&conn, Event::ImportFailed, "", "", "layout");
         } else if ran.is_err()
             && let Ok(d) = repo::set_status(
                 &conn,
@@ -543,6 +545,7 @@ fn worker_loop(mut conn: Connection, inner: Arc<Inner>) {
                 Some("Reading this file crashed. It may be damaged."),
             )
         {
+            usage_counts::count_conn(&conn, Event::ImportFailed, "", "", "read");
             emit(d, None);
         }
         if matches!(job, Job::Details(_))
@@ -584,7 +587,7 @@ pub fn run_details(
         Ok(()) => {
             log::info!(
                 "details refreshed for {}: found {} ({} edited fields kept), {} ms",
-                doc.original_name,
+                doc.id,
                 if fields.is_empty() {
                     "nothing".to_string()
                 } else {
@@ -598,7 +601,10 @@ pub fn run_details(
             }
         }
         Err(AppError::NotFound) => {}
-        Err(e) => log::warn!("couldn't refresh the details of {}: {e}", doc.id),
+        Err(e) => {
+            log::warn!("couldn't refresh the details of {}: {e}", doc.id);
+            usage_counts::count_conn(conn, Event::ImportFailed, "", "", "details");
+        }
     }
 }
 
@@ -752,7 +758,7 @@ fn run_layout(
         let count = |s: &str| fresh.iter().filter(|t| t.status == s).count();
         log::info!(
             "layout for {}: {} pages, {} lines, {} dropped (headers, footers, numbers), {} unplaced, {} pages kept as they were, {} tables read ({} ok, {} unsure, {} failed), {} passages, {} ms",
-            doc.original_name,
+            doc.id,
             done.len(),
             stats.lines,
             stats.dropped,
@@ -779,6 +785,7 @@ fn run_layout(
             log::warn!("page layout of {} failed: {e}", doc.id);
             let _ =
                 repo::set_layout_error(conn, &doc.id, Some(&format!("Page layout failed: {e}")));
+            usage_counts::count_conn(conn, Event::ImportFailed, "", "", "layout");
         }
     }
 }
@@ -804,6 +811,9 @@ pub fn run_job(
     let finish = |conn: &Connection, status: DocStatus, note: Option<&str>| {
         // The document may have been deleted while it was being read.
         if let Ok(d) = repo::set_status(conn, &doc.id, status, note) {
+            if status == DocStatus::Error {
+                usage_counts::count_conn(conn, Event::ImportFailed, "", "", "read");
+            }
             emit(d, None);
         }
     };
@@ -861,12 +871,21 @@ pub fn run_job(
     ) {
         Ok(d) => {
             log::info!(
-                "read {}: {} pages, {} passages, details found: {}",
-                doc.original_name,
+                "read document {}: {} pages, {} passages, details found: {}",
+                doc.id,
                 ex.pages.len(),
                 passages.len(),
                 ex.meta.fields().join(", ")
             );
+            match d.status {
+                DocStatus::Ready => {
+                    usage_counts::count_conn(conn, Event::DocumentImported, "", "", "")
+                }
+                DocStatus::NoText => {
+                    usage_counts::count_conn(conn, Event::ImportFailed, "", "", "no_text")
+                }
+                _ => {}
+            }
             emit(d, None)
         }
         Err(AppError::NotFound) => {}

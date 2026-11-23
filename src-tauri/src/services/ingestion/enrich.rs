@@ -274,7 +274,7 @@ async fn ai_step(db: &Db, target: &Target, id: &str) -> Result<Option<Document>>
     log::info!(
         "details model {}: asking about {} (title {}, authors {}, year {} missing)",
         target.model,
-        doc.original_name,
+        doc.id,
         want.title,
         want.authors,
         want.year
@@ -312,13 +312,8 @@ async fn ai_step(db: &Db, target: &Target, id: &str) -> Result<Option<Document>>
     if let Err(e) = recorded {
         log::warn!("couldn't record details usage: {e}");
     }
-    let asked = asked.inspect_err(|e| {
-        log::warn!(
-            "details model {} failed for {}: {e}",
-            target.model,
-            doc.original_name
-        )
-    })?;
+    let asked = asked
+        .inspect_err(|e| log::warn!("details model {} failed for {}: {e}", target.model, doc.id))?;
     log::info!(
         "details model {}: {} tokens in, {} out, {} ms, kept {}",
         target.model,
@@ -336,7 +331,7 @@ async fn ai_step(db: &Db, target: &Target, id: &str) -> Result<Option<Document>>
             "details model {}: {} for {} not backed by the text, dropped",
             target.model,
             asked.dropped.join(", "),
-            doc.original_name
+            doc.id
         );
     }
     let found = asked.found;
@@ -397,19 +392,11 @@ async fn lookup_step(
         let record = match lookup::run(client, bases, &step).await {
             Ok(Some(r)) => r,
             Ok(None) => {
-                log::info!(
-                    "lookup: {} is unknown ({})",
-                    step.label(),
-                    doc.original_name
-                );
+                log::info!("lookup: {} is unknown ({})", step.label(), doc.id);
                 continue;
             }
             Err(e) => {
-                log::warn!(
-                    "lookup: {} failed ({}): {e}",
-                    step.label(),
-                    doc.original_name
-                );
+                log::warn!("lookup: {} failed ({}): {e}", step.label(), doc.id);
                 failure.get_or_insert(e);
                 continue;
             }
@@ -418,7 +405,7 @@ async fn lookup_step(
             log::info!(
                 "lookup: record for {} is a different work than {}, ignored",
                 step.label(),
-                doc.original_name
+                doc.id
             );
             continue;
         }
@@ -506,10 +493,7 @@ async fn title_step(
                     .next()
                     .filter(|r| !r.authors.is_empty() && fits(r))
             }
-            Err(e) => log::warn!(
-                "title search: DataCite failed for {}: {e}",
-                doc.original_name
-            ),
+            Err(e) => log::warn!("title search: DataCite failed for {}: {e}", doc.id),
         }
     }
     let Some(top) = top else {
