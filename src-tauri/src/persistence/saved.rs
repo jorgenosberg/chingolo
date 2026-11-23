@@ -178,16 +178,25 @@ fn doi_of(conn: &Connection, document_id: &str) -> Option<String> {
         .filter(|d| !d.trim().is_empty())
 }
 
-fn insert_item(
-    conn: &mut Connection,
+/// What a new saved item holds besides its sources.
+struct NewItem<'a> {
     kind: SavedKind,
-    project_id: Option<&str>,
-    conversation_id: Option<&str>,
-    message_id: Option<&str>,
-    conversation_title: &str,
-    body: &str,
-    srcs: &[SavedSource],
-) -> Result<SavedItem> {
+    project_id: Option<&'a str>,
+    conversation_id: Option<&'a str>,
+    message_id: Option<&'a str>,
+    conversation_title: &'a str,
+    body: &'a str,
+}
+
+fn insert_item(conn: &mut Connection, new: &NewItem, srcs: &[SavedSource]) -> Result<SavedItem> {
+    let NewItem {
+        kind,
+        project_id,
+        conversation_id,
+        message_id,
+        conversation_title,
+        body,
+    } = *new;
     let id: Id = new_id();
     let now = now_ms();
     let tx = conn.transaction()?;
@@ -281,12 +290,14 @@ pub fn save_reply(conn: &mut Connection, message_id: &str) -> Result<SavedItem> 
     let srcs = conversation_sources(conn, &conv.id, &handles)?;
     insert_item(
         conn,
-        SavedKind::Reply,
-        conv.project_id.as_deref(),
-        Some(&conv.id),
-        Some(&msg.id),
-        &conv.title,
-        &msg.content,
+        &NewItem {
+            kind: SavedKind::Reply,
+            project_id: conv.project_id.as_deref(),
+            conversation_id: Some(&conv.id),
+            message_id: Some(&msg.id),
+            conversation_title: &conv.title,
+            body: &msg.content,
+        },
         &srcs,
     )
 }
@@ -303,12 +314,14 @@ pub fn save_selection(
     let srcs = conversation_sources(conn, &conv.id, handles)?;
     insert_item(
         conn,
-        SavedKind::Selection,
-        conv.project_id.as_deref(),
-        Some(&conv.id),
-        Some(&msg.id),
-        &conv.title,
-        &text,
+        &NewItem {
+            kind: SavedKind::Selection,
+            project_id: conv.project_id.as_deref(),
+            conversation_id: Some(&conv.id),
+            message_id: Some(&msg.id),
+            conversation_title: &conv.title,
+            body: &text,
+        },
         &srcs,
     )
 }
@@ -342,12 +355,14 @@ pub fn save_passage(
     };
     insert_item(
         conn,
-        SavedKind::Passage,
-        project_id,
-        None,
-        None,
-        "",
-        &text,
+        &NewItem {
+            kind: SavedKind::Passage,
+            project_id,
+            conversation_id: None,
+            message_id: None,
+            conversation_title: "",
+            body: &text,
+        },
         &[src],
     )
 }

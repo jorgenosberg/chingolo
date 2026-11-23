@@ -417,10 +417,11 @@ impl Embedder {
         // Vectors from another model or revision are no use: drop them so everything is re-embedded.
         let (model, revision) = self.backend().identity();
         let _ = vectors::purge_stale(conn, model, revision);
-        if let Ok((indexed, total)) = vectors::totals(conn, model, revision) {
-            if indexed < total && matches!(*lock(&self.0.state), ModelState::Ready) {
-                log::info!("embedding {} passages with {model}", total - indexed);
-            }
+        if let Ok((indexed, total)) = vectors::totals(conn, model, revision)
+            && indexed < total
+            && matches!(*lock(&self.0.state), ModelState::Ready)
+        {
+            log::info!("embedding {} passages with {model}", total - indexed);
         }
         loop {
             let backend = self.backend();

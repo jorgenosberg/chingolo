@@ -58,10 +58,10 @@ fn parse_order(reply: &str, n: usize) -> Vec<usize> {
     };
     let mut out: Vec<usize> = vec![];
     for x in v["order"].as_array().into_iter().flatten() {
-        if let Some(i) = x.as_u64().map(|i| i as usize).filter(|i| *i < n) {
-            if !out.contains(&i) {
-                out.push(i);
-            }
+        if let Some(i) = x.as_u64().map(|i| i as usize).filter(|i| *i < n)
+            && !out.contains(&i)
+        {
+            out.push(i);
         }
     }
     out

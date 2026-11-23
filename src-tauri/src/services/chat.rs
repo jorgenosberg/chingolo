@@ -62,17 +62,29 @@ const MAX_TOOL_ROUNDS: usize = 4;
 const OUT_OF_SEARCHES: &str = "You can't search any more. Answer now from the passages you already have. \
     Say what they cover and what they don't, and don't call any tool.";
 
-/// Writes one usage row. A failure here is logged and never stops a reply.
-async fn record_usage(
-    db: &Db,
+/// One paid request to write to `api_usage`.
+struct UsageCall {
     provider: &'static str,
     model: String,
     kind: &'static str,
+    /// Input, output and cached input tokens.
     tokens: (u32, u32, u32),
     started: Instant,
     ok: bool,
     conversation_id: String,
-) {
+}
+
+/// Writes one usage row. A failure here is logged and never stops a reply.
+async fn record_usage(db: &Db, call: UsageCall) {
+    let UsageCall {
+        provider,
+        model,
+        kind,
+        tokens,
+        started,
+        ok,
+        conversation_id,
+    } = call;
     let latency_ms = started.elapsed().as_millis() as u32;
     let result = db
         .call(move |c| {
@@ -526,13 +538,15 @@ async fn run_generation(
             let ok = matches!(end, Outcome::Done);
             record_usage(
                 &db,
-                provider_id,
-                model_id.clone(),
-                "chat",
-                tokens,
-                round_started,
-                ok,
-                assistant.conversation_id.clone(),
+                UsageCall {
+                    provider: provider_id,
+                    model: model_id.clone(),
+                    kind: "chat",
+                    tokens,
+                    started: round_started,
+                    ok,
+                    conversation_id: assistant.conversation_id.clone(),
+                },
             )
             .await;
         }
@@ -790,13 +804,15 @@ pub async fn handoff_summary(state: &AppState, conversation_id: String) -> Resul
     );
     record_usage(
         &state.db,
-        provider_id,
-        model_id,
-        "handoff",
-        tokens,
-        started,
-        collected.is_ok(),
-        conversation_id.clone(),
+        UsageCall {
+            provider: provider_id,
+            model: model_id,
+            kind: "handoff",
+            tokens,
+            started,
+            ok: collected.is_ok(),
+            conversation_id: conversation_id.clone(),
+        },
     )
     .await;
     let text = collected?;
@@ -1097,34 +1113,35 @@ mod tests {
             "input is the last request, output adds up"
         );
 
-        let seen = s.seen.lock().unwrap();
-        assert_eq!(seen.len(), 2);
-        assert!(seen.iter().all(|r| r.tools.len() == 4));
-        let second = &seen[1].turns;
-        assert_eq!(
-            second.len(),
-            3,
-            "question, the model's call, the tool result"
-        );
-        assert_eq!(
-            second[1].replay,
-            Some(Replay {
-                provider: "fake".into(),
-                data: json!({ "opaque": 1 })
-            })
-        );
-        let Part::ToolResult { id, output, .. } = &second[2].parts[0] else {
-            panic!("expected a tool result")
-        };
-        assert_eq!(id, "c-search_library");
-        assert_eq!(output["results"][0]["handle"], "S1");
-        assert!(
-            output["results"][0]["text"]
-                .as_str()
-                .unwrap()
-                .contains("Iron limitation")
-        );
-        drop(seen);
+        {
+            let seen = s.seen.lock().unwrap();
+            assert_eq!(seen.len(), 2);
+            assert!(seen.iter().all(|r| r.tools.len() == 4));
+            let second = &seen[1].turns;
+            assert_eq!(
+                second.len(),
+                3,
+                "question, the model's call, the tool result"
+            );
+            assert_eq!(
+                second[1].replay,
+                Some(Replay {
+                    provider: "fake".into(),
+                    data: json!({ "opaque": 1 })
+                })
+            );
+            let Part::ToolResult { id, output, .. } = &second[2].parts[0] else {
+                panic!("expected a tool result")
+            };
+            assert_eq!(id, "c-search_library");
+            assert_eq!(output["results"][0]["handle"], "S1");
+            assert!(
+                output["results"][0]["text"]
+                    .as_str()
+                    .unwrap()
+                    .contains("Iron limitation")
+            );
+        }
 
         let conv = s.conv.clone();
         let (saved, source) =
@@ -1146,6 +1163,7 @@ mod tests {
             "the handle was saved before the model saw it"
         );
 
+        assert_eq!(usage_rows(&s).await, 2, "one usage row per request");
         let events = s.events.lock().unwrap();
         let tool = events
             .iter()
@@ -1155,7 +1173,6 @@ mod tests {
             tool["summary"],
             "Searching your library for \"iron plankton\""
         );
-        assert_eq!(usage_rows(&s).await, 2, "one usage row per request");
     }
 
     #[tokio::test]

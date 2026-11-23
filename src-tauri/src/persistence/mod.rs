@@ -120,7 +120,7 @@ fn prune_backups(path: &Path, name: &str) {
             Some((v, e.path()))
         })
         .collect();
-    found.sort_by(|a, b| b.0.cmp(&a.0));
+    found.sort_by_key(|f| std::cmp::Reverse(f.0));
     for (_, old) in found.into_iter().skip(KEEP_BACKUPS) {
         let _ = std::fs::remove_file(old);
     }

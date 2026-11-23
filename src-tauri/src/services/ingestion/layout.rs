@@ -110,7 +110,7 @@ impl Layout {
         let adapter = LayoutDetectionAdapterBuilder::new()
             .model_config(LayoutModelConfig::pp_doclayoutv3())
             .with_config(LayoutDetectionConfig::with_pp_doclayoutv3_defaults())
-            .build(&dir.join("pp-doclayoutv3.onnx"))
+            .build(dir.join("pp-doclayoutv3.onnx"))
             .map_err(fail)?;
         Ok(Layout { adapter })
     }

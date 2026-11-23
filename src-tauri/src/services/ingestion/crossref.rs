@@ -172,7 +172,8 @@ pub fn candidates(file_name: &str) -> Vec<String> {
         .rsplit_once('.')
         .map_or(file_name, |(s, _)| s)
         .trim();
-    let rules: [(&str, &dyn Fn(&str) -> String); 5] = [
+    type Rule<'a> = (&'a str, &'a dyn Fn(&str) -> String);
+    let rules: [Rule; 5] = [
         (r"^(?i)bf\d{8}$", &|s| {
             format!("10.1007/{}", s.to_uppercase())
         }),

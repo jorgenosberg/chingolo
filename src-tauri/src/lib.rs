@@ -110,20 +110,6 @@ fn specta_builder() -> Builder<tauri::Wry> {
         ])
 }
 
-#[cfg(test)]
-mod tests {
-    /// Keeps `src/lib/bindings.ts` in sync when running `cargo test`.
-    #[test]
-    fn export_bindings() {
-        super::specta_builder()
-            .export(
-                specta_typescript::Typescript::default(),
-                "../src/lib/bindings.ts",
-            )
-            .expect("failed to export TypeScript bindings");
-    }
-}
-
 /// Files dropped on the window are imported here, so their paths never reach the webview.
 fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
     let WindowEvent::DragDrop(drag) = event else {
@@ -326,4 +312,18 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running Chingolo");
+}
+
+#[cfg(test)]
+mod tests {
+    /// Keeps `src/lib/bindings.ts` in sync when running `cargo test`.
+    #[test]
+    fn export_bindings() {
+        super::specta_builder()
+            .export(
+                specta_typescript::Typescript::default(),
+                "../src/lib/bindings.ts",
+            )
+            .expect("failed to export TypeScript bindings");
+    }
 }

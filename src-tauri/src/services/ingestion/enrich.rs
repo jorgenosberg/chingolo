@@ -684,7 +684,7 @@ mod tests {
             Some("An online lookup couldn't be reached.")
         );
         let waiting = db.call(|c| repo::unenriched(c, false)).await.unwrap();
-        assert_eq!(waiting, [id.clone()]);
+        assert_eq!(waiting, std::slice::from_ref(&id));
 
         let (base, _) = serve(vec![(200, RECORD.into())]);
         let out = enrich(&db, &crossref::http_client(), &Bases::at(&base), None, &id)

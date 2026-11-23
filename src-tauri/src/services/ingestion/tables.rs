@@ -65,7 +65,7 @@ impl Tables {
     pub fn load(dir: &Path) -> Result<Self> {
         let adapter = SLANetWirelessAdapterBuilder::new()
             .dict_path(dir.join("table_structure_dict_ch.txt"))
-            .build(&dir.join("slanet_plus.onnx"))
+            .build(dir.join("slanet_plus.onnx"))
             .map_err(fail)?;
         Ok(Tables { adapter })
     }
@@ -922,7 +922,7 @@ mod tests {
                     text: if r == 0 {
                         format!("H{c}")
                     } else {
-                        format!("{}", "x".repeat(60)) + &r.to_string()
+                        "x".repeat(60).to_string() + &r.to_string()
                     },
                     verified: None,
                     guessed: false,

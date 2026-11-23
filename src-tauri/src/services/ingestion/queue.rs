@@ -64,6 +64,9 @@ enum Job {
     Layout(Document),
 }
 
+/// Called with a document after layout changed its passages.
+type LayoutHook = Arc<dyn Fn(&Document) + Send + Sync>;
+
 struct Inner {
     tx: mpsc::UnboundedSender<Job>,
     tokens: Mutex<HashMap<Id, CancellationToken>>,
@@ -75,7 +78,7 @@ struct Inner {
     layout_dir: Mutex<Option<PathBuf>>,
     tables_dir: Mutex<Option<PathBuf>>,
     /// Called with the document after layout changed its passages (new ones need vectors).
-    on_layout: Mutex<Option<Arc<dyn Fn(&Document) + Send + Sync>>>,
+    on_layout: Mutex<Option<LayoutHook>>,
     /// Pages the running layout job has done, which the database doesn't know until it ends.
     layout_live: AtomicU32,
     /// Same for tables read by the running job.
@@ -329,7 +332,7 @@ fn worker_loop(mut conn: Connection, mut rx: mpsc::UnboundedReceiver<Job>, inner
                         .iter()
                         .for_each(|f| f(d))
                 };
-                let out = run_layout(
+                run_layout(
                     &mut conn,
                     &mut pdf,
                     &mut ocr,
@@ -343,7 +346,6 @@ fn worker_loop(mut conn: Connection, mut rx: mpsc::UnboundedReceiver<Job>, inner
                 );
                 live.0.store(0, Ordering::Relaxed);
                 live.1.store(0, Ordering::Relaxed);
-                out
             }
         }));
         if ran.is_err() && matches!(job, Job::Details(_)) {
@@ -353,15 +355,15 @@ fn worker_loop(mut conn: Connection, mut rx: mpsc::UnboundedReceiver<Job>, inner
                 "page layout of {} crashed, its passages are unchanged",
                 doc.original_name
             );
-        } else if ran.is_err() {
-            if let Ok(d) = repo::set_status(
+        } else if ran.is_err()
+            && let Ok(d) = repo::set_status(
                 &conn,
                 &doc.id,
                 DocStatus::Error,
                 Some("Reading this file crashed. It may be damaged."),
-            ) {
-                emit(d, None);
-            }
+            )
+        {
+            emit(d, None);
         }
         if matches!(job, Job::Details(_))
             && let Some(a) = inner.activity.lock().ok().and_then(|a| a.clone())

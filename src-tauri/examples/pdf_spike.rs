@@ -49,9 +49,9 @@ fn extract(pdfium: &Pdfium, path: &Path) -> Result<(serde_json::Value, String), 
         let mut chars_on_page = 0usize;
         let mut odd = 0usize;
 
-        let mut flush = |cur: &mut String,
-                         rect: &mut Option<[f32; 4]>,
-                         lines: &mut Vec<serde_json::Value>| {
+        let flush = |cur: &mut String,
+                     rect: &mut Option<[f32; 4]>,
+                     lines: &mut Vec<serde_json::Value>| {
             if let (false, Some(r)) = (cur.trim().is_empty(), *rect) {
                 lines.push(json!({ "text": cur.trim_end(), "rect": [r4(r[0]), r4(r[1]), r4(r[2]), r4(r[3])] }));
             }

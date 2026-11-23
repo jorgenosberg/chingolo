@@ -941,9 +941,13 @@ mod tests {
                 .map(|c| c.id)
                 .collect::<Vec<_>>()
         };
-        assert_eq!(q("regress"), [a.id.clone()]);
-        assert_eq!(q("arsak"), [b.id.clone()], "diacritics are ignored");
-        assert_eq!(q("sammenheng"), [b.id.clone()]);
+        assert_eq!(q("regress"), std::slice::from_ref(&a.id));
+        assert_eq!(
+            q("arsak"),
+            std::slice::from_ref(&b.id),
+            "diacritics are ignored"
+        );
+        assert_eq!(q("sammenheng"), std::slice::from_ref(&b.id));
         assert!(
             q("\"quoted\" OR (weird").is_empty(),
             "odd input must not break the query"

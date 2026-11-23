@@ -295,7 +295,7 @@ pub fn to_user_space(
 ) -> [f32; 4] {
     let (cw, ch) = (crop[2] - crop[0], crop[3] - crop[1]);
     // Size of the rotated, visible page in points.
-    let vis_h = if rotation % 180 == 0 { ch } else { cw };
+    let vis_h = if rotation.is_multiple_of(180) { ch } else { cw };
     let corner = |x: f32, y: f32| -> (f32, f32) {
         let (vx, vy) = (x / scale.0, vis_h - y / scale.1);
         let (ux, uy) = match rotation {
@@ -320,7 +320,7 @@ pub fn to_pixels(
     rotation: Rotation,
 ) -> [f32; 4] {
     let (cw, ch) = (crop[2] - crop[0], crop[3] - crop[1]);
-    let vis_h = if rotation % 180 == 0 { ch } else { cw };
+    let vis_h = if rotation.is_multiple_of(180) { ch } else { cw };
     let corner = |x: f32, y: f32| -> (f32, f32) {
         let (ux, uy) = (x - crop[0], y - crop[1]);
         let (vx, vy) = match rotation {

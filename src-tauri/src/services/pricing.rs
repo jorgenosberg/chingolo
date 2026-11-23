@@ -360,10 +360,11 @@ pub async fn update_if_due(db: &Db, dir: &Path) {
         .await;
     let Ok((enabled, last)) = state else { return };
     let last = last.and_then(|v| v.parse::<i64>().ok());
-    if enabled && last.is_none_or(|t| now_ms() - t >= REFRESH_EVERY_MS) {
-        if let Err(e) = update_now(db, dir).await {
-            log::warn!("prices not refreshed: {e}");
-        }
+    if enabled
+        && last.is_none_or(|t| now_ms() - t >= REFRESH_EVERY_MS)
+        && let Err(e) = update_now(db, dir).await
+    {
+        log::warn!("prices not refreshed: {e}");
     }
 }
 
