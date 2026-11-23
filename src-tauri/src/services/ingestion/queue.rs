@@ -200,6 +200,12 @@ impl Ingestor {
         })
     }
 
+    /// Queues layout for one document, for a retry after earlier failures.
+    pub fn enqueue_layout(&self, doc: &Document) {
+        let _ = self.0.tx.send(Job::Layout(doc.clone()));
+        self.poke();
+    }
+
     /// Queues layout for every ready PDF that has pages without it. Call at start and after the
     /// layout model finished downloading. Returns how many documents.
     pub async fn enqueue_layouts(&self, db: &Db) -> Result<usize> {
@@ -427,6 +433,7 @@ fn worker_loop(mut conn: Connection, mut rx: mpsc::UnboundedReceiver<Job>, inner
                 "page layout of {} crashed, its passages are unchanged",
                 doc.original_name
             );
+            let _ = repo::set_layout_error(&conn, &doc.id, Some("Page layout crashed"));
         } else if ran.is_err()
             && let Ok(d) = repo::set_status(
                 &conn,
@@ -662,9 +669,18 @@ fn run_layout(
         Ok(Some(d))
     })();
     match result {
-        Ok(Some(d)) => notify(&d),
-        Ok(None) | Err(AppError::NotFound | AppError::Cancelled) => {}
-        Err(e) => log::warn!("page layout of {} failed: {e}", doc.original_name),
+        Ok(found) => {
+            let _ = repo::set_layout_error(conn, &doc.id, None);
+            if let Some(d) = found {
+                notify(&d);
+            }
+        }
+        Err(AppError::NotFound | AppError::Cancelled) => {}
+        Err(e) => {
+            log::warn!("page layout of {} failed: {e}", doc.original_name);
+            let _ =
+                repo::set_layout_error(conn, &doc.id, Some(&format!("Page layout failed: {e}")));
+        }
     }
 }
 

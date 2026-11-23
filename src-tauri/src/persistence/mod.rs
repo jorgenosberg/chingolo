@@ -23,6 +23,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../migrations/0002_drafts.sql"),
     include_str!("../../migrations/0003_saved.sql"),
     include_str!("../../migrations/0004_saved_notes.sql"),
+    include_str!("../../migrations/0005_layout_errors.sql"),
 ];
 
 #[derive(Clone)]
@@ -191,6 +192,27 @@ mod tests {
             .collect::<std::result::Result<_, _>>()
             .unwrap();
         assert_eq!(notes, [("a".to_string(), "my note".to_string(), 20)]);
+    }
+
+    #[test]
+    fn documents_from_schema_four_start_with_no_layout_failures() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        for sql in &MIGRATIONS[..4] {
+            conn.execute_batch(sql).unwrap();
+        }
+        conn.pragma_update(None, "user_version", 4i64).unwrap();
+        let doc =
+            library::insert_document(&conn, "h1", "a.pdf", crate::domain::library::DocKind::Pdf)
+                .unwrap();
+        migrate(&mut conn).unwrap();
+        let (error, attempts): (Option<String>, i64) = conn
+            .query_row(
+                "SELECT layout_error, layout_attempts FROM documents WHERE id = ?1",
+                [&doc.id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((error, attempts), (None, 0));
     }
 
     #[test]

@@ -197,6 +197,7 @@ struct Stored {
     processing: u32,
     failed_reads: Vec<(Id, String, String)>,
     failed_lookups: Vec<(Id, String, String)>,
+    failed_layouts: Vec<(Id, String, String)>,
 }
 
 async fn stored(db: &Db) -> Result<Stored> {
@@ -206,6 +207,7 @@ async fn stored(db: &Db) -> Result<Stored> {
             processing: repo::count_with_status(c, DocStatus::Processing)?,
             failed_reads: repo::failed_reads(c, FAILED_LIMIT)?,
             failed_lookups: repo::failed_lookups(c, FAILED_LIMIT)?,
+            failed_layouts: repo::failed_layouts(c, FAILED_LIMIT)?,
         })
     })
     .await
@@ -311,6 +313,10 @@ pub async fn snapshot(src: &Sources) -> Result<Vec<LaneSnapshot>> {
         } else {
             LaneState::Idle
         };
+    }
+    lay.failed = failed(stored.failed_layouts);
+    if lay.state == LaneState::Idle && !lay.failed.is_empty() {
+        lay.state = LaneState::Failed;
     }
 
     // Details

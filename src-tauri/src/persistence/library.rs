@@ -645,10 +645,44 @@ pub fn list_regions(
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
+/// A document whose layout failed this many times is left alone until the user retries it.
+pub const MAX_LAYOUT_ATTEMPTS: u32 = 2;
+
+/// Notes the outcome of a layout run: a failure counts an attempt, a success clears both columns.
+pub fn set_layout_error(conn: &Connection, id: &str, error: Option<&str>) -> Result<()> {
+    match error {
+        Some(e) => conn.execute(
+            "UPDATE documents SET layout_error = ?1, layout_attempts = layout_attempts + 1 WHERE id = ?2",
+            params![e, id],
+        )?,
+        None => conn.execute(
+            "UPDATE documents SET layout_error = NULL, layout_attempts = 0 WHERE id = ?1",
+            [id],
+        )?,
+    };
+    Ok(())
+}
+
+/// Forgets earlier layout failures so the document is tried again.
+pub fn reset_layout_failure(conn: &Connection, id: &str) -> Result<()> {
+    set_layout_error(conn, id, None)
+}
+
+/// (id, name, reason) of documents whose last layout run failed.
+pub fn failed_layouts(conn: &Connection, limit: u32) -> Result<Vec<(Id, String, String)>> {
+    failures(
+        conn,
+        "status = 'ready' AND layout_error IS NOT NULL",
+        "layout_error",
+        limit,
+    )
+}
+
 /// PDF documents that are ready and have pages without layout yet.
 pub fn documents_without_layout(conn: &Connection) -> Result<Vec<Document>> {
     let mut stmt = conn.prepare(&format!(
         "SELECT {DOC_COLS} FROM documents WHERE status = 'ready' AND kind = 'pdf'
+           AND layout_attempts < {MAX_LAYOUT_ATTEMPTS}
            AND EXISTS (SELECT 1 FROM pages p WHERE p.document_id = documents.id AND p.layout_at IS NULL)
          ORDER BY created_at, id"
     ))?;
@@ -668,9 +702,9 @@ pub fn no_text_pdfs(conn: &Connection) -> Result<Vec<Document>> {
 /// (pages with layout, all pages, documents still without layout) over ready PDFs.
 pub fn layout_counts(conn: &Connection) -> Result<(u32, u32, u32)> {
     Ok(conn.query_row(
-        "SELECT COALESCE(SUM(p.layout_at IS NOT NULL), 0), COUNT(*), COUNT(DISTINCT CASE WHEN p.layout_at IS NULL THEN p.document_id END)
+        &format!("SELECT COALESCE(SUM(p.layout_at IS NOT NULL), 0), COUNT(*), COUNT(DISTINCT CASE WHEN p.layout_at IS NULL THEN p.document_id END)
            FROM pages p JOIN documents d ON d.id = p.document_id
-          WHERE d.kind = 'pdf' AND d.status = 'ready'",
+          WHERE d.kind = 'pdf' AND d.status = 'ready' AND d.layout_attempts < {MAX_LAYOUT_ATTEMPTS}"),
         [],
         |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
     )?)
@@ -679,9 +713,9 @@ pub fn layout_counts(conn: &Connection) -> Result<(u32, u32, u32)> {
 /// (table regions with a read, all table regions) over ready PDFs.
 pub fn table_counts(conn: &Connection) -> Result<(u32, u32)> {
     Ok(conn.query_row(
-        "SELECT COALESCE(SUM(EXISTS (SELECT 1 FROM tables t WHERE t.document_id = r.document_id AND t.page_no = r.page_no AND t.ordinal = r.ordinal)), 0), COUNT(*)
+        &format!("SELECT COALESCE(SUM(EXISTS (SELECT 1 FROM tables t WHERE t.document_id = r.document_id AND t.page_no = r.page_no AND t.ordinal = r.ordinal)), 0), COUNT(*)
            FROM page_regions r JOIN documents d ON d.id = r.document_id
-          WHERE r.label = 'table' AND d.kind = 'pdf' AND d.status = 'ready'",
+          WHERE r.label = 'table' AND d.kind = 'pdf' AND d.status = 'ready' AND d.layout_attempts < {MAX_LAYOUT_ATTEMPTS}"),
         [],
         |r| Ok((r.get(0)?, r.get(1)?)),
     )?)
@@ -800,6 +834,7 @@ pub fn list_tables(conn: &Connection, id: &str) -> Result<Vec<TableRow>> {
 pub fn documents_without_tables(conn: &Connection) -> Result<Vec<Document>> {
     let mut stmt = conn.prepare(&format!(
         "SELECT {DOC_COLS} FROM documents WHERE status = 'ready' AND kind = 'pdf'
+           AND layout_attempts < {MAX_LAYOUT_ATTEMPTS}
            AND EXISTS (SELECT 1 FROM page_regions r WHERE r.document_id = documents.id AND r.label = 'table'
              AND NOT EXISTS (SELECT 1 FROM tables t WHERE t.document_id = r.document_id AND t.page_no = r.page_no AND t.ordinal = r.ordinal))
          ORDER BY created_at, id"
@@ -1547,6 +1582,35 @@ mod tests {
         );
         assert!(failed_reads(&conn, 0).unwrap().is_empty());
         let _ = queued;
+    }
+
+    #[test]
+    fn a_document_whose_layout_keeps_failing_is_left_alone_until_retried() {
+        let mut conn = test_conn();
+        let d = ready_doc(&mut conn, "h1", "a.pdf", &["x"]);
+        assert_eq!(documents_without_layout(&conn).unwrap().len(), 1);
+        assert_eq!(layout_counts(&conn).unwrap(), (0, 1, 1));
+
+        set_layout_error(&conn, &d.id, Some("boom")).unwrap();
+        // one failure is tried again at the next start
+        assert_eq!(documents_without_layout(&conn).unwrap().len(), 1);
+
+        set_layout_error(&conn, &d.id, Some("boom")).unwrap();
+        assert!(documents_without_layout(&conn).unwrap().is_empty());
+        assert_eq!(layout_counts(&conn).unwrap(), (0, 0, 0));
+        assert_eq!(table_counts(&conn).unwrap(), (0, 0));
+        assert_eq!(
+            failed_layouts(&conn, 10).unwrap(),
+            [(d.id.clone(), "a.pdf".to_string(), "boom".to_string())]
+        );
+
+        reset_layout_failure(&conn, &d.id).unwrap();
+        assert_eq!(documents_without_layout(&conn).unwrap().len(), 1);
+        assert!(failed_layouts(&conn, 10).unwrap().is_empty());
+
+        set_layout_error(&conn, &d.id, Some("boom")).unwrap();
+        set_layout_error(&conn, &d.id, None).unwrap();
+        assert!(failed_layouts(&conn, 10).unwrap().is_empty());
     }
 
     #[test]
