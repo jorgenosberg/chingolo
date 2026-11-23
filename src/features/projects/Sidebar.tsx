@@ -58,6 +58,7 @@ function Row({
 	onPress,
 	icon,
 	label,
+	marker,
 	menu,
 	expanded,
 	shortcut,
@@ -69,6 +70,8 @@ function Row({
 	/** Plain conversations have none: just their title. */
 	icon?: ReactNode;
 	label: string;
+	/** A small sign after the label, such as unsent text. */
+	marker?: ReactNode;
 	menu?: ReactNode;
 	expanded?: boolean;
 }) {
@@ -89,6 +92,7 @@ function Row({
 			>
 				{icon && <span className="shrink-0 text-muted-foreground">{icon}</span>}
 				<span className="truncate">{label}</span>
+				{marker}
 				{shortcut && <Kbd keys={shortcut} className="ml-auto" />}
 			</RacButton>
 			{menu && (
@@ -239,10 +243,22 @@ function useConversationActions() {
 function ConversationRow({ c, depth }: { c: Conversation; depth: number }) {
 	const { conversationId, select } = useNav();
 	const actionsFor = useConversationActions();
+	// Text left in the box of a chat that has messages. The open chat shows it in its own box.
+	const unsent =
+		c.hasMessages && c.draft.trim() !== "" && conversationId !== c.id;
 	return (
 		<Row
 			depth={depth}
 			label={c.title}
+			marker={
+				unsent && (
+					<PencilSimpleLineIcon
+						role="img"
+						aria-label="Has unsent text"
+						className="size-3.5 shrink-0 text-muted-foreground"
+					/>
+				)
+			}
 			selected={conversationId === c.id}
 			onPress={() => select(c.id)}
 			menu={

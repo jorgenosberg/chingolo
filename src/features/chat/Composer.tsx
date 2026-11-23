@@ -1,8 +1,10 @@
 import { ArrowUpIcon, StopIcon } from "@phosphor-icons/react";
+import { useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Button as RacButton } from "react-aria-components";
 import { cx, focus, Tip } from "../../components/ui";
-import { getDraft, setDraft } from "./drafts";
+import { keys } from "../../lib/queries";
+import { flushDraft, getDraft, setDraft } from "./drafts";
 
 function toEnd(el: HTMLTextAreaElement | null) {
 	el?.setSelectionRange(el.value.length, el.value.length);
@@ -28,6 +30,7 @@ export function Composer({
 	/** Controls shown next to the send button, such as the model picker. */
 	extra?: ReactNode;
 }) {
+	const qc = useQueryClient();
 	const [text, setText] = useState(() => getDraft(conversationId, savedDraft));
 	const ref = useRef<HTMLTextAreaElement>(null);
 
@@ -70,6 +73,10 @@ export function Composer({
 		const value = text.trim();
 		if (!value || busy) return;
 		update("");
+		// The sidebar marks chats with unsent text from the saved copy, so clear that one now.
+		flushDraft(conversationId).then(() =>
+			qc.invalidateQueries({ queryKey: keys.conversations }),
+		);
 		const sent = await onSend(value);
 		if (!sent) update(value);
 	};
