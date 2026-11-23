@@ -38,11 +38,15 @@ import type {
 	MetadataPatch,
 } from "../../lib/bindings";
 import {
+	summarizeJobs,
+	useDetailsBusy,
+	useDetailsIds,
+	useJobs,
+} from "../../lib/jobs";
+import {
 	attentionFor,
 	missingFields,
 	setImportSummary,
-	useDetailsBusy,
-	useDetailsIds,
 	useEmbeddingStatus,
 	useImportSummary,
 	useProgress,
@@ -150,25 +154,6 @@ function SummaryBanner({
 			</RacButton>
 		</div>
 	);
-}
-
-/** One line for the header: what the library is busy with right now. */
-function workSummary(docs: Document[], details: ReadonlySet<string>) {
-	let reading = 0;
-	let updating = 0;
-	let both = 0;
-	for (const d of docs) {
-		const r = d.status === "queued" || d.status === "processing";
-		const u = details.has(d.id);
-		if (r) reading++;
-		if (u) updating++;
-		if (r || u) both++;
-	}
-	if (both === 0) return null;
-	if (updating === 0) return `Reading ${plural(reading, "document")}`;
-	if (reading === 0)
-		return `Updating details for ${plural(updating, "document")}`;
-	return `Updating ${plural(both, "document")}`;
 }
 
 function DocumentRow({
@@ -414,7 +399,12 @@ function ScopeSelect({
 
 export function LibraryView() {
 	const qc = useQueryClient();
-	const { libraryScope: scope, setLibraryScope, openReader } = useNav();
+	const {
+		libraryScope: scope,
+		setLibraryScope,
+		openReader,
+		openActivity,
+	} = useNav();
 	const { confirm, alert } = useDialogs();
 	const projects = useProjects();
 	const docs = useDocuments(scope);
@@ -463,7 +453,8 @@ export function LibraryView() {
 			attentionOnly && needing.length > 0 ? needing : (docs.data ?? []);
 		return query.trim() ? all.filter((d) => matches(d, query)) : all;
 	}, [docs.data, needing, attentionOnly, query]);
-	const working = workSummary(docs.data ?? [], detailsIds);
+	const jobs = summarizeJobs(useJobs());
+	const working = jobs.state === "busy" ? jobs.text : null;
 	const projectsDoc = docs.data?.find((d) => d.id === projectsFor) ?? null;
 
 	const pick = async (folder: boolean) => {
@@ -601,12 +592,16 @@ export function LibraryView() {
 				</div>
 				<div className="flex items-center gap-3">
 					{working && (
-						<span
-							role="status"
-							className="flex items-center gap-1.5 text-xs text-muted-foreground"
+						<RacButton
+							onPress={openActivity}
+							aria-label={`${working}. Open activity`}
+							className={cx(
+								"flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs text-muted-foreground data-[hovered]:bg-muted data-[hovered]:text-foreground",
+								focus,
+							)}
 						>
-							<Spinner className="size-3" /> {working}
-						</span>
+							<Spinner decorative className="size-3" /> {working}
+						</RacButton>
 					)}
 					<ImportMenu
 						onPick={pick}

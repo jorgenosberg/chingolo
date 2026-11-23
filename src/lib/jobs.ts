@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
 import { api } from "./api";
 import type { Count, Lane, LaneSnapshot } from "./bindings";
 
@@ -15,6 +16,46 @@ export function useJobs(): LaneSnapshot[] {
 		staleTime: Number.POSITIVE_INFINITY,
 	});
 	return q.data ?? NONE;
+}
+
+/** One kind of work, or undefined until the first snapshot arrives. */
+export function useLane(lane: Lane): LaneSnapshot | undefined {
+	return useJobs().find((l) => l.lane === lane);
+}
+
+const NO_IDS: ReadonlySet<string> = new Set();
+
+/** Documents whose details are being refreshed or looked up. */
+export function useDetailsIds(): ReadonlySet<string> {
+	const ids = useLane("details")?.documentIds;
+	return useMemo(() => (ids?.length ? new Set(ids) : NO_IDS), [ids]);
+}
+
+export const useDetailsBusy = (id: string) => useDetailsIds().has(id);
+
+/** How far page layout has got, as the library notice and Settings show it. */
+export type LayoutView = {
+	/** False until the layout model is downloaded. */
+	available: boolean;
+	done: number;
+	total: number;
+	docsLeft: number;
+	tablesDone: number;
+	tablesTotal: number;
+	paused: boolean;
+};
+
+export function useLayoutProgress(): LayoutView {
+	const lane = useLane("layout");
+	return {
+		available: Boolean(lane?.count),
+		done: lane?.count?.done ?? 0,
+		total: lane?.count?.total ?? 0,
+		docsLeft: lane?.waiting ?? 0,
+		tablesDone: lane?.tables?.done ?? 0,
+		tablesTotal: lane?.tables?.total ?? 0,
+		paused: lane?.paused ?? false,
+	};
 }
 
 export const LANE_TITLE: Record<Lane, string> = {

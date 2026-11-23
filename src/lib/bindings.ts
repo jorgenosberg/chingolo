@@ -108,8 +108,6 @@ export const commands = {
 	 */
 	downloadOcrModel: () => __TAURI_INVOKE<ModelState>("download_ocr_model"),
 	layoutStatus: () => __TAURI_INVOKE<ModelState>("layout_status"),
-	/**  How far page layout has got over the library. Poll while `done < total`. */
-	layoutProgress: () => typedError<LayoutProgress, CmdError>(__TAURI_INVOKE("layout_progress")),
 	/**
 	 *  Downloads the page layout model (about 130 MB), if it isn't there yet. When it is ready, documents
 	 *  already in the library get their layout in the background. Returns at once. Progress is on the job list.
@@ -144,7 +142,6 @@ export const commands = {
 	updatePricesNow: () => typedError<null, CmdError>(__TAURI_INVOKE("update_prices_now")),
 	/**  Opens the folder with the log files in Finder. The path is the app's own, never the webview's. */
 	showLogs: () => typedError<null, CmdError>(__TAURI_INVOKE("show_logs")),
-	setEmbeddingPaused: (paused: boolean) => typedError<EmbeddingStatus, CmdError>(__TAURI_INVOKE("set_embedding_paused", { paused })),
 	/**
 	 *  Every kind of background work and where it stands. The `jobsChanged` event sends the same list
 	 *  when it changes, this seeds it when a page opens.
@@ -166,7 +163,6 @@ export const commands = {
 
 /** Events */
 export const events = {
-	detailsActivity: makeEvent<DetailsActivity, DetailsActivity>("details-activity"),
 	documentChanged: makeEvent<DocumentChanged, DocumentChanged>("document-changed"),
 	dropHover: makeEvent<DropHover, DropHover>("drop-hover"),
 	embeddingStatus: makeEvent<EmbeddingStatus, EmbeddingStatus>("embedding-status"),
@@ -316,11 +312,6 @@ export type Count = {
 	unit: Unit,
 };
 
-/**  Sent whenever the list changes. `ids` is everything still being worked on. */
-export type DetailsActivity = {
-	ids: string[],
-};
-
 export type DocKind = "pdf" | "docx";
 
 export type DocStatus = "queued" | "processing" | "ready" | 
@@ -448,21 +439,11 @@ export type LaneSnapshot = {
 	/**  Documents or items queued behind the current one. */
 	waiting: number,
 	failed: FailedItem[],
+	/**  Documents with work queued or running, for the details lane. Empty for the others. */
+	documentIds: string[],
 };
 
 export type LaneState = "idle" | "waiting" | "running" | "paused" | "failed";
-
-/**  How far page layout has got, for the library's progress notice. */
-export type LayoutProgress = {
-	/**  False until the layout model is downloaded. */
-	available: boolean,
-	done: number,
-	total: number,
-	docsLeft: number,
-	/**  Table regions read and in all. Zero until the table model is downloaded. */
-	tablesDone: number,
-	tablesTotal: number,
-};
 
 /**  Why a passage is in the results. */
 export type MatchKind = 

@@ -128,6 +128,8 @@ pub struct LaneSnapshot {
     /// Documents or items queued behind the current one.
     pub waiting: u32,
     pub failed: Vec<FailedItem>,
+    /// Documents with work queued or running, for the details lane. Empty for the others.
+    pub document_ids: Vec<Id>,
 }
 
 impl LaneSnapshot {
@@ -141,6 +143,7 @@ impl LaneSnapshot {
             current: None,
             waiting: 0,
             failed: Vec::new(),
+            document_ids: Vec::new(),
         }
     }
 
@@ -478,6 +481,7 @@ pub async fn snapshot(src: &Sources) -> Result<Vec<LaneSnapshot>> {
     let mut details = LaneSnapshot::idle(Lane::Details);
     let ids = src.activity.ids();
     details.waiting = u32::try_from(ids.len()).unwrap_or(u32::MAX);
+    details.document_ids = ids.clone();
     details.failed = failed(stored.failed_lookups);
     details.paused = src.ingest.is_paused(Lane::Details);
     let details_running = running.as_ref().is_some_and(|r| r.lane == Lane::Details);
@@ -596,7 +600,7 @@ mod tests {
             Arc::new(|_| {}),
         )
         .unwrap();
-        let activity = Activity::new(|_| {});
+        let activity = Activity::new(|| {});
         let enricher = Enricher::start(
             db.clone(),
             Arc::new(|_| {}),
@@ -657,6 +661,20 @@ mod tests {
         for lane in &snap[1..] {
             assert_eq!(lane.state, LaneState::Idle, "{:?}", lane.lane);
         }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_details_lane_names_the_documents_being_looked_up() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_db, _ingest, jobs) = rig(dir.path());
+        jobs.src.activity.start("doc-1");
+        let snap = jobs.snapshot().await.unwrap();
+        assert_eq!(snap[2].lane, Lane::Details);
+        assert_eq!(snap[2].state, LaneState::Running);
+        assert_eq!(snap[2].document_ids, ["doc-1"]);
+        assert!(snap[0].document_ids.is_empty());
+        jobs.src.activity.finish("doc-1");
+        assert!(jobs.snapshot().await.unwrap()[2].document_ids.is_empty());
     }
 
     #[tokio::test(flavor = "multi_thread")]

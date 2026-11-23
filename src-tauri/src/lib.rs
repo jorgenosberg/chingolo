@@ -19,7 +19,7 @@ use crate::services::ai::Providers;
 use crate::services::docfile;
 use crate::services::embedding::Backend;
 use crate::services::embedding::engine::{Embedder, EmbeddingStatus, StatusEmit};
-use crate::services::ingestion::activity::{Activity, DetailsActivity};
+use crate::services::ingestion::activity::Activity;
 use crate::services::ingestion::import::{ImportSummary, import_paths};
 use crate::services::ingestion::queue::{DocumentChanged, Emit, Ingestor};
 use crate::services::jobs::{Jobs, JobsChanged, Sources};
@@ -30,7 +30,6 @@ fn specta_builder() -> Builder<tauri::Wry> {
         .disable_serde_phases()
         .events(collect_events![
             DocumentChanged,
-            DetailsActivity,
             JobsChanged,
             ImportSummary,
             DropHover,
@@ -96,7 +95,6 @@ fn specta_builder() -> Builder<tauri::Wry> {
             commands::ocr::ocr_status,
             commands::ocr::download_ocr_model,
             commands::ocr::layout_status,
-            commands::ocr::layout_progress,
             commands::ocr::download_layout_model,
             commands::ocr::tables_status,
             commands::ocr::download_tables_model,
@@ -109,7 +107,6 @@ fn specta_builder() -> Builder<tauri::Wry> {
             commands::usage::set_prices_auto_update,
             commands::usage::update_prices_now,
             commands::usage::show_logs,
-            commands::embedding::set_embedding_paused,
             commands::jobs::jobs,
             commands::jobs::set_lane_paused,
             commands::jobs::retry_job,
@@ -244,12 +241,8 @@ pub fn run() {
             // document events skip this, so it doesn't wake itself.
             // It also queues the document for a details lookup, which has its own emit.
             let providers = Providers::new();
-            let activity_handle = app.handle().clone();
             let activity_poke = poke.clone();
-            let activity = Activity::new(move |e| {
-                let _ = e.emit(&activity_handle);
-                activity_poke.notify_one();
-            });
+            let activity = Activity::new(move || activity_poke.notify_one());
             let enricher = crate::services::ingestion::enrich::Enricher::start(
                 db.clone(),
                 emit.clone(),

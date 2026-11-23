@@ -1,4 +1,4 @@
-import { type QueryClient, useQuery } from "@tanstack/react-query";
+import type { QueryClient } from "@tanstack/react-query";
 import { useEffect, useSyncExternalStore } from "react";
 import { api } from "./api";
 import {
@@ -19,8 +19,6 @@ import { keys } from "./queries";
  */
 type State = {
 	progress: ReadonlyMap<string, Progress>;
-	/** Documents whose details are being refreshed or looked up. */
-	details: ReadonlySet<string>;
 	dropActive: boolean;
 	summary: ImportSummary | null;
 	embedding: EmbeddingStatus | null;
@@ -28,7 +26,6 @@ type State = {
 
 let state: State = {
 	progress: new Map(),
-	details: new Set(),
 	dropActive: false,
 	summary: null,
 	embedding: null,
@@ -51,9 +48,6 @@ function useStore<T>(pick: (s: State) => T): T {
 
 export const useProgress = (id: string) =>
 	useStore((s) => s.progress.get(id) ?? null);
-export const useDetailsBusy = (id: string) =>
-	useStore((s) => s.details.has(id));
-export const useDetailsIds = () => useStore((s) => s.details);
 export const useDropActive = () => useStore((s) => s.dropActive);
 export const useImportSummary = () => useStore((s) => s.summary);
 export const useEmbeddingStatus = () => useStore((s) => s.embedding);
@@ -124,11 +118,6 @@ export function useLibraryEvents(qc: QueryClient, onSummary: () => void) {
 			}),
 		);
 		keep(
-			events.detailsActivity.listen(({ payload }) =>
-				set({ details: new Set(payload.ids) }),
-			),
-		);
-		keep(
 			events.jobsChanged.listen(({ payload }) =>
 				qc.setQueryData(jobsKey, payload.lanes),
 			),
@@ -193,18 +182,4 @@ export function attentionFor(doc: Document): string[] {
 		);
 	if (doc.enrichError) issues.push(doc.enrichError);
 	return issues;
-}
-
-/** How far page layout has got. Polls while there is work left, and stops when there isn't. */
-export function useLayoutProgress() {
-	return useQuery({
-		queryKey: ["layout-progress"],
-		queryFn: api.layoutProgress,
-		refetchInterval: (q) => {
-			const d = q.state.data;
-			return d?.available && (d.done < d.total || d.tablesDone < d.tablesTotal)
-				? 3000
-				: 30000;
-		},
-	});
 }

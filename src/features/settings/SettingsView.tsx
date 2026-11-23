@@ -29,9 +29,10 @@ import { useDialogs } from "../../components/dialogs";
 import { ModelSelect } from "../../components/ModelSelect";
 import { Button, cx, focus, Spinner, TextInput } from "../../components/ui";
 import { api } from "../../lib/api";
-import type { ModelState } from "../../lib/bindings";
+import type { Lane, ModelState } from "../../lib/bindings";
 import { setLayoutOverlay, useLayoutOverlay } from "../../lib/devtools";
-import { useEmbeddingStatus, useLayoutProgress } from "../../lib/library";
+import { useLane, useLayoutProgress } from "../../lib/jobs";
+import { useEmbeddingStatus } from "../../lib/library";
 import { type ModelRef, PROVIDERS, type Provider } from "../../lib/providers";
 import { keys, useModels, useSettings } from "../../lib/queries";
 import { setTheme, type ThemePref, useTheme } from "../../lib/theme";
@@ -135,6 +136,7 @@ function ProgressBar({
 function LocalModel({
 	title,
 	size,
+	lane,
 	status,
 	download,
 	ready,
@@ -142,23 +144,32 @@ function LocalModel({
 }: {
 	title: string;
 	size: string;
+	lane: Lane;
 	status: () => Promise<ModelState>;
 	download: () => Promise<ModelState>;
 	ready: string;
 	missing: string;
 }) {
-	const [model, setModel] = useState<ModelState | null>(null);
+	const job = useLane(lane);
+	const [stored, setStored] = useState<ModelState | null>(null);
+	// Whether the files are there only changes when a download starts or ends, so ask again then.
+	const jobState = job?.state;
+	// biome-ignore lint/correctness/useExhaustiveDependencies: jobState is the trigger
 	useEffect(() => {
-		status().then(setModel);
-	}, [status]);
-	const downloading = model?.kind === "downloading";
-	useEffect(() => {
-		if (!downloading) return;
-		const timer = setInterval(() => status().then(setModel), 1000);
-		return () => clearInterval(timer);
-	}, [downloading, status]);
+		status().then(setStored);
+	}, [status, jobState]);
+	const model: ModelState | null =
+		job?.state === "running" && job.count
+			? { kind: "downloading", done: job.count.done, total: job.count.total }
+			: job?.state === "failed"
+				? {
+						kind: "failed",
+						message: job.failed[0]?.error ?? "The download failed.",
+					}
+				: stored;
 	if (!model) return null;
-	const start = () => download().then(setModel);
+	const start = () => download().then(setStored);
+	const cancel = () => api.cancelJob(lane, null).catch(() => {});
 
 	return (
 		<div
@@ -180,6 +191,9 @@ function LocalModel({
 									: "not downloaded"}
 					</span>
 				</div>
+				{model.kind === "downloading" && (
+					<Button onPress={cancel}>Cancel</Button>
+				)}
 				{model.kind === "failed" && (
 					<Button variant="primary" onPress={start}>
 						<ArrowClockwiseIcon className="size-4" />
@@ -216,6 +230,7 @@ function ScannedPages() {
 		<LocalModel
 			title="Text recognition"
 			size="31 MB"
+			lane="downloadOcr"
 			status={api.ocrStatus}
 			download={api.downloadOcrModel}
 			ready="Pages without text, like scans, are read automatically when a paper is added. To read a paper you added earlier, use Read again in the library."
@@ -230,6 +245,7 @@ function PageLayout() {
 		<LocalModel
 			title="Page layout"
 			size="130 MB"
+			lane="downloadLayout"
 			status={api.layoutStatus}
 			download={api.downloadLayoutModel}
 			ready="Running heads, footers and page numbers are left out of search, and text is read in column order. Papers already in the library are processed in the background."
@@ -244,6 +260,7 @@ function TableReading() {
 		<LocalModel
 			title="Tables"
 			size="8 MB"
+			lane="downloadTables"
 			status={api.tablesStatus}
 			download={api.downloadTablesModel}
 			ready="Tables are read as rows and columns, with the numbers taken from the PDF's text. A table that doesn't add up stays as plain lines. Papers already in the library are processed in the background."
@@ -532,13 +549,22 @@ function SearchModel() {
 						</span>
 					</div>
 					{indexing && (
-						<Button onPress={() => api.setEmbeddingPaused(!paused)}>
+						<Button onPress={() => api.setLanePaused("index", !paused)}>
 							{paused ? (
 								<PlayIcon className="size-4" />
 							) : (
 								<PauseIcon className="size-4" />
 							)}
 							{paused ? "Resume" : "Pause"}
+						</Button>
+					)}
+					{model.kind === "downloading" && backend === "local" && (
+						<Button
+							onPress={() =>
+								api.cancelJob("downloadEmbedding", null).catch(() => {})
+							}
+						>
+							Cancel
 						</Button>
 					)}
 					{model.kind === "failed" && (
@@ -727,7 +753,7 @@ const LEGEND = [
 /** Draws the layout model's regions over pages in the reader. */
 function LayoutViewSwitch() {
 	const on = useLayoutOverlay();
-	const progress = useLayoutProgress().data;
+	const progress = useLayoutProgress();
 	return (
 		<div className="flex flex-col gap-3">
 			<Checkbox
@@ -748,7 +774,7 @@ function LayoutViewSwitch() {
 				reading order with its confidence. A document shows nothing until its
 				layout has been processed in the background.
 			</p>
-			{progress?.available && (
+			{progress.available && (
 				<p className="text-[13px]">
 					Layout processed for {progress.done.toLocaleString()} of{" "}
 					{progress.total.toLocaleString()} pages

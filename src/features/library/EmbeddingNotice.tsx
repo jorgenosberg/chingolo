@@ -1,9 +1,10 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { useNav } from "../../app/nav";
 import { Button } from "../../components/ui";
 import { api } from "../../lib/api";
-import type { LayoutProgress } from "../../lib/bindings";
-import { useEmbeddingStatus, useLayoutProgress } from "../../lib/library";
+import { type LayoutView, useLayoutProgress } from "../../lib/jobs";
+import { useEmbeddingStatus } from "../../lib/library";
 import { keys, useSettings } from "../../lib/queries";
 
 export const mb = (bytes: number | null) =>
@@ -36,7 +37,7 @@ function Banner({
  */
 export function EmbeddingNotice() {
 	const status = useEmbeddingStatus();
-	const layout = useLayoutProgress().data;
+	const layout = useLayoutProgress();
 	// Offers and failures of the search model come first. Layout shows by itself then.
 	const embeddingReady = status?.model.kind === "ready";
 	return (
@@ -47,8 +48,18 @@ export function EmbeddingNotice() {
 	);
 }
 
-const layoutBusy = (l?: LayoutProgress) =>
+const layoutBusy = (l?: LayoutView) =>
 	Boolean(l?.available && (l.done < l.total || l.tablesDone < l.tablesTotal));
+
+/** Opens the Activity page, where every job has its own row and controls. */
+function DetailsButton() {
+	const { openActivity } = useNav();
+	return (
+		<Button variant="ghost" onPress={openActivity}>
+			Details
+		</Button>
+	);
+}
 
 function ProgressLine({
 	label,
@@ -76,15 +87,23 @@ function ProgressLine({
 	);
 }
 
-const layoutText = (l: LayoutProgress) =>
-	l.done < l.total
-		? `Cleaning up page layout (headers, footers, columns): ${l.done.toLocaleString()} of ${l.total.toLocaleString()} pages. Search works meanwhile.`
-		: `Reading tables: ${l.tablesDone.toLocaleString()} of ${l.tablesTotal.toLocaleString()}. Search works meanwhile.`;
+const layoutText = (l: LayoutView) => {
+	const pages = l.done < l.total;
+	const progress = pages
+		? `${l.done.toLocaleString()} of ${l.total.toLocaleString()} pages`
+		: `${l.tablesDone.toLocaleString()} of ${l.tablesTotal.toLocaleString()} tables`;
+	if (l.paused)
+		return `Page layout is paused: ${progress}. Search works meanwhile.`;
+	return pages
+		? `Cleaning up page layout (headers, footers, columns): ${progress}. Search works meanwhile.`
+		: `Reading tables: ${progress}. Search works meanwhile.`;
+};
 
-function LayoutBanner({ layout }: { layout?: LayoutProgress }) {
+function LayoutBanner({ layout }: { layout?: LayoutView }) {
+	const details = <DetailsButton />;
 	if (!layout || !layoutBusy(layout)) return null;
 	return (
-		<Banner>
+		<Banner actions={details}>
 			<p>{layoutText(layout)}</p>
 			<ProgressLine
 				label={layout.done < layout.total ? "Page layout" : "Tables"}
@@ -95,7 +114,7 @@ function LayoutBanner({ layout }: { layout?: LayoutProgress }) {
 	);
 }
 
-function EmbeddingBanner({ layout }: { layout?: LayoutProgress }) {
+function EmbeddingBanner({ layout }: { layout?: LayoutView }) {
 	const qc = useQueryClient();
 	const status = useEmbeddingStatus();
 	const { data: settings } = useSettings();
@@ -224,9 +243,15 @@ function EmbeddingBanner({ layout }: { layout?: LayoutProgress }) {
 	if (!indexing && !laying) return null;
 	if (!indexing && layout) return <LayoutBanner layout={layout} />;
 	const pause = (
-		<Button variant="ghost" onPress={() => api.setEmbeddingPaused(!paused)}>
-			{paused ? "Resume indexing" : "Pause indexing"}
-		</Button>
+		<>
+			<Button
+				variant="ghost"
+				onPress={() => api.setLanePaused("index", !paused)}
+			>
+				{paused ? "Resume indexing" : "Pause indexing"}
+			</Button>
+			<DetailsButton />
+		</>
 	);
 	// Two things at once: say what is going on, without numbers.
 	if (laying) {

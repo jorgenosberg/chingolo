@@ -157,7 +157,6 @@ export const api = {
 	ocrStatus: () => commands.ocrStatus(),
 	downloadOcrModel: () => commands.downloadOcrModel(),
 	layoutStatus: () => commands.layoutStatus(),
-	layoutProgress: () => unwrap(commands.layoutProgress()),
 	jobs: () => unwrap(commands.jobs()),
 	setLanePaused: (lane: Lane, paused: boolean) =>
 		unwrap(commands.setLanePaused(lane, paused)),
@@ -173,7 +172,6 @@ export const api = {
 	allowCloudEmbedding: () => unwrap(commands.allowCloudEmbedding()),
 	setEmbeddingBackend: (backend: "gemini" | "local") =>
 		unwrap(commands.setEmbeddingBackend(backend)),
-	setEmbeddingPaused: (paused: boolean) => commands.setEmbeddingPaused(paused),
 
 	getUsage: (period: UsagePeriod) => unwrap(commands.getUsage(period)),
 	getConversationCost: (id: string) => unwrap(commands.getConversationCost(id)),
