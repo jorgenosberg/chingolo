@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1
+
+See how full a chat is, and get a warning before it gets more expensive.
+
+- A small ring in the chat header shows how much of the model's context window the conversation uses. Hover it for the token count and how much of the last reply's input was cached. It turns red at 80%.
+- Some models charge more for every message once a chat passes a certain size (for example double above 200k or 272k tokens). A warning next to the ring appears as a chat gets close to that size. It offers to hand off to a new conversation, or you can fork from an earlier message, or keep going.
+- Handing off a conversation now reuses the model's cached input, so the note usually costs less to write.
+
 ## 0.3.0
 
 See everything Chingolo is working on in one place, and pause, retry or cancel it.
