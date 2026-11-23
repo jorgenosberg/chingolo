@@ -30,7 +30,7 @@ bun run tauri dev
 
 Dev builds are signed with a local Apple Development certificate when one is installed, so macOS Keychain access is remembered across rebuilds. See `src-tauri/scripts/dev-run.sh`.
 
-See `docs/ARCHITECTURE.md` for how the code is laid out. `scripts/release.sh` builds and publishes a signed release.
+`scripts/release.sh` builds and publishes a signed release.
 
 ## License
 
