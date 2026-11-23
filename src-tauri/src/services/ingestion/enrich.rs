@@ -268,7 +268,7 @@ async fn ai_step(db: &Db, target: &Target, id: &str) -> Result<Option<Document>>
         .await?;
     let want = Missing::of(&doc);
     if !want.worth_asking(&doc) || head.trim().is_empty() {
-        log::debug!("details model: nothing to ask for {}", doc.original_name);
+        log::debug!("details model: nothing to ask for {}", doc.id);
         return Ok(None);
     }
     log::info!(
@@ -446,7 +446,7 @@ async fn lookup_step(
     match failure {
         Some(e) => Err(e),
         None => {
-            log::debug!("lookup: no usable record for {}", doc.original_name);
+            log::debug!("lookup: no usable record for {}", doc.id);
             Ok(None)
         }
     }
@@ -485,7 +485,7 @@ async fn title_step(
         .clone()
         .filter(|t| t.split_whitespace().count() >= 3)
     else {
-        log::debug!("title search: {} has no usable title", doc.original_name);
+        log::debug!("title search: {} has no usable title", doc.id);
         return Ok(None);
     };
     let surname = lookup::first_surname(&doc.authors);
@@ -513,7 +513,7 @@ async fn title_step(
         }
     }
     let Some(top) = top else {
-        log::info!("title search: no fitting record for {}", doc.original_name);
+        log::info!("title search: no fitting record for {}", doc.id);
         return Ok(None);
     };
     let mut found = crossref::to_extracted(&top, doc.publisher.is_some());

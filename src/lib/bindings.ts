@@ -53,6 +53,10 @@ export const commands = {
 	testReportingConnection: () => typedError<null, CmdError>(__TAURI_INVOKE("test_reporting_connection")),
 	/**  An uncaught error in the webview. Never fails, so the error handler can't loop. */
 	reportFrontendError: (message: string, stack: string | null, location: string | null) => typedError<null, CmdError>(__TAURI_INVOKE("report_frontend_error", { message, stack, location })),
+	/**  The exact JSON a bug report would send, for the preview. */
+	previewBugReport: (description: string, includeLog: boolean) => typedError<string, CmdError>(__TAURI_INVOKE("preview_bug_report", { description, includeLog })),
+	/**  Works with the other two reports off: the user presses send themselves. */
+	sendBugReport: (description: string, includeLog: boolean) => typedError<null, CmdError>(__TAURI_INVOKE("send_bug_report", { description, includeLog })),
 	/**
 	 *  Opens the system file or folder dialog and imports what the user picks. Paths never pass
 	 *  through the webview.

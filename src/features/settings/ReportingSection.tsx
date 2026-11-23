@@ -6,6 +6,7 @@ import { useDialogs } from "../../components/dialogs";
 import { Button, cx, focus, Spinner, TextInput } from "../../components/ui";
 import { api } from "../../lib/api";
 import { keys, useSettings } from "../../lib/queries";
+import { BugReportDialog } from "./BugReportDialog";
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -55,6 +56,7 @@ export function ReportingSection() {
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [tested, setTested] = useState<string | null>(null);
+	const [reporting, setReporting] = useState(false);
 	if (!settings) return null;
 	const connected = !!settings.reportingUrl && settings.hasReportingToken;
 	const refresh = () => qc.invalidateQueries({ queryKey: keys.settings });
@@ -191,6 +193,18 @@ export function ReportingSection() {
 				onChange={(on) => set({ crashReports: on })}
 				text="If the app crashes, the error message and where in the code it happened, sent the next time you open the app."
 			/>
+			<div className="flex flex-col gap-1">
+				<div>
+					<Button onPress={() => setReporting(true)} isDisabled={!connected}>
+						Send a bug report
+					</Button>
+				</div>
+				<p className="text-sm leading-relaxed text-muted-foreground">
+					Works with both boxes above off. You see exactly what is sent before
+					it goes.
+				</p>
+			</div>
+			<BugReportDialog isOpen={reporting} onClose={() => setReporting(false)} />
 		</div>
 	);
 }

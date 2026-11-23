@@ -176,6 +176,36 @@ pub async fn body(db: &Db, extra: Value) -> Result<Value> {
     Ok(env)
 }
 
+const LOG_LINES: usize = 500;
+const MAX_DESCRIPTION: usize = 5_000;
+
+/// The last `LOG_LINES` lines of the app log. Logs hold no chat text or keys, document names
+/// are logged by id, and `/Users/<name>` is replaced by `~` here as a last step.
+pub fn log_tail(file: &std::path::Path) -> String {
+    let text = std::fs::read_to_string(file).unwrap_or_default();
+    let lines: Vec<&str> = text.lines().collect();
+    let tail = lines[lines.len().saturating_sub(LOG_LINES)..].join("\n");
+    crate::services::crashes::scrub_home(&tail)
+}
+
+/// The body of a bug report: the envelope, the description and, if asked for, the log tail.
+pub async fn bug_report_body(
+    db: &Db,
+    log_file: &std::path::Path,
+    description: &str,
+    include_log: bool,
+) -> Result<Value> {
+    let description: String = description.trim().chars().take(MAX_DESCRIPTION).collect();
+    if description.is_empty() {
+        return Err(AppError::Invalid("Describe the problem first.".into()));
+    }
+    let mut extra = json!({ "description": description });
+    if include_log {
+        extra["log_tail"] = Value::String(log_tail(log_file));
+    }
+    body(db, extra).await
+}
+
 #[cfg(target_os = "macos")]
 fn os_version() -> String {
     let v = objc2_foundation::NSProcessInfo::processInfo().operatingSystemVersion();
@@ -249,6 +279,36 @@ mod tests {
         );
         assert_eq!(a["install_id"], b["install_id"]);
         assert_eq!(a["schema"], 1);
+    }
+
+    #[test]
+    fn the_log_tail_is_the_last_lines_without_home_folders() {
+        let tmp = tempfile::tempdir().unwrap();
+        let file = tmp.path().join("chingolo.log");
+        let text: String = (0..700)
+            .map(|i| format!("line {i} /Users/anna/x\n"))
+            .collect();
+        std::fs::write(&file, text).unwrap();
+        let tail = log_tail(&file);
+        assert_eq!(tail.lines().count(), LOG_LINES);
+        assert!(tail.starts_with("line 200 ~/x"));
+        assert!(!tail.contains("anna"));
+        assert_eq!(log_tail(&tmp.path().join("missing.log")), "");
+    }
+
+    #[tokio::test]
+    async fn bug_reports_need_a_description_and_log_is_optional() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Db::open(&tmp.path().join("t.sqlite")).unwrap();
+        let log = tmp.path().join("chingolo.log");
+        std::fs::write(&log, "hello\n").unwrap();
+        assert!(bug_report_body(&db, &log, "  ", true).await.is_err());
+        let without = bug_report_body(&db, &log, "It froze", false).await.unwrap();
+        assert!(without.get("log_tail").is_none());
+        assert_eq!(without["description"], "It froze");
+        let with = bug_report_body(&db, &log, "It froze", true).await.unwrap();
+        assert_eq!(with["log_tail"], "hello");
+        assert_eq!(with["schema"], 1);
     }
 
     #[tokio::test]

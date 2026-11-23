@@ -528,7 +528,7 @@ fn worker_loop(mut conn: Connection, inner: Arc<Inner>) {
         }));
         set_running(&inner, None);
         if ran.is_err() && matches!(job, Job::Details(_)) {
-            log::warn!("reading the details of {} crashed", doc.original_name);
+            log::warn!("reading the details of document {} crashed", doc.id);
         } else if ran.is_err() && matches!(job, Job::Layout(_)) {
             log::warn!(
                 "page layout of {} crashed, its passages are unchanged",
@@ -598,7 +598,7 @@ pub fn run_details(
             }
         }
         Err(AppError::NotFound) => {}
-        Err(e) => log::warn!("couldn't refresh the details of {}: {e}", doc.original_name),
+        Err(e) => log::warn!("couldn't refresh the details of {}: {e}", doc.id),
     }
 }
 
@@ -776,7 +776,7 @@ fn run_layout(
         }
         Err(AppError::NotFound | AppError::Cancelled) => {}
         Err(e) => {
-            log::warn!("page layout of {} failed: {e}", doc.original_name);
+            log::warn!("page layout of {} failed: {e}", doc.id);
             let _ =
                 repo::set_layout_error(conn, &doc.id, Some(&format!("Page layout failed: {e}")));
         }

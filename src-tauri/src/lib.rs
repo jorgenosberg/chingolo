@@ -69,6 +69,8 @@ fn specta_builder() -> Builder<tauri::Wry> {
             commands::reporting::disconnect_reporting,
             commands::reporting::test_reporting_connection,
             commands::reporting::report_frontend_error,
+            commands::reporting::preview_bug_report,
+            commands::reporting::send_bug_report,
             commands::library::pick_and_import,
             commands::library::set_import_target,
             commands::library::list_documents,

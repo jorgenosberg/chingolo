@@ -84,3 +84,52 @@ pub async fn report_frontend_error(
     }
     Ok(())
 }
+
+fn log_file(app: &AppHandle) -> std::path::PathBuf {
+    app.path()
+        .app_log_dir()
+        .unwrap_or_default()
+        .join("chingolo.log")
+}
+
+/// The exact JSON a bug report would send, for the preview.
+#[tauri::command]
+#[specta::specta]
+pub async fn preview_bug_report(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    description: String,
+    include_log: bool,
+) -> CmdResult<String> {
+    let body =
+        reporting::bug_report_body(&state.db, &log_file(&app), &description, include_log).await?;
+    Ok(serde_json::to_string_pretty(&body).map_err(|e| AppError::Internal(e.to_string()))?)
+}
+
+/// Works with the other two reports off: the user presses send themselves.
+#[tauri::command]
+#[specta::specta]
+pub async fn send_bug_report(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    description: String,
+    include_log: bool,
+) -> CmdResult<()> {
+    let target = reporting::target(&state.db)
+        .await
+        .ok_or_else(|| AppError::Invalid("Connect to a reporting server first.".into()))?;
+    let body =
+        reporting::bug_report_body(&state.db, &log_file(&app), &description, include_log).await?;
+    match reporting::post(&state.db, &target, "/v1/reports", &body).await {
+        reporting::Outcome::Sent => Ok(()),
+        reporting::Outcome::Retry => {
+            Err(AppError::Provider("Couldn't reach the server. Try again later.".into()).into())
+        }
+        reporting::Outcome::BadToken => {
+            Err(AppError::Provider("The server didn't accept the saved token.".into()).into())
+        }
+        reporting::Outcome::Drop => {
+            Err(AppError::Provider("The server turned the report down.".into()).into())
+        }
+    }
+}

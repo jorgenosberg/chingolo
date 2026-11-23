@@ -96,6 +96,10 @@ export const api = {
 		unwrap(commands.connectReporting(url, token)),
 	disconnectReporting: () => unwrap(commands.disconnectReporting()),
 	testReportingConnection: () => unwrap(commands.testReportingConnection()),
+	previewBugReport: (description: string, includeLog: boolean) =>
+		unwrap(commands.previewBugReport(description, includeLog)),
+	sendBugReport: (description: string, includeLog: boolean) =>
+		unwrap(commands.sendBugReport(description, includeLog)),
 	/** For error handlers: never throws. */
 	reportFrontendError: (
 		message: string,

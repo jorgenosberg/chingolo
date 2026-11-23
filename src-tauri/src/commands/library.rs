@@ -120,7 +120,7 @@ pub async fn retry_import(state: State<'_, AppState>, id: String) -> CmdResult<D
 #[specta::specta]
 pub async fn refresh_details(state: State<'_, AppState>, id: String) -> CmdResult<()> {
     let doc = state.db.call(move |c| repo::get_document(c, &id)).await?;
-    log::info!("refreshing the details of {}", doc.original_name);
+    log::info!("refreshing the details of {}", doc.id);
     state.ingest.enqueue_details(&doc);
     Ok(())
 }
