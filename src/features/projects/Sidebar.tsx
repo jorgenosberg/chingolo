@@ -59,6 +59,7 @@ function Row({
 	icon,
 	label,
 	marker,
+	pending,
 	menu,
 	expanded,
 	shortcut,
@@ -72,6 +73,8 @@ function Row({
 	label: string;
 	/** A small sign after the label, such as unsent text. */
 	marker?: ReactNode;
+	/** Something waits for the user, so the label is set heavier. */
+	pending?: boolean;
 	menu?: ReactNode;
 	expanded?: boolean;
 }) {
@@ -87,6 +90,7 @@ function Row({
 					menu ? "pr-8" : "pr-2",
 					"data-[hovered]:bg-muted",
 					selected && "bg-border/60 font-medium",
+					pending && "font-semibold",
 					focus,
 				)}
 			>
@@ -250,12 +254,13 @@ function ConversationRow({ c, depth }: { c: Conversation; depth: number }) {
 		<Row
 			depth={depth}
 			label={c.title}
+			pending={unsent}
 			marker={
 				unsent && (
 					<PencilSimpleLineIcon
 						role="img"
 						aria-label="Has unsent text"
-						className="size-3.5 shrink-0 text-muted-foreground"
+						className="size-3.5 shrink-0 text-primary"
 					/>
 				)
 			}
