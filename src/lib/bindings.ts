@@ -524,6 +524,10 @@ export type ModelFacts = {
 	pdfInput: boolean,
 	/**  The provider has announced this model's retirement. */
 	deprecated: boolean,
+	/**  Above this many input tokens the whole request is billed at a higher rate. */
+	priceJumpOver: number | null,
+	/**  How much more input costs above `price_jump_over` (2.0 means double). */
+	priceJumpFactor: number | null,
 };
 
 export type ModelInfo = {

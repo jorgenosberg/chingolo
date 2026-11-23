@@ -34,10 +34,12 @@ import {
 import { useLiveReply } from "../../lib/streams";
 import { PrivacyNotice } from "../settings/PrivacyNotice";
 import { Composer } from "./Composer";
+import { ContextMeter } from "./ContextMeter";
 import { ConversationCost } from "./ConversationCost";
 import { FindBar } from "./FindBar";
 import { useConversationFlows } from "./flows";
 import { MessageItem } from "./MessageItem";
+import { PriceJumpWarning } from "./PriceJumpWarning";
 
 export function ChatView({ conversationId }: { conversationId: string }) {
 	const qc = useQueryClient();
@@ -257,6 +259,13 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 	const list = messages.data ?? [];
 	const modelName = (id: string) =>
 		modelList.find((m) => m.id === id)?.displayName ?? id;
+	const modelInfo = modelList.find((m) => modelRef && sameModel(m, modelRef));
+	const lastCached =
+		[...list]
+			.reverse()
+			.find(
+				(m) => m.role === "assistant" && m.status !== "error" && m.inputTokens,
+			)?.cachedInputTokens ?? null;
 	const modelChanges = findModelChanges(list);
 	// The model the conversation began with: its first reply's model, else the current choice.
 	const startModel =
@@ -334,6 +343,17 @@ export function ChatView({ conversationId }: { conversationId: string }) {
 					)}
 				</div>
 				<div className="flex shrink-0 items-center gap-1">
+					<PriceJumpWarning
+						used={switchCost}
+						over={modelInfo?.facts?.priceJumpOver ?? null}
+						factor={modelInfo?.facts?.priceJumpFactor ?? null}
+						onHandoff={() => conversation && handoff(conversation)}
+					/>
+					<ContextMeter
+						used={switchCost}
+						limit={modelInfo?.inputTokenLimit ?? null}
+						cached={lastCached}
+					/>
 					<ConversationCost conversationId={conversationId} />
 					{/* While the pane is open it has its own close control, so only one shows. */}
 					{!contextOpen && (

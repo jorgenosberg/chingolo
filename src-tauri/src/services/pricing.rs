@@ -114,6 +114,7 @@ impl Table {
     /// What the table knows about a model, matched like `cost` (a dated variant finds its base).
     pub fn facts(&self, provider: &str, model: &str) -> Option<ModelFacts> {
         let p = self.find(provider, model)?;
+        let jump = p.tiers.iter().min_by_key(|t| t.over);
         Some(ModelFacts {
             name: p.name.clone(),
             input_price: p.input,
@@ -126,6 +127,8 @@ impl Table {
             image_input: p.image_input,
             pdf_input: p.pdf_input,
             deprecated: p.deprecated,
+            price_jump_over: jump.map(|t| t.over),
+            price_jump_factor: jump.filter(|_| p.input > 0.0).map(|t| t.input / p.input),
         })
     }
 
@@ -543,6 +546,16 @@ mod tests {
             "special variants don't"
         );
         assert!(t.facts("gemini", "something-new").is_none());
+    }
+
+    #[test]
+    fn facts_report_where_the_price_jumps() {
+        let t = table();
+        let pro = t.facts("gemini", "pro").unwrap();
+        assert_eq!(pro.price_jump_over, Some(200_000));
+        assert_eq!(pro.price_jump_factor, Some(2.0));
+        let base = t.facts("gemini", "base").unwrap();
+        assert_eq!((base.price_jump_over, base.price_jump_factor), (None, None));
     }
 
     #[test]

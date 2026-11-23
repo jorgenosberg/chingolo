@@ -399,6 +399,10 @@ pub struct ModelFacts {
     pub pdf_input: bool,
     /// The provider has announced this model's retirement.
     pub deprecated: bool,
+    /// Above this many input tokens the whole request is billed at a higher rate.
+    pub price_jump_over: Option<u32>,
+    /// How much more input costs above `price_jump_over` (2.0 means double).
+    pub price_jump_factor: Option<f64>,
 }
 
 /// A provider whose model list couldn't be loaded.
