@@ -1167,6 +1167,36 @@ mod tests {
     }
 
     #[test]
+    fn unsent_text_is_kept_in_a_conversation_that_already_has_messages() {
+        let conn = test_conn();
+        let c = create_conversation(&conn, None, None, "gemini", Some("m")).unwrap();
+        insert_message(
+            &conn,
+            &c.id,
+            Role::User,
+            "hello",
+            MessageStatus::Complete,
+            None,
+            None,
+        )
+        .unwrap();
+        set_draft(&conn, &c.id, "a follow-up I have not sent").unwrap();
+
+        let listed = list_conversations(&conn, &ConversationFilter::default()).unwrap();
+        let got = listed.iter().find(|x| x.id == c.id).unwrap();
+        assert_eq!(got.draft, "a follow-up I have not sent");
+        assert!(
+            got.has_messages,
+            "so the sidebar does not list it as a draft"
+        );
+        // leaving the chat keeps it
+        assert!(!delete_if_empty(&conn, &c.id).unwrap());
+
+        set_draft(&conn, &c.id, "").unwrap();
+        assert_eq!(get_conversation(&conn, &c.id).unwrap().draft, "");
+    }
+
+    #[test]
     fn a_conversation_with_a_draft_is_kept_and_reports_it() {
         let conn = test_conn();
         let c = create_conversation(&conn, None, None, "gemini", Some("m")).unwrap();
