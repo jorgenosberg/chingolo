@@ -5,6 +5,7 @@ use crate::error::{CmdResult, Result};
 use crate::persistence::settings;
 use crate::services::embedding::Backend;
 use crate::services::embedding::engine::EmbeddingStatus;
+use crate::services::jobs::Lane;
 use crate::state::AppState;
 
 /// The user's yes to the one-time local model download. Kept so an interrupted download resumes at startup.
@@ -90,7 +91,10 @@ pub async fn set_embedding_backend(
 
 #[tauri::command]
 #[specta::specta]
-pub fn set_embedding_paused(state: State<'_, AppState>, paused: bool) -> EmbeddingStatus {
-    state.embedder.set_paused(paused);
-    state.embedder.status()
+pub async fn set_embedding_paused(
+    state: State<'_, AppState>,
+    paused: bool,
+) -> CmdResult<EmbeddingStatus> {
+    state.jobs.set_paused(Lane::Index, paused).await?;
+    Ok(state.embedder.status())
 }

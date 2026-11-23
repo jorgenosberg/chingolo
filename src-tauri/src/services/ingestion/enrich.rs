@@ -26,8 +26,25 @@ pub const CROSSREF_KEY: &str = "crossref_enabled";
 /// Searches Crossref by title for papers with no identifier. Sends the title and first author's surname.
 pub const TITLE_KEY: &str = "title_search_enabled";
 
+/// Holds the lookups back while paused. The worker waits at the gate before each document.
+#[derive(Default)]
+struct Gate {
+    paused: std::sync::atomic::AtomicBool,
+    open: tokio::sync::Notify,
+}
+
+impl Gate {
+    async fn wait_open(&self) {
+        use std::sync::atomic::Ordering;
+        // `notify_one` keeps a permit, so a resume between the check and the wait isn't lost.
+        while self.paused.load(Ordering::SeqCst) {
+            self.open.notified().await;
+        }
+    }
+}
+
 #[derive(Clone)]
-pub struct Enricher(mpsc::UnboundedSender<Id>, Activity);
+pub struct Enricher(mpsc::UnboundedSender<Id>, Activity, std::sync::Arc<Gate>);
 
 /// A lookup that failed is tried once more after this long. After that it waits for the next start.
 const RETRY_AFTER: std::time::Duration = std::time::Duration::from_secs(45);
@@ -36,12 +53,15 @@ impl Enricher {
     pub fn start(db: Db, emit: Emit, providers: Providers, activity: Activity) -> Self {
         let busy = activity.clone();
         let (tx, mut rx) = mpsc::unbounded_channel::<Id>();
-        let again = Enricher(tx.clone(), activity.clone());
+        let gate = std::sync::Arc::new(Gate::default());
+        let again = Enricher(tx.clone(), activity.clone(), gate.clone());
+        let worker_gate = gate.clone();
         tauri::async_runtime::spawn(async move {
             let client = crossref::http_client();
             let bases = Bases::live();
             let mut tries: HashMap<Id, u8> = HashMap::new();
             while let Some(id) = rx.recv().await {
+                worker_gate.wait_open().await;
                 let target = match ai_target(&db, &providers).await {
                     Ok(t) => t,
                     Err(e) => {
@@ -81,7 +101,16 @@ impl Enricher {
                 busy.finish(&id);
             }
         });
-        Enricher(tx, activity)
+        Enricher(tx, activity, gate)
+    }
+
+    /// Holds lookups back, or lets them go on. One already running finishes.
+    pub fn set_paused(&self, paused: bool) {
+        use std::sync::atomic::Ordering;
+        self.2.paused.store(paused, Ordering::SeqCst);
+        if !paused {
+            self.2.open.notify_one();
+        }
     }
 
     pub fn queue(&self, id: &str) {

@@ -111,6 +111,9 @@ fn specta_builder() -> Builder<tauri::Wry> {
             commands::usage::show_logs,
             commands::embedding::set_embedding_paused,
             commands::jobs::jobs,
+            commands::jobs::set_lane_paused,
+            commands::jobs::retry_job,
+            commands::jobs::cancel_job,
         ])
 }
 
@@ -318,9 +321,12 @@ pub fn run() {
                     layout: layout.clone(),
                     tables: tables.clone(),
                     activity,
+                    enricher: enricher.clone(),
                 },
                 poke,
             );
+            let paused_jobs = jobs.clone();
+            tauri::async_runtime::spawn(async move { paused_jobs.load_paused().await });
             let jobs_handle = app.handle().clone();
             jobs.run(move |e| {
                 let _ = e.emit(&jobs_handle);

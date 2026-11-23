@@ -663,6 +663,17 @@ pub fn set_layout_error(conn: &Connection, id: &str, error: Option<&str>) -> Res
     Ok(())
 }
 
+/// The user chose not to run layout on this document. It stays out of the queue until a retry.
+pub fn skip_layout(conn: &Connection, id: &str) -> Result<()> {
+    conn.execute(
+        &format!(
+            "UPDATE documents SET layout_error = 'Skipped', layout_attempts = {MAX_LAYOUT_ATTEMPTS} WHERE id = ?1"
+        ),
+        [id],
+    )?;
+    Ok(())
+}
+
 /// Forgets earlier layout failures so the document is tried again.
 pub fn reset_layout_failure(conn: &Connection, id: &str) -> Result<()> {
     set_layout_error(conn, id, None)

@@ -144,12 +144,24 @@ export const commands = {
 	updatePricesNow: () => typedError<null, CmdError>(__TAURI_INVOKE("update_prices_now")),
 	/**  Opens the folder with the log files in Finder. The path is the app's own, never the webview's. */
 	showLogs: () => typedError<null, CmdError>(__TAURI_INVOKE("show_logs")),
-	setEmbeddingPaused: (paused: boolean) => __TAURI_INVOKE<EmbeddingStatus>("set_embedding_paused", { paused }),
+	setEmbeddingPaused: (paused: boolean) => typedError<EmbeddingStatus, CmdError>(__TAURI_INVOKE("set_embedding_paused", { paused })),
 	/**
 	 *  Every kind of background work and where it stands. The `jobsChanged` event sends the same list
 	 *  when it changes, this seeds it when a page opens.
 	 */
 	jobs: () => typedError<LaneSnapshot[], CmdError>(__TAURI_INVOKE("jobs")),
+	/**
+	 *  Pauses or resumes reading, layout, details or indexing, and remembers it across restarts. A job
+	 *  already running finishes first.
+	 */
+	setLanePaused: (lane: Lane, paused: boolean) => typedError<null, CmdError>(__TAURI_INVOKE("set_lane_paused", { lane, paused })),
+	/**  Runs a failed item again. The document lanes need `document_id`. */
+	retryJob: (lane: Lane, documentId: string | null) => typedError<null, CmdError>(__TAURI_INVOKE("retry_job", { lane, documentId })),
+	/**
+	 *  Stops a queued or running document. For layout it means skipping that document until a retry.
+	 *  True if something was stopped.
+	 */
+	cancelJob: (lane: Lane, documentId: string) => typedError<boolean, CmdError>(__TAURI_INVOKE("cancel_job", { lane, documentId })),
 };
 
 /** Events */
@@ -423,6 +435,11 @@ export type Lane =
 export type LaneSnapshot = {
 	lane: Lane,
 	state: LaneState,
+	/**
+	 *  The user paused this lane. A job already running still finishes, so a lane can be
+	 *  running and paused at once.
+	 */
+	paused: boolean,
 	/**  Overall progress, when the lane can say (pages, passages or bytes). */
 	count: Count | null,
 	/**  Table regions read and in all, for the layout lane. */

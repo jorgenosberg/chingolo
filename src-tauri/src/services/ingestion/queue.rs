@@ -310,15 +310,6 @@ impl Ingestor {
         lock(&self.0.paused).contains(&lane)
     }
 
-    /// Jobs waiting in a lane, not counting the one running.
-    pub fn queued(&self, lane: Lane) -> u32 {
-        let n = lock(&self.0.queue)
-            .iter()
-            .filter(|j| j.lane() == lane)
-            .count();
-        u32::try_from(n).unwrap_or(u32::MAX)
-    }
-
     /// The job the worker is on, if any.
     pub fn running(&self) -> Option<Running> {
         self.0.running.lock().ok().and_then(|r| r.clone())

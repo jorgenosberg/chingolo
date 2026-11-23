@@ -12,12 +12,14 @@ use tokio::sync::Notify;
 
 use crate::domain::Id;
 use crate::domain::library::DocStatus;
-use crate::error::Result;
-use crate::persistence::{Db, library as repo};
+use crate::error::{AppError, Result};
+use crate::persistence::{Db, library as repo, settings};
 use crate::services::embedding::Backend;
 use crate::services::embedding::engine::Embedder;
 use crate::services::embedding::model::ModelState;
 use crate::services::ingestion::activity::Activity;
+use crate::services::ingestion::enrich::Enricher;
+use crate::services::ingestion::import;
 use crate::services::ingestion::ocr::OcrModel;
 use crate::services::ingestion::queue::Ingestor;
 
@@ -45,6 +47,25 @@ pub enum Lane {
     DownloadLayout,
     DownloadTables,
     DownloadEmbedding,
+}
+
+impl Lane {
+    /// Downloads are stopped and started again instead.
+    pub fn pausable(self) -> bool {
+        matches!(
+            self,
+            Lane::Read | Lane::Layout | Lane::Details | Lane::Index
+        )
+    }
+}
+
+/// The lanes the user paused, as a JSON array. Survives restarts.
+pub const PAUSED_KEY: &str = "paused_lanes";
+
+fn paused_lanes(conn: &rusqlite::Connection) -> Result<Vec<Lane>> {
+    Ok(settings::get(conn, PAUSED_KEY)?
+        .and_then(|v| serde_json::from_str(&v).ok())
+        .unwrap_or_default())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -96,6 +117,9 @@ pub struct FailedItem {
 pub struct LaneSnapshot {
     pub lane: Lane,
     pub state: LaneState,
+    /// The user paused this lane. A job already running still finishes, so a lane can be
+    /// running and paused at once.
+    pub paused: bool,
     /// Overall progress, when the lane can say (pages, passages or bytes).
     pub count: Option<Count>,
     /// Table regions read and in all, for the layout lane.
@@ -111,6 +135,7 @@ impl LaneSnapshot {
         LaneSnapshot {
             lane,
             state: LaneState::Idle,
+            paused: false,
             count: None,
             tables: None,
             current: None,
@@ -142,6 +167,7 @@ pub struct Sources {
     pub layout: OcrModel,
     pub tables: OcrModel,
     pub activity: Activity,
+    pub enricher: Enricher,
 }
 
 #[derive(Clone)]
@@ -162,6 +188,101 @@ impl Jobs {
 
     pub async fn snapshot(&self) -> Result<Vec<LaneSnapshot>> {
         snapshot(&self.src).await
+    }
+
+    /// Applies the pauses saved by an earlier run. Call once at start.
+    pub async fn load_paused(&self) {
+        let saved = self
+            .src
+            .db
+            .call(|c| paused_lanes(c))
+            .await
+            .unwrap_or_default();
+        for lane in saved {
+            self.apply_pause(lane, true);
+        }
+        self.poke();
+    }
+
+    /// Pauses or resumes a lane, and remembers it. A job already running finishes first.
+    pub async fn set_paused(&self, lane: Lane, paused: bool) -> Result<()> {
+        if !lane.pausable() {
+            return Err(AppError::Invalid(
+                "This kind of work can't be paused.".into(),
+            ));
+        }
+        self.src
+            .db
+            .call(move |c| {
+                let mut lanes = paused_lanes(c)?;
+                lanes.retain(|l| *l != lane);
+                if paused {
+                    lanes.push(lane);
+                }
+                let json =
+                    serde_json::to_string(&lanes).map_err(|e| AppError::Internal(e.to_string()))?;
+                settings::set(c, PAUSED_KEY, &json)
+            })
+            .await?;
+        self.apply_pause(lane, paused);
+        self.poke();
+        Ok(())
+    }
+
+    fn apply_pause(&self, lane: Lane, paused: bool) {
+        let s = &self.src;
+        match lane {
+            Lane::Read | Lane::Layout => s.ingest.set_paused(lane, paused),
+            Lane::Details => {
+                s.ingest.set_paused(lane, paused);
+                s.enricher.set_paused(paused);
+            }
+            Lane::Index => s.embedder.set_paused(paused),
+            _ => {}
+        }
+    }
+
+    /// Runs a failed item again. `document_id` is needed for the document lanes.
+    pub async fn retry(&self, lane: Lane, document_id: Option<String>) -> Result<()> {
+        let s = &self.src;
+        let need = || document_id.clone().ok_or(AppError::NotFound);
+        match lane {
+            Lane::Read => {
+                import::retry_import(&s.db, &s.ingest, &need()?).await?;
+            }
+            Lane::Layout => {
+                let id = need()?;
+                let doc =
+                    s.db.call(move |c| {
+                        repo::reset_layout_failure(c, &id)?;
+                        repo::get_document(c, &id)
+                    })
+                    .await?;
+                s.ingest.enqueue_layout(&doc);
+            }
+            Lane::Details => s.enricher.queue(&need()?),
+            Lane::Index => s.embedder.ensure_model(),
+            _ => {}
+        }
+        self.poke();
+        Ok(())
+    }
+
+    /// Stops a queued or running document. Layout is skipped for that document until a retry.
+    pub async fn cancel(&self, lane: Lane, document_id: &str) -> Result<bool> {
+        let s = &self.src;
+        let stopped = match lane {
+            Lane::Read => s.ingest.cancel(document_id),
+            Lane::Layout => {
+                let id = document_id.to_string();
+                s.db.call(move |c| repo::skip_layout(c, &id)).await?;
+                s.ingest.cancel_lane(Lane::Layout, document_id);
+                true
+            }
+            _ => false,
+        };
+        self.poke();
+        Ok(stopped)
     }
 
     /// Sends a snapshot whenever it differs from the last one, at most every `DEBOUNCE`.
@@ -273,10 +394,15 @@ pub async fn snapshot(src: &Sources) -> Result<Vec<LaneSnapshot>> {
     });
     read.waiting = stored.queued;
     read.failed = failed(stored.failed_reads);
+    read.paused = src.ingest.is_paused(Lane::Read);
     read.state = if reading.is_some() || stored.processing > 0 {
         LaneState::Running
     } else if stored.queued > 0 {
-        LaneState::Waiting
+        if read.paused {
+            LaneState::Paused
+        } else {
+            LaneState::Waiting
+        }
     } else if !read.failed.is_empty() {
         LaneState::Failed
     } else {
@@ -285,6 +411,7 @@ pub async fn snapshot(src: &Sources) -> Result<Vec<LaneSnapshot>> {
 
     // Layout and tables
     let mut lay = LaneSnapshot::idle(Lane::Layout);
+    lay.paused = src.ingest.is_paused(Lane::Layout);
     if layout.available {
         let working = running.as_ref().filter(|r| r.lane == Lane::Layout);
         lay.count = Some(Count {
@@ -308,6 +435,8 @@ pub async fn snapshot(src: &Sources) -> Result<Vec<LaneSnapshot>> {
         let unfinished = layout.docs_left > 0 || layout.tables_done < layout.tables_total;
         lay.state = if working.is_some() {
             LaneState::Running
+        } else if unfinished && lay.paused {
+            LaneState::Paused
         } else if unfinished {
             LaneState::Waiting
         } else {
@@ -324,7 +453,13 @@ pub async fn snapshot(src: &Sources) -> Result<Vec<LaneSnapshot>> {
     let ids = src.activity.ids();
     details.waiting = u32::try_from(ids.len()).unwrap_or(u32::MAX);
     details.failed = failed(stored.failed_lookups);
-    details.state = if !ids.is_empty() {
+    details.paused = src.ingest.is_paused(Lane::Details);
+    let details_running = running.as_ref().is_some_and(|r| r.lane == Lane::Details);
+    details.state = if details_running {
+        LaneState::Running
+    } else if !ids.is_empty() && details.paused {
+        LaneState::Paused
+    } else if !ids.is_empty() {
         LaneState::Running
     } else if !details.failed.is_empty() {
         LaneState::Failed
@@ -334,6 +469,7 @@ pub async fn snapshot(src: &Sources) -> Result<Vec<LaneSnapshot>> {
 
     // Indexing. The consent and backend choices are settings and stay on `EmbeddingStatus`.
     let mut index = LaneSnapshot::idle(Lane::Index);
+    index.paused = embedding.paused;
     match &embedding.model {
         ModelState::Ready => {
             if embedding.total > 0 {
@@ -410,27 +546,23 @@ mod tests {
         }
     }
 
-    /// Real ingest worker, embedder and database, with a fake encoder. A file that can't be read
-    /// must reach the pushed job list as a failed read, named after the file.
-    #[tokio::test(flavor = "multi_thread")]
-    async fn a_failed_read_reaches_the_pushed_job_list() {
-        use crate::error::AppError;
-        use crate::services::embedding::engine::Loader;
-        use crate::services::ingestion::import::import_paths;
-        use crate::services::ingestion::{activity::Activity, layout, tables};
-        use std::sync::Mutex;
+    use crate::error::AppError;
+    use crate::services::embedding::engine::Loader;
+    use crate::services::ingestion::import::import_paths;
+    use crate::services::ingestion::{activity::Activity, layout, tables};
+    use std::sync::Mutex;
 
-        let dir = tempfile::tempdir().unwrap();
-        let db_path = dir.path().join("t.sqlite");
+    /// Real ingest worker, embedder and database, with a fake encoder.
+    fn rig(dir: &std::path::Path) -> (Db, Ingestor, Jobs) {
+        let db_path = dir.join("t.sqlite");
         let db = Db::open(&db_path).unwrap();
         let poke = Arc::new(Notify::new());
-        let ingest =
-            Ingestor::start(&db_path, dir.path().join("library"), Arc::new(|_| {})).unwrap();
+        let ingest = Ingestor::start(&db_path, dir.join("library"), Arc::new(|_| {})).unwrap();
         ingest.set_poke(poke.clone());
         let loader: Loader = Arc::new(|_, _| Err(AppError::Internal("no model in tests".into())));
         let embedder = Embedder::start_with(
             &db_path,
-            dir.path().join("embedding"),
+            dir.join("embedding"),
             Backend::Local,
             false,
             loader,
@@ -438,18 +570,33 @@ mod tests {
             Arc::new(|_| {}),
         )
         .unwrap();
+        let activity = Activity::new(|_| {});
+        let enricher = Enricher::start(
+            db.clone(),
+            Arc::new(|_| {}),
+            crate::services::ai::Providers::new(),
+            activity.clone(),
+        );
         let jobs = Jobs::new(
             Sources {
                 db: db.clone(),
                 ingest: ingest.clone(),
                 embedder,
-                ocr: OcrModel::new(dir.path()),
-                layout: layout::model(dir.path()),
-                tables: tables::model(dir.path()),
-                activity: Activity::new(|_| {}),
+                ocr: OcrModel::new(dir),
+                layout: layout::model(dir),
+                tables: tables::model(dir),
+                activity,
+                enricher,
             },
             poke,
         );
+        (db, ingest, jobs)
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_failed_read_reaches_the_pushed_job_list() {
+        let dir = tempfile::tempdir().unwrap();
+        let (db, ingest, jobs) = rig(dir.path());
         let seen = Arc::new(Mutex::new(Vec::<JobsChanged>::new()));
         let sink = seen.clone();
         jobs.run(move |e| sink.lock().unwrap().push(e));
@@ -484,5 +631,71 @@ mod tests {
         for lane in &snap[1..] {
             assert_eq!(lane.state, LaneState::Idle, "{:?}", lane.lane);
         }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_pause_is_remembered_and_applied_again_after_a_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let (db, ingest, jobs) = rig(dir.path());
+        jobs.set_paused(Lane::Layout, true).await.unwrap();
+        jobs.set_paused(Lane::Index, true).await.unwrap();
+        jobs.set_paused(Lane::Layout, true).await.unwrap();
+        assert!(ingest.is_paused(Lane::Layout));
+        assert!(!ingest.is_paused(Lane::Read));
+        let snap = jobs.snapshot().await.unwrap();
+        assert!(snap[1].paused && snap[3].paused);
+        assert!(!snap[0].paused && !snap[2].paused);
+        assert!(
+            jobs.set_paused(Lane::DownloadOcr, true).await.is_err(),
+            "downloads are stopped, not paused"
+        );
+
+        let saved = db.call(|c| paused_lanes(c)).await.unwrap();
+        assert_eq!(saved, [Lane::Index, Lane::Layout]);
+
+        // a second run on the same database
+        drop((ingest, jobs));
+        let (_db, ingest, jobs) = rig(dir.path());
+        assert!(!ingest.is_paused(Lane::Layout));
+        jobs.load_paused().await;
+        assert!(ingest.is_paused(Lane::Layout));
+        assert!(jobs.snapshot().await.unwrap()[3].paused);
+
+        jobs.set_paused(Lane::Layout, false).await.unwrap();
+        assert!(!ingest.is_paused(Lane::Layout));
+        let saved = db.call(|c| paused_lanes(c)).await.unwrap();
+        assert_eq!(saved, [Lane::Index]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_skipped_layout_waits_for_a_retry_and_a_retry_clears_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let (db, _ingest, jobs) = rig(dir.path());
+        // paused, so the retry below is only queued and the worker leaves it alone
+        jobs.set_paused(Lane::Layout, true).await.unwrap();
+        let doc = db
+            .call(|c| {
+                let d = repo::insert_document(
+                    c,
+                    "h1",
+                    "paper.pdf",
+                    crate::domain::library::DocKind::Pdf,
+                )?;
+                repo::set_status(c, &d.id, DocStatus::Ready, None)
+            })
+            .await
+            .unwrap();
+
+        assert!(jobs.cancel(Lane::Layout, &doc.id).await.unwrap());
+        let failed = db.call(|c| repo::failed_layouts(c, 10)).await.unwrap();
+        assert_eq!(failed[0].0, doc.id);
+        assert_eq!(failed[0].2, "Skipped");
+
+        jobs.retry(Lane::Layout, Some(doc.id.clone()))
+            .await
+            .unwrap();
+        let failed = db.call(|c| repo::failed_layouts(c, 10)).await.unwrap();
+        assert!(failed.is_empty());
+        assert!(jobs.retry(Lane::Layout, None).await.is_err());
     }
 }

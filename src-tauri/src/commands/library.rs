@@ -111,21 +111,7 @@ pub fn cancel_import(state: State<'_, AppState>, id: String) -> bool {
 #[tauri::command]
 #[specta::specta]
 pub async fn retry_import(state: State<'_, AppState>, id: String) -> CmdResult<Document> {
-    let doc = state
-        .db
-        .call(move |c| {
-            let d = repo::get_document(c, &id)?;
-            if matches!(d.status, DocStatus::Queued | DocStatus::Processing) {
-                return Err(AppError::Invalid(
-                    "This document is already being read.".into(),
-                ));
-            }
-            repo::set_status(c, &id, DocStatus::Queued, None)
-        })
-        .await?;
-    state.ingest.enqueue(&doc);
-    state.ingest.emit(doc.clone(), None);
-    Ok(doc)
+    Ok(import::retry_import(&state.db, &state.ingest, &id).await?)
 }
 
 /// Looks at the file properties and first pages again and refreshes the details. Fields you

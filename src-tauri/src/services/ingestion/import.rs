@@ -10,8 +10,8 @@ use sha2::{Digest, Sha256};
 use specta::Type;
 
 use super::queue::{Ingestor, library_path};
-use crate::domain::library::{DocKind, Document};
-use crate::error::Result;
+use crate::domain::library::{DocKind, DocStatus, Document};
+use crate::error::{AppError, Result};
 use crate::persistence::{Db, library as repo};
 
 /// Folders are searched this deep and files are counted up to this many, so dropping a drive's
@@ -229,6 +229,25 @@ pub async fn import_paths(
 }
 
 /// Removes a document and its managed file. A running read of it is cancelled first.
+/// Reads a failed or cancelled document again.
+pub async fn retry_import(db: &Db, ingest: &Ingestor, id: &str) -> Result<Document> {
+    let id = id.to_string();
+    let doc = db
+        .call(move |c| {
+            let d = repo::get_document(c, &id)?;
+            if matches!(d.status, DocStatus::Queued | DocStatus::Processing) {
+                return Err(AppError::Invalid(
+                    "This document is already being read.".into(),
+                ));
+            }
+            repo::set_status(c, &id, DocStatus::Queued, None)
+        })
+        .await?;
+    ingest.enqueue(&doc);
+    ingest.emit(doc.clone(), None);
+    Ok(doc)
+}
+
 pub async fn delete_document(db: &Db, ingest: &Ingestor, id: &str) -> Result<()> {
     ingest.cancel(id);
     let id = id.to_string();
