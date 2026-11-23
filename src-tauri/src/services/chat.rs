@@ -62,6 +62,17 @@ const MAX_TOOL_ROUNDS: usize = 4;
 const OUT_OF_SEARCHES: &str = "You can't search any more. Answer now from the passages you already have. \
     Say what they cover and what they don't, and don't call any tool.";
 
+/// The system prompt a conversation sends. Handoff must send the same one, or its request shares
+/// no prefix with the chat and can't read the chat's cache.
+fn system_prompt(grounded: bool) -> String {
+    if grounded {
+        GROUNDED_PROMPT
+    } else {
+        SYSTEM_PROMPT
+    }
+    .to_string()
+}
+
 /// One paid request to write to `api_usage`.
 struct UsageCall {
     provider: &'static str,
@@ -261,14 +272,7 @@ pub async fn send(
                 assistant_message,
                 request: GenerationRequest {
                     model,
-                    system: Some(
-                        if tool_ctx.is_some() {
-                            GROUNDED_PROMPT
-                        } else {
-                            SYSTEM_PROMPT
-                        }
-                        .to_string(),
-                    ),
+                    system: Some(system_prompt(tool_ctx.is_some())),
                     turns,
                     tools: Vec::new(),
                     no_tool_calls: false,
@@ -727,21 +731,29 @@ async fn run_generation(
     let _ = on_event.send(ChatEvent::Finished { message });
 }
 
-const HANDOFF_SYSTEM: &str = "You write short, faithful handoff notes. \
-Use only what is in the conversation. Don't add facts, sources or citations that were not there.";
+const HANDOFF_REQUEST: &str = "Don't search or call any tool. Write a handoff note so a new \
+conversation can pick up this work without the full history. Use only what is in the conversation. \
+Don't add facts, sources or citations that were not there. Cover: the goal, the key facts and \
+decisions so far (with any numbers exactly as given), what is still open or unclear, and the next \
+steps. Keep it under 400 words. Plain Markdown, no preamble.";
 
-const HANDOFF_REQUEST: &str = "Write a handoff note so a new conversation can pick up this work \
-without the full history. Cover: the goal, the key facts and decisions so far (with any numbers \
-exactly as given), what is still open or unclear, and the next steps. Keep it under 400 words. \
-Plain Markdown, no preamble.";
-
-/// Asks the conversation's own model for a handoff note. Using the same model means it reads
-/// the history from its cache, which is cheaper than any other way of summarizing.
+/// Asks the conversation's own model for a handoff note. The request carries the same system
+/// prompt and tools as the chat, with the ask as the last turn, so the history is a cache hit.
 pub async fn handoff_summary(state: &AppState, conversation_id: String) -> Result<String> {
     let id = conversation_id.clone();
-    let (conv, mut turns) = state
+    let conv = state
         .db
-        .call(move |c| Ok((repo::get_conversation(c, &id)?, history(c, &id)?)))
+        .call(move |c| repo::get_conversation(c, &id))
+        .await?;
+    let (provider, api_key) = provider_and_key(state, &conv.provider).await?;
+    let can_use_tools = provider.capabilities().tools;
+    let (id, scoped) = (conversation_id.clone(), conv.clone());
+    let (mut turns, grounded) = state
+        .db
+        .call(move |c| {
+            let grounded = can_use_tools && tools::scope_for(c, &scoped)?.is_some();
+            Ok((history(c, &id)?, grounded))
+        })
         .await?;
     if turns.is_empty() {
         return Err(AppError::Invalid(
@@ -756,7 +768,6 @@ pub async fn handoff_summary(state: &AppState, conversation_id: String) -> Resul
             .await?
             .ok_or_else(|| AppError::Invalid("Choose a model first.".into()))?,
     };
-    let (provider, api_key) = provider_and_key(state, &conv.provider).await?;
     turns.push(Turn::text(TurnRole::User, HANDOFF_REQUEST));
     let (provider_id, model_id) = (provider.id(), model.clone());
     let started = Instant::now();
@@ -764,10 +775,10 @@ pub async fn handoff_summary(state: &AppState, conversation_id: String) -> Resul
         api_key,
         GenerationRequest {
             model,
-            system: Some(HANDOFF_SYSTEM.to_string()),
+            system: Some(system_prompt(grounded)),
             turns,
-            tools: Vec::new(),
-            no_tool_calls: false,
+            tools: if grounded { tools::specs() } else { Vec::new() },
+            no_tool_calls: grounded,
         },
     );
     let mut tokens = (0, 0, 0);
@@ -1061,6 +1072,12 @@ mod tests {
         )
         .await
         .unwrap()
+    }
+
+    #[test]
+    fn handoff_and_chat_share_their_system_prompts() {
+        assert_eq!(system_prompt(true), GROUNDED_PROMPT);
+        assert_eq!(system_prompt(false), SYSTEM_PROMPT);
     }
 
     #[tokio::test]
