@@ -1,13 +1,19 @@
-//! API keys live in the macOS Keychain only. They are never logged, stored in SQLite or sent to
-//! the frontend. The UI can set, delete and ask whether a key exists.
+//! API keys and the reporting token live in the macOS Keychain only. They are never logged, stored
+//! in SQLite or sent to the frontend. The UI can set, delete and ask whether a key exists.
 
 use crate::error::{AppError, Result};
 
 const SERVICE: &str = "app.chingolo.desktop";
 
+/// Keychain account for the reporting server token.
+const REPORTING_ACCOUNT: &str = "telemetry-token";
+
+fn entry_for(account: &str) -> Result<keyring::Entry> {
+    keyring::Entry::new(SERVICE, account).map_err(|e| AppError::Keychain(e.to_string()))
+}
+
 fn entry(provider: &str) -> Result<keyring::Entry> {
-    keyring::Entry::new(SERVICE, &format!("{provider}-api-key"))
-        .map_err(|e| AppError::Keychain(e.to_string()))
+    entry_for(&format!("{provider}-api-key"))
 }
 
 /// For worker threads. Async code uses `get_key`.
@@ -52,4 +58,31 @@ pub async fn set_key(provider: &str, key: &str) -> Result<()> {
 pub async fn delete_key(provider: &str) -> Result<()> {
     let p = provider.to_string();
     blocking(move || delete_key_blocking(&p)).await
+}
+
+pub async fn get_reporting_token() -> Result<Option<String>> {
+    blocking(|| match entry_for(REPORTING_ACCOUNT)?.get_password() {
+        Ok(k) => Ok(Some(k)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(e) => Err(AppError::Keychain(e.to_string())),
+    })
+    .await
+}
+
+pub async fn set_reporting_token(token: &str) -> Result<()> {
+    let t = token.to_string();
+    blocking(move || {
+        entry_for(REPORTING_ACCOUNT)?
+            .set_password(&t)
+            .map_err(|e| AppError::Keychain(e.to_string()))
+    })
+    .await
+}
+
+pub async fn delete_reporting_token() -> Result<()> {
+    blocking(|| match entry_for(REPORTING_ACCOUNT)?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(AppError::Keychain(e.to_string())),
+    })
+    .await
 }

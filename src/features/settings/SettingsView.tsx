@@ -38,6 +38,7 @@ import { keys, useModels, useSettings } from "../../lib/queries";
 import { setTheme, type ThemePref, useTheme } from "../../lib/theme";
 import { mb } from "../library/EmbeddingNotice";
 import { ModelsSection } from "./ModelsSection";
+import { ReportingSection } from "./ReportingSection";
 import { UsageSection } from "./UsageSection";
 
 const THEMES: { id: ThemePref; label: string }[] = [
@@ -943,8 +944,12 @@ export function SettingsView() {
 									provider. The local search model keeps them on this Mac, after
 									a one-time download from Hugging Face. About once a week the
 									app also downloads a public price list from models.dev for
-									cost estimates, which sends nothing of yours.
+									cost estimates, which sends nothing of yours. Reports to a
+									server you set up below are off until you turn them on.
 								</p>
+							</Section>
+							<Section title="Reports to a server">
+								<ReportingSection />
 							</Section>
 						</TabPanel>
 					</div>

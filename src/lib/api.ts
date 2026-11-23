@@ -83,6 +83,8 @@ export const api = {
 				metadataModel: null,
 				metadataProvider: null,
 				favoriteModels: null,
+				usageStats: null,
+				crashReports: null,
 				...patch,
 			}),
 		),
@@ -90,6 +92,10 @@ export const api = {
 		unwrap(commands.saveApiKey(provider, key)),
 	deleteApiKey: (provider: string) => unwrap(commands.deleteApiKey(provider)),
 	listAllModels: () => unwrap(commands.listAllModels()),
+	connectReporting: (url: string, token: string) =>
+		unwrap(commands.connectReporting(url, token)),
+	disconnectReporting: () => unwrap(commands.disconnectReporting()),
+	testReportingConnection: () => unwrap(commands.testReportingConnection()),
 
 	pickAndImport: (folder: boolean, projectId: string | null) =>
 		unwrap(commands.pickAndImport(folder, projectId)),

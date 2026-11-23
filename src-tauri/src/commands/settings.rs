@@ -4,6 +4,7 @@ use crate::domain::{AppSettings, ModelInfo, ModelList, ProviderError, SettingsPa
 use crate::error::{AppError, CmdResult};
 use crate::persistence::settings as repo;
 use crate::security;
+use crate::services::reporting;
 use crate::state::AppState;
 
 /// Provider ids that have a key in the Keychain, in a fixed order, and the Keychain's error if it
@@ -76,6 +77,11 @@ fn favorites_json(list: Vec<String>) -> String {
 
 async fn read_settings(state: &AppState) -> crate::error::Result<AppSettings> {
     let (api_keys, keychain_error) = scan_keys(state).await;
+    let has_reporting_token = security::get_reporting_token()
+        .await
+        .ok()
+        .flatten()
+        .is_some();
     state
         .db
         .call(move |c| {
@@ -105,6 +111,11 @@ async fn read_settings(state: &AppState) -> crate::error::Result<AppSettings> {
                 favorite_models: parse_favorites(repo::get(c, FAVORITES_KEY)?.as_deref()),
                 app_version: env!("CARGO_PKG_VERSION").to_string(),
                 last_seen_version: repo::get(c, "last_seen_version")?.filter(|v| !v.is_empty()),
+                reporting_url: repo::get(c, reporting::URL_KEY)?.filter(|v| !v.is_empty()),
+                has_reporting_token,
+                usage_stats: repo::get_bool(c, reporting::USAGE_KEY)?,
+                crash_reports: repo::get_bool(c, reporting::CRASH_KEY)?,
+                reporting_error: repo::get(c, reporting::ERROR_KEY)?.filter(|v| !v.is_empty()),
             })
         })
         .await
@@ -122,6 +133,11 @@ pub async fn update_settings(
     state: State<'_, AppState>,
     patch: SettingsPatch,
 ) -> CmdResult<AppSettings> {
+    if (patch.usage_stats == Some(true) || patch.crash_reports == Some(true))
+        && reporting::target(&state.db).await.is_none()
+    {
+        return Err(AppError::Invalid("Connect to a reporting server first.".into()).into());
+    }
     let lookups_on = patch.crossref_enabled == Some(true)
         || patch.title_search_enabled == Some(true)
         || patch.metadata_ai_enabled == Some(true);
@@ -172,6 +188,12 @@ pub async fn update_settings(
             }
             if let Some(v) = patch.favorite_models {
                 repo::set(c, FAVORITES_KEY, &favorites_json(v))?;
+            }
+            if let Some(v) = patch.usage_stats {
+                repo::set_bool(c, reporting::USAGE_KEY, v)?;
+            }
+            if let Some(v) = patch.crash_reports {
+                repo::set_bool(c, reporting::CRASH_KEY, v)?;
             }
             Ok(())
         })

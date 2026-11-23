@@ -6,6 +6,7 @@ pub mod embedding;
 pub mod ingestion;
 pub mod jobs;
 pub mod pricing;
+pub mod reporting;
 pub mod rerank;
 pub mod retrieval;
 #[cfg(test)]

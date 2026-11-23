@@ -50,7 +50,7 @@ oar-ocr = { version = "=0.10.2", default-features = false, features = ["simd"] }
 # Apple Vision, the second reader for table cells (macOS only, like the rest of the app)
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6.5"
-objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSData", "NSArray", "NSError", "NSString", "NSDictionary", "NSObject", "NSRange"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSData", "NSArray", "NSError", "NSString", "NSDictionary", "NSObject", "NSRange", "NSProcessInfo"] }
 objc2-vision = { version = "0.3.2", default-features = false, features = ["std", "VNRequest", "VNRequestHandler", "VNRecognizeTextRequest", "VNObservation", "VNTypes"] }
 
 [patch.crates-io]

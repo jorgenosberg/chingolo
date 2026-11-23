@@ -344,6 +344,15 @@ pub struct AppSettings {
     pub app_version: String,
     /// The version whose "What's new" the user has seen. None for installs that predate it.
     pub last_seen_version: Option<String>,
+    /// The reporting server the user connected to. The token is in the Keychain.
+    pub reporting_url: Option<String>,
+    pub has_reporting_token: bool,
+    /// Send daily usage counts to the reporting server.
+    pub usage_stats: bool,
+    /// Send crash reports to the reporting server.
+    pub crash_reports: bool,
+    /// The server turned the token down on the last send.
+    pub reporting_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Type)]
@@ -367,6 +376,9 @@ pub struct SettingsPatch {
     pub metadata_provider: Option<String>,
     /// The whole list, replacing the saved one. An empty list clears it.
     pub favorite_models: Option<Vec<String>>,
+    /// Both need a connected reporting server.
+    pub usage_stats: Option<bool>,
+    pub crash_reports: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]

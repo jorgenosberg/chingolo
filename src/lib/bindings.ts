@@ -46,6 +46,11 @@ export const commands = {
 	 *  reported in `errors` and the others still show up.
 	 */
 	listAllModels: () => typedError<ModelList, CmdError>(__TAURI_INVOKE("list_all_models")),
+	/**  Checks the address and token against the server, and saves both only if that works. */
+	connectReporting: (url: string, token: string) => typedError<null, CmdError>(__TAURI_INVOKE("connect_reporting", { url, token })),
+	/**  Forgets the server and token and turns both reports off. */
+	disconnectReporting: () => typedError<null, CmdError>(__TAURI_INVOKE("disconnect_reporting")),
+	testReportingConnection: () => typedError<null, CmdError>(__TAURI_INVOKE("test_reporting_connection")),
 	/**
 	 *  Opens the system file or folder dialog and imports what the user picks. Paths never pass
 	 *  through the webview.
@@ -212,6 +217,15 @@ export type AppSettings = {
 	appVersion: string,
 	/**  The version whose "What's new" the user has seen. None for installs that predate it. */
 	lastSeenVersion: string | null,
+	/**  The reporting server the user connected to. The token is in the Keychain. */
+	reportingUrl: string | null,
+	hasReportingToken: boolean,
+	/**  Send daily usage counts to the reporting server. */
+	usageStats: boolean,
+	/**  Send crash reports to the reporting server. */
+	crashReports: boolean,
+	/**  The server turned the token down on the last send. */
+	reportingError: string | null,
 };
 
 /**
@@ -692,6 +706,9 @@ export type SettingsPatch = {
 	metadataProvider: string | null,
 	/**  The whole list, replacing the saved one. An empty list clears it. */
 	favoriteModels: string[] | null,
+	/**  Both need a connected reporting server. */
+	usageStats: boolean | null,
+	crashReports: boolean | null,
 };
 
 export type SkippedFile = {

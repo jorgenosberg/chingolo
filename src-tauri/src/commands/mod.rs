@@ -6,6 +6,7 @@ pub mod jobs;
 pub mod library;
 pub mod ocr;
 pub mod projects;
+pub mod reporting;
 pub mod saved;
 pub mod settings;
 pub mod update;
