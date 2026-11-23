@@ -11,11 +11,13 @@ import {
 	GitForkIcon,
 	MagnifyingGlassIcon,
 	NotePencilIcon,
+	PauseIcon,
 	PencilSimpleIcon,
 	PencilSimpleLineIcon,
 	PlusIcon,
 	SidebarSimpleIcon,
 	TrashIcon,
+	WarningIcon,
 } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
@@ -26,9 +28,17 @@ import {
 	ActionMenu as RowMenu,
 } from "../../components/ActionMenu";
 import { useDialogs } from "../../components/dialogs";
-import { cx, focus, IconButton, Kbd, SHORTCUTS } from "../../components/ui";
+import {
+	cx,
+	focus,
+	IconButton,
+	Kbd,
+	SHORTCUTS,
+	Spinner,
+} from "../../components/ui";
 import { api } from "../../lib/api";
 import type { Conversation, Project } from "../../lib/bindings";
+import { summarizeJobs, useJobs } from "../../lib/jobs";
 import {
 	keys,
 	useChapters,
@@ -87,6 +97,49 @@ function Row({
 				</div>
 			)}
 		</div>
+	);
+}
+
+/** Shows when background work is running, paused or has failed. Opens the Activity page. */
+function ActivityIndicator({ collapsed }: { collapsed?: boolean }) {
+	const { openActivity, view } = useNav();
+	const { state, text } = summarizeJobs(useJobs());
+	if (state === "idle") return null;
+	const selected = view === "activity";
+	const icon =
+		state === "busy" ? (
+			<Spinner decorative className="size-4" />
+		) : state === "paused" ? (
+			<PauseIcon className="size-[17px]" />
+		) : (
+			<WarningIcon className="size-[17px] text-problem" />
+		);
+	if (collapsed) {
+		return (
+			<IconButton
+				label={text}
+				onPress={openActivity}
+				className={cx("size-8", selected && "bg-border/60 text-foreground")}
+			>
+				{icon}
+			</IconButton>
+		);
+	}
+	return (
+		<RacButton
+			onPress={openActivity}
+			aria-label={text}
+			className={cx(
+				"mb-1 flex h-8 w-full items-center gap-2 rounded-lg px-2 text-[13px] text-muted-foreground data-[hovered]:bg-muted data-[hovered]:text-foreground",
+				selected && "bg-border/60 text-foreground",
+				focus,
+			)}
+		>
+			<span className="flex size-[17px] shrink-0 items-center justify-center">
+				{icon}
+			</span>
+			<span className="truncate">{text}</span>
+		</RacButton>
 	);
 }
 
@@ -551,7 +604,8 @@ export function Sidebar() {
 						/>
 					</IconButton>
 				</div>
-				<div className="pb-3">
+				<div className="flex flex-col items-center gap-1.5 pb-3">
+					<ActivityIndicator collapsed />
 					<IconButton
 						label="Settings"
 						shortcut={SHORTCUTS.settings}
@@ -697,6 +751,7 @@ export function Sidebar() {
 			</div>
 
 			<footer className="shrink-0 border-t border-border px-3 py-2">
+				<ActivityIndicator />
 				<RacButton
 					onPress={openSettings}
 					className={cx(

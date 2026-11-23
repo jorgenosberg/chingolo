@@ -145,6 +145,11 @@ export const commands = {
 	/**  Opens the folder with the log files in Finder. The path is the app's own, never the webview's. */
 	showLogs: () => typedError<null, CmdError>(__TAURI_INVOKE("show_logs")),
 	setEmbeddingPaused: (paused: boolean) => __TAURI_INVOKE<EmbeddingStatus>("set_embedding_paused", { paused }),
+	/**
+	 *  Every kind of background work and where it stands. The `jobsChanged` event sends the same list
+	 *  when it changes, this seeds it when a page opens.
+	 */
+	jobs: () => typedError<LaneSnapshot[], CmdError>(__TAURI_INVOKE("jobs")),
 };
 
 /** Events */
@@ -154,6 +159,7 @@ export const events = {
 	dropHover: makeEvent<DropHover, DropHover>("drop-hover"),
 	embeddingStatus: makeEvent<EmbeddingStatus, EmbeddingStatus>("embedding-status"),
 	importSummary: makeEvent<ImportSummary, ImportSummary>("import-summary"),
+	jobsChanged: makeEvent<JobsChanged, JobsChanged>("jobs-changed"),
 };
 
 /* Types */
@@ -292,6 +298,12 @@ export type ConversationFilter = {
 	query: string | null,
 };
 
+export type Count = {
+	done: number,
+	total: number,
+	unit: Unit,
+};
+
 /**  Sent whenever the list changes. `ids` is everything still being worked on. */
 export type DetailsActivity = {
 	ids: string[],
@@ -372,6 +384,12 @@ export type EmbeddingStatus = {
 	paused: boolean,
 };
 
+export type FailedItem = {
+	documentId: string | null,
+	title: string,
+	error: string,
+};
+
 export type ImportSummary = {
 	/**  New documents, now queued for reading. */
 	added: Document[],
@@ -379,6 +397,43 @@ export type ImportSummary = {
 	duplicates: Document[],
 	skipped: SkippedFile[],
 };
+
+/**  What a lane is working on right now. */
+export type Item = {
+	documentId: string | null,
+	title: string,
+	progress: Count | null,
+};
+
+/**  Sent when any lane changes. Always holds every lane, in the order of `Lane`. */
+export type JobsChanged = {
+	lanes: LaneSnapshot[],
+};
+
+export type Lane = 
+/**  Reading files into passages (with text recognition for scans). */
+"read" | 
+/**  Page layout, tables and the second reading of table cells. */
+"layout" | 
+/**  Title, authors and year from the file, and Crossref or model lookups. */
+"details" | 
+/**  Embedding passages for meaning search. */
+"index" | "downloadOcr" | "downloadLayout" | "downloadTables" | "downloadEmbedding";
+
+export type LaneSnapshot = {
+	lane: Lane,
+	state: LaneState,
+	/**  Overall progress, when the lane can say (pages, passages or bytes). */
+	count: Count | null,
+	/**  Table regions read and in all, for the layout lane. */
+	tables: Count | null,
+	current: Item | null,
+	/**  Documents or items queued behind the current one. */
+	waiting: number,
+	failed: FailedItem[],
+};
+
+export type LaneState = "idle" | "waiting" | "running" | "paused" | "failed";
 
 /**  How far page layout has got, for the library's progress notice. */
 export type LayoutProgress = {
@@ -648,6 +703,8 @@ export type SourceView = {
 	page: number,
 	text: string,
 };
+
+export type Unit = "pages" | "passages" | "tables" | "bytes";
 
 export type UpdateInfo = {
 	version: string,

@@ -271,17 +271,52 @@ export function Note({
 	);
 }
 
-export function Spinner({ className }: { className?: string }) {
+/** A thin bar for work with a known size. Pass `max` of 0 for an empty bar. */
+export function ProgressBar({
+	value,
+	max,
+	label,
+	className,
+}: {
+	value: number;
+	max: number;
+	label: string;
+	className?: string;
+}) {
 	return (
-		<span
-			role="status"
-			aria-label="Loading"
+		<div
+			role="progressbar"
+			aria-label={label}
+			aria-valuemin={0}
+			aria-valuemax={max}
+			aria-valuenow={value}
 			className={cx(
-				"inline-block size-4 animate-spin rounded-full border-2 border-border border-t-primary",
+				"h-1.5 w-full overflow-hidden rounded-full bg-border",
 				className,
 			)}
-		/>
+		>
+			<div
+				className="h-full bg-primary transition-[width]"
+				style={{ width: `${max ? Math.min(100, (value / max) * 100) : 0}%` }}
+			/>
+		</div>
 	);
+}
+
+export function Spinner({
+	className,
+	decorative,
+}: {
+	className?: string;
+	/** Hidden from screen readers, for when text next to it says what is going on. */
+	decorative?: boolean;
+}) {
+	const ring = cx(
+		"inline-block size-4 animate-spin rounded-full border-2 border-border border-t-primary motion-reduce:animate-none",
+		className,
+	);
+	if (decorative) return <span aria-hidden="true" className={ring} />;
+	return <span role="status" aria-label="Loading" className={ring} />;
 }
 
 export { cx, focus };

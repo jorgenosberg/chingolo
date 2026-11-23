@@ -16,6 +16,7 @@ pub fn ocr_status(state: State<'_, AppState>) -> ModelState {
 #[specta::specta]
 pub fn download_ocr_model(state: State<'_, AppState>) -> ModelState {
     state.ocr.ensure();
+    state.jobs.poke();
     let (model, ingest, db) = (state.ocr.clone(), state.ingest.clone(), state.db.clone());
     tauri::async_runtime::spawn(async move {
         while matches!(model.status(), ModelState::Downloading { .. }) {
@@ -40,6 +41,7 @@ pub fn layout_status(state: State<'_, AppState>) -> ModelState {
 #[specta::specta]
 pub fn download_layout_model(state: State<'_, AppState>) -> ModelState {
     state.layout.ensure();
+    state.jobs.poke();
     let (model, ingest, db) = (state.layout.clone(), state.ingest.clone(), state.db.clone());
     tauri::async_runtime::spawn(async move {
         while matches!(model.status(), ModelState::Downloading { .. }) {
@@ -64,6 +66,7 @@ pub fn tables_status(state: State<'_, AppState>) -> ModelState {
 #[specta::specta]
 pub fn download_tables_model(state: State<'_, AppState>) -> ModelState {
     state.tables.ensure();
+    state.jobs.poke();
     let (model, ingest, db) = (state.tables.clone(), state.ingest.clone(), state.db.clone());
     tauri::async_runtime::spawn(async move {
         while matches!(model.status(), ModelState::Downloading { .. }) {

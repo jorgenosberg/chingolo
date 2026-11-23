@@ -24,6 +24,7 @@ import { useNav } from "./nav";
 
 // The reader pulls in PDF.js, so it loads the first time a document is opened.
 const ReaderView = lazy(() => import("../features/reader/ReaderView"));
+const ActivityView = lazy(() => import("../features/activity/ActivityView"));
 
 function layoutStorage() {
 	// localStorage can throw in restricted contexts; fall back to no persistence.
@@ -213,6 +214,16 @@ export function AppShell() {
 							</Suspense>
 						) : nav.view === "library" ? (
 							<LibraryView />
+						) : nav.view === "activity" ? (
+							<Suspense
+								fallback={
+									<div className="flex h-full items-center justify-center">
+										<Spinner />
+									</div>
+								}
+							>
+								<ActivityView />
+							</Suspense>
 						) : nav.view === "saved" ? (
 							nav.savedItemId ? (
 								<SavedDetail

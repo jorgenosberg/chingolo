@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use tauri::{DragDropEvent, Manager, WindowEvent};
 use tauri_specta::{Builder, Event, collect_commands, collect_events};
+use tokio::sync::Notify;
 
 use crate::commands::library::DropHover;
 use crate::domain::library::DocStatus;
@@ -21,6 +22,7 @@ use crate::services::embedding::engine::{Embedder, EmbeddingStatus, StatusEmit};
 use crate::services::ingestion::activity::{Activity, DetailsActivity};
 use crate::services::ingestion::import::{ImportSummary, import_paths};
 use crate::services::ingestion::queue::{DocumentChanged, Emit, Ingestor};
+use crate::services::jobs::{Jobs, JobsChanged, Sources};
 use crate::state::{AppState, Generations};
 
 fn specta_builder() -> Builder<tauri::Wry> {
@@ -29,6 +31,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
         .events(collect_events![
             DocumentChanged,
             DetailsActivity,
+            JobsChanged,
             ImportSummary,
             DropHover,
             EmbeddingStatus
@@ -107,6 +110,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
             commands::usage::update_prices_now,
             commands::usage::show_logs,
             commands::embedding::set_embedding_paused,
+            commands::jobs::jobs,
         ])
 }
 
@@ -201,13 +205,19 @@ pub fn run() {
                 db.clone(),
                 dir.clone(),
             ));
+            // Woken by anything that changes background work, so the job list refreshes.
+            let poke = Arc::new(Notify::new());
             let handle = app.handle().clone();
+            let emit_poke = poke.clone();
             let emit: Emit = Arc::new(move |e| {
                 let _ = e.emit(&handle);
+                emit_poke.notify_one();
             });
             let status_handle = app.handle().clone();
+            let status_poke = poke.clone();
             let status_emit: StatusEmit = Arc::new(move |s| {
                 let _ = s.emit(&status_handle);
+                status_poke.notify_one();
             });
             let (backend, cloud_accepted) = {
                 let conn = Db::open_secondary(&db_path)?;
@@ -232,8 +242,10 @@ pub fn run() {
             // It also queues the document for a details lookup, which has its own emit.
             let providers = Providers::new();
             let activity_handle = app.handle().clone();
+            let activity_poke = poke.clone();
             let activity = Activity::new(move |e| {
                 let _ = e.emit(&activity_handle);
+                activity_poke.notify_one();
             });
             let enricher = crate::services::ingestion::enrich::Enricher::start(
                 db.clone(),
@@ -253,7 +265,8 @@ pub fn run() {
                 }
             });
             let ingest = Ingestor::start(&db_path, dir.join("library"), ingest_emit)?;
-            ingest.set_activity(activity);
+            ingest.set_activity(activity.clone());
+            ingest.set_poke(poke.clone());
             let ocr = crate::services::ingestion::ocr::OcrModel::new(&dir);
             ingest.set_ocr_dir(Some(ocr.dir().to_path_buf()));
             let layout = crate::services::ingestion::layout::model(&dir);
@@ -296,6 +309,22 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 let _ = resume.resume(&resume_db, false).await;
             });
+            let jobs = Jobs::new(
+                Sources {
+                    db: db.clone(),
+                    ingest: ingest.clone(),
+                    embedder: embedder.clone(),
+                    ocr: ocr.clone(),
+                    layout: layout.clone(),
+                    tables: tables.clone(),
+                    activity,
+                },
+                poke,
+            );
+            let jobs_handle = app.handle().clone();
+            jobs.run(move |e| {
+                let _ = e.emit(&jobs_handle);
+            });
             app.manage(AppState {
                 db,
                 providers,
@@ -306,6 +335,7 @@ pub fn run() {
                 layout,
                 tables,
                 enricher,
+                jobs,
                 import_target: Arc::new(Mutex::new(None)),
             });
             Ok(())

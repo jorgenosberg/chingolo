@@ -4,6 +4,7 @@ pub mod citations;
 pub mod docfile;
 pub mod embedding;
 pub mod ingestion;
+pub mod jobs;
 pub mod pricing;
 pub mod rerank;
 pub mod retrieval;

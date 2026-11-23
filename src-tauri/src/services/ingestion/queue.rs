@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use tokio::sync::mpsc;
+use tokio::sync::{Notify, mpsc};
 use tokio_util::sync::CancellationToken;
 
 use super::activity::Activity;
@@ -24,6 +24,7 @@ use crate::domain::Id;
 use crate::domain::library::{DocKind, DocStatus, Document};
 use crate::error::{AppError, Result};
 use crate::persistence::{Db, library as repo};
+use crate::services::jobs::Lane;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -84,6 +85,19 @@ struct Inner {
     /// Same for tables read by the running job.
     tables_live: AtomicU32,
     activity: Mutex<Option<Activity>>,
+    /// The job the worker is on, for the job list.
+    running: Mutex<Option<Running>>,
+    /// Woken when the queue or the running job changes, so the job list refreshes.
+    poke: Mutex<Option<Arc<Notify>>>,
+}
+
+/// The job on the worker right now. `progress` is pages read so far, for reads only.
+#[derive(Debug, Clone)]
+pub struct Running {
+    pub lane: Lane,
+    pub id: Id,
+    pub title: String,
+    pub progress: Option<Progress>,
 }
 
 #[derive(Clone)]
@@ -112,6 +126,8 @@ impl Ingestor {
             layout_live: AtomicU32::new(0),
             tables_live: AtomicU32::new(0),
             activity: Mutex::new(None),
+            running: Mutex::new(None),
+            poke: Mutex::new(None),
         });
         let worker = inner.clone();
         std::thread::Builder::new()
@@ -215,7 +231,24 @@ impl Ingestor {
         for d in &docs {
             let _ = self.0.tx.send(Job::Layout(d.clone()));
         }
+        self.poke();
         Ok(docs.len())
+    }
+
+    /// The job list wakes on this when the queue or the running job changes.
+    pub fn set_poke(&self, poke: Arc<Notify>) {
+        if let Ok(mut p) = self.0.poke.lock() {
+            *p = Some(poke);
+        }
+    }
+
+    fn poke(&self) {
+        poke(&self.0);
+    }
+
+    /// The job the worker is on, if any.
+    pub fn running(&self) -> Option<Running> {
+        self.0.running.lock().ok().and_then(|r| r.clone())
     }
 
     /// Where details jobs are reported while they wait and run.
@@ -242,6 +275,7 @@ impl Ingestor {
             t.insert(doc.id.clone(), CancellationToken::new());
         }
         let _ = self.0.tx.send(Job::Read(doc.clone()));
+        self.poke();
     }
 
     /// Reads the file properties and first pages again and refreshes the details. Passages,
@@ -251,6 +285,7 @@ impl Ingestor {
             a.start(&doc.id);
         }
         let _ = self.0.tx.send(Job::Details(doc.clone()));
+        self.poke();
     }
 
     /// True if the document was queued or running.
@@ -293,6 +328,19 @@ impl Ingestor {
     }
 }
 
+fn poke(inner: &Inner) {
+    if let Some(p) = inner.poke.lock().ok().and_then(|p| p.clone()) {
+        p.notify_one();
+    }
+}
+
+fn set_running(inner: &Inner, now: Option<Running>) {
+    if let Ok(mut r) = inner.running.lock() {
+        *r = now;
+    }
+    poke(inner);
+}
+
 fn worker_loop(mut conn: Connection, mut rx: mpsc::UnboundedReceiver<Job>, inner: Arc<Inner>) {
     let mut pdf: Option<PdfReader> = None;
     let mut ocr = OcrSlot::default();
@@ -311,7 +359,30 @@ fn worker_loop(mut conn: Connection, mut rx: mpsc::UnboundedReceiver<Job>, inner
             .and_then(|t| t.get(&doc.id).cloned())
             .unwrap_or_default();
         let path = library_path(&inner.library_dir, &doc.content_hash, doc.kind);
+        let lane = match &job {
+            Job::Read(_) => Lane::Read,
+            Job::Details(_) => Lane::Details,
+            Job::Layout(_) => Lane::Layout,
+        };
+        set_running(
+            &inner,
+            Some(Running {
+                lane,
+                id: doc.id.clone(),
+                title: doc
+                    .title
+                    .clone()
+                    .unwrap_or_else(|| doc.original_name.clone()),
+                progress: None,
+            }),
+        );
         let emit = |d: Document, p: Option<Progress>| {
+            if let Some(p) = &p
+                && let Ok(mut r) = inner.running.lock()
+                && let Some(r) = r.as_mut()
+            {
+                r.progress = Some(p.clone());
+            }
             (inner.emit)(DocumentChanged {
                 document: d,
                 progress: p,
@@ -348,6 +419,7 @@ fn worker_loop(mut conn: Connection, mut rx: mpsc::UnboundedReceiver<Job>, inner
                 live.1.store(0, Ordering::Relaxed);
             }
         }));
+        set_running(&inner, None);
         if ran.is_err() && matches!(job, Job::Details(_)) {
             log::warn!("reading the details of {} crashed", doc.original_name);
         } else if ran.is_err() && matches!(job, Job::Layout(_)) {

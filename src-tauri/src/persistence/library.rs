@@ -82,6 +82,49 @@ pub fn unenriched(conn: &Connection, all: bool) -> Result<Vec<Id>> {
         .collect::<rusqlite::Result<_>>()?)
 }
 
+/// How many documents have this status.
+pub fn count_with_status(conn: &Connection, status: DocStatus) -> Result<u32> {
+    Ok(conn.query_row(
+        "SELECT COUNT(*) FROM documents WHERE status = ?1",
+        [status.as_str()],
+        |r| r.get(0),
+    )?)
+}
+
+/// (id, name, reason) of documents that failed to read, newest first, at most `limit`.
+pub fn failed_reads(conn: &Connection, limit: u32) -> Result<Vec<(Id, String, String)>> {
+    failures(
+        conn,
+        "status = 'error'",
+        "COALESCE(error, 'Reading failed')",
+        limit,
+    )
+}
+
+/// (id, name, reason) of ready documents whose last details lookup failed.
+pub fn failed_lookups(conn: &Connection, limit: u32) -> Result<Vec<(Id, String, String)>> {
+    failures(
+        conn,
+        "status = 'ready' AND enrich_error IS NOT NULL",
+        "enrich_error",
+        limit,
+    )
+}
+
+fn failures(
+    conn: &Connection,
+    cond: &str,
+    reason: &str,
+    limit: u32,
+) -> Result<Vec<(Id, String, String)>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT id, COALESCE(NULLIF(title, ''), original_name), {reason} FROM documents
+          WHERE {cond} ORDER BY updated_at DESC, id LIMIT ?1"
+    ))?;
+    let rows = stmt.query_map([limit], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
 pub fn find_by_hash(conn: &Connection, hash: &str) -> Result<Option<Document>> {
     Ok(conn
         .query_row(
@@ -1477,6 +1520,33 @@ mod tests {
         let ids: Vec<_> = queued.iter().map(|d| d.id.as_str()).collect();
         assert_eq!(ids, [a.id.as_str(), b.id.as_str()]);
         assert_eq!(get_document(&conn, &c.id).unwrap().status, DocStatus::Ready);
+    }
+
+    #[test]
+    fn the_job_list_counts_statuses_and_lists_failures_by_name_or_title() {
+        let mut conn = test_conn();
+        let queued = insert_document(&conn, "h1", "queued.pdf", DocKind::Pdf).unwrap();
+        let broken = insert_document(&conn, "h2", "broken.pdf", DocKind::Pdf).unwrap();
+        let fine = ready_doc(&mut conn, "h3", "fine.pdf", &["x"]);
+        set_status(&conn, &broken.id, DocStatus::Error, Some("damaged")).unwrap();
+        mark_enriched(&conn, &fine.id, Some("Crossref timed out")).unwrap();
+
+        assert_eq!(count_with_status(&conn, DocStatus::Queued).unwrap(), 1);
+        assert_eq!(count_with_status(&conn, DocStatus::Processing).unwrap(), 0);
+        assert_eq!(
+            failed_reads(&conn, 10).unwrap(),
+            [(broken.id, "broken.pdf".to_string(), "damaged".to_string())]
+        );
+        assert_eq!(
+            failed_lookups(&conn, 10).unwrap(),
+            [(
+                fine.id,
+                "fine.pdf".to_string(),
+                "Crossref timed out".to_string()
+            )]
+        );
+        assert!(failed_reads(&conn, 0).unwrap().is_empty());
+        let _ = queued;
     }
 
     #[test]

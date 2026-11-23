@@ -33,6 +33,14 @@ impl Activity {
         }
     }
 
+    /// Documents with a job queued or running.
+    pub fn ids(&self) -> Vec<Id> {
+        self.jobs
+            .lock()
+            .map(|j| j.keys().cloned().collect())
+            .unwrap_or_default()
+    }
+
     pub fn start(&self, id: &str) {
         self.change(|j| *j.entry(id.to_string()).or_default() += 1);
     }

@@ -2,6 +2,7 @@
 
 pub mod chat;
 pub mod embedding;
+pub mod jobs;
 pub mod library;
 pub mod ocr;
 pub mod projects;

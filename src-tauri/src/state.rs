@@ -10,6 +10,7 @@ use crate::services::embedding::engine::Embedder;
 use crate::services::ingestion::enrich::Enricher;
 use crate::services::ingestion::ocr::OcrModel;
 use crate::services::ingestion::queue::Ingestor;
+use crate::services::jobs::Jobs;
 
 /// Running generations, keyed by the assistant message id.
 #[derive(Clone, Default)]
@@ -53,6 +54,7 @@ pub struct AppState {
     pub layout: OcrModel,
     pub tables: OcrModel,
     pub enricher: Enricher,
+    pub jobs: Jobs,
     /// Project that dropped files are added to, set by the UI.
     pub import_target: Arc<Mutex<Option<Id>>>,
 }

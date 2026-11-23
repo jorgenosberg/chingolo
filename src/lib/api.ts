@@ -157,6 +157,7 @@ export const api = {
 	downloadOcrModel: () => commands.downloadOcrModel(),
 	layoutStatus: () => commands.layoutStatus(),
 	layoutProgress: () => unwrap(commands.layoutProgress()),
+	jobs: () => unwrap(commands.jobs()),
 	downloadLayoutModel: () => commands.downloadLayoutModel(),
 	tablesStatus: () => commands.tablesStatus(),
 	downloadTablesModel: () => commands.downloadTablesModel(),

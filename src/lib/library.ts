@@ -9,6 +9,7 @@ import {
 	type ImportSummary,
 	type Progress,
 } from "./bindings";
+import { jobsKey } from "./jobs";
 import { keys } from "./queries";
 
 /**
@@ -125,6 +126,11 @@ export function useLibraryEvents(qc: QueryClient, onSummary: () => void) {
 		keep(
 			events.detailsActivity.listen(({ payload }) =>
 				set({ details: new Set(payload.ids) }),
+			),
+		);
+		keep(
+			events.jobsChanged.listen(({ payload }) =>
+				qc.setQueryData(jobsKey, payload.lanes),
 			),
 		);
 		keep(

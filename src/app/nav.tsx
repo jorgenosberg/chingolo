@@ -20,7 +20,7 @@ import { keys, type SourceRef } from "../lib/queries";
 const STORAGE_KEY = "chingolo.conversation";
 
 /** What the reader shows: a document, a page, and optionally a passage to highlight. */
-type View = "chat" | "library" | "reader" | "saved" | "settings";
+type View = "chat" | "library" | "reader" | "saved" | "settings" | "activity";
 
 export type ReaderTarget = {
 	documentId: string;
@@ -59,6 +59,8 @@ type Nav = {
 	setLibraryScope: (scope: string | null) => void;
 	savedScope: SavedScope;
 	openSaved: (scope?: SavedScope) => void;
+	/** Everything running in the background, one row per kind of work. */
+	openActivity: () => void;
 	/** One saved item on its own page. `openSaved` goes back to the list. */
 	savedItemId: string | null;
 	/** `compose` puts the cursor in the new-note box. */
@@ -158,6 +160,8 @@ export function NavProvider({ children }: { children: ReactNode }) {
 		if (scope !== undefined) setLibraryScope(scope);
 		setView("library");
 	}, []);
+
+	const openActivity = useCallback(() => setView("activity"), []);
 
 	const openSaved = useCallback((scope?: SavedScope) => {
 		if (scope !== undefined) setSavedScope(scope);
@@ -273,6 +277,7 @@ export function NavProvider({ children }: { children: ReactNode }) {
 			setLibraryScope,
 			savedScope,
 			openSaved,
+			openActivity,
 			savedItemId,
 			openSavedItem,
 			savedCompose,
@@ -307,6 +312,7 @@ export function NavProvider({ children }: { children: ReactNode }) {
 			openLibrary,
 			savedScope,
 			openSaved,
+			openActivity,
 			savedItemId,
 			openSavedItem,
 			savedCompose,
