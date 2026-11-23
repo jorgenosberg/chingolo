@@ -3,6 +3,7 @@ import {
 	type ChatEvent,
 	type ConversationFilter,
 	commands,
+	type Lane,
 	type MetadataPatch,
 	type SavedFilter,
 	type Scope,
@@ -158,6 +159,12 @@ export const api = {
 	layoutStatus: () => commands.layoutStatus(),
 	layoutProgress: () => unwrap(commands.layoutProgress()),
 	jobs: () => unwrap(commands.jobs()),
+	setLanePaused: (lane: Lane, paused: boolean) =>
+		unwrap(commands.setLanePaused(lane, paused)),
+	retryJob: (lane: Lane, documentId: string | null) =>
+		unwrap(commands.retryJob(lane, documentId)),
+	cancelJob: (lane: Lane, documentId: string | null) =>
+		unwrap(commands.cancelJob(lane, documentId)),
 	downloadLayoutModel: () => commands.downloadLayoutModel(),
 	tablesStatus: () => commands.tablesStatus(),
 	downloadTablesModel: () => commands.downloadTablesModel(),

@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Button as RacButton } from "react-aria-components";
-import { cx, focus, ProgressBar } from "../../components/ui";
+import { useDialogs } from "../../components/dialogs";
+import { Button, cx, focus, ProgressBar } from "../../components/ui";
+import { api } from "../../lib/api";
 import type { Lane, LaneSnapshot, LaneState } from "../../lib/bindings";
 import { formatCount, LANE_HINT, LANE_TITLE, useJobs } from "../../lib/jobs";
 
@@ -12,31 +14,112 @@ const STATE_LABEL: Record<LaneState, string> = {
 	failed: "Needs attention",
 };
 
-function StatePill({ state }: { state: LaneState }) {
+/** A paused lane can still be finishing one job, which it says. */
+function stateLabel(lane: LaneSnapshot) {
+	if (lane.paused) return lane.state === "running" ? "Pausing" : "Paused";
+	return STATE_LABEL[lane.state];
+}
+
+function StatePill({ lane }: { lane: LaneSnapshot }) {
 	return (
 		<span
 			className={
-				state === "failed"
+				lane.state === "failed"
 					? "rounded-full bg-problem/10 px-2 py-0.5 text-[11px] text-problem"
 					: "rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground"
 			}
 		>
-			{STATE_LABEL[state]}
+			{stateLabel(lane)}
 		</span>
 	);
 }
 
-/** One kind of work: name and what it is, progress in the middle, state at the end. */
+const PAUSABLE: Lane[] = ["read", "layout", "details", "index"];
+const DOWNLOADS: Lane[] = [
+	"downloadOcr",
+	"downloadLayout",
+	"downloadTables",
+	"downloadEmbedding",
+];
+
+function SmallButton({
+	onPress,
+	label,
+	children,
+}: {
+	onPress: () => void;
+	label?: string;
+	children: React.ReactNode;
+}) {
+	return (
+		<Button
+			variant="ghost"
+			aria-label={label}
+			onPress={onPress}
+			className="h-6 shrink-0 px-2 text-xs"
+		>
+			{children}
+		</Button>
+	);
+}
+
+/** One kind of work: name and what it is, progress in the middle, state and controls at the end. */
 function LaneRow({ lane }: { lane: LaneSnapshot }) {
+	const { alert } = useDialogs();
 	const { count, tables, current } = lane;
 	const idle = lane.state === "idle";
+	const title = LANE_TITLE[lane.lane];
+	// Failures from the backend are plain sentences, so they can go straight to the user.
+	const act = (run: () => Promise<unknown>) =>
+		run().catch((e) =>
+			alert({ title: "That didn't work", message: String(e) }),
+		);
+
+	const pausable = PAUSABLE.includes(lane.lane);
+	const download = DOWNLOADS.includes(lane.lane);
+	const control = pausable ? (
+		lane.paused ? (
+			<SmallButton
+				label={`Resume ${title}`}
+				onPress={() => act(() => api.setLanePaused(lane.lane, false))}
+			>
+				Resume
+			</SmallButton>
+		) : !idle && lane.state !== "failed" ? (
+			<SmallButton
+				label={`Pause ${title}`}
+				onPress={() => act(() => api.setLanePaused(lane.lane, true))}
+			>
+				Pause
+			</SmallButton>
+		) : null
+	) : download && lane.state === "running" ? (
+		<SmallButton
+			label={`Cancel ${title}`}
+			onPress={() => act(() => api.cancelJob(lane.lane, null))}
+		>
+			Cancel
+		</SmallButton>
+	) : download && lane.state === "failed" ? (
+		<SmallButton
+			label={`Retry ${title}`}
+			onPress={() => act(() => api.retryJob(lane.lane, null))}
+		>
+			Retry
+		</SmallButton>
+	) : null;
+
+	// What stops the document on the worker: reading is cancelled, layout is skipped.
+	const stopLabel = lane.lane === "read" ? "Cancel" : "Skip";
+	const canStop = current?.documentId && ["read", "layout"].includes(lane.lane);
+
 	return (
 		<li
-			aria-label={LANE_TITLE[lane.lane]}
+			aria-label={title}
 			className="grid gap-x-6 gap-y-1.5 px-3 py-2.5 @3xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)_6.5rem] @3xl:items-center"
 		>
 			<div className="min-w-0">
-				<h3 className="text-[14px] font-medium">{LANE_TITLE[lane.lane]}</h3>
+				<h3 className="text-[14px] font-medium">{title}</h3>
 				<p className="text-[13px] text-muted-foreground">
 					{LANE_HINT[lane.lane]}
 				</p>
@@ -45,11 +128,7 @@ function LaneRow({ lane }: { lane: LaneSnapshot }) {
 			<div className="min-w-0 space-y-2">
 				{!idle && count && count.total > 0 && (
 					<div>
-						<ProgressBar
-							label={LANE_TITLE[lane.lane]}
-							value={count.done}
-							max={count.total}
-						/>
+						<ProgressBar label={title} value={count.done} max={count.total} />
 						<p className="mt-1 text-[12px] text-muted-foreground">
 							{formatCount(count)}
 						</p>
@@ -58,7 +137,7 @@ function LaneRow({ lane }: { lane: LaneSnapshot }) {
 				{!idle && tables && tables.total > 0 && (
 					<div>
 						<ProgressBar
-							label={`${LANE_TITLE[lane.lane]}, tables`}
+							label={`${title}, tables`}
 							value={tables.done}
 							max={tables.total}
 						/>
@@ -68,41 +147,74 @@ function LaneRow({ lane }: { lane: LaneSnapshot }) {
 					</div>
 				)}
 				{current && (
-					<p className="truncate text-[13px]">
-						<span className="text-muted-foreground">Now: </span>
-						{current.title}
-						{current.progress && (
-							<span className="text-muted-foreground">
-								{" "}
-								({formatCount(current.progress)})
-							</span>
+					<div className="flex items-center gap-2">
+						<p className="min-w-0 truncate text-[13px]">
+							<span className="text-muted-foreground">Now: </span>
+							{current.title}
+							{current.progress && (
+								<span className="text-muted-foreground">
+									{" "}
+									({formatCount(current.progress)})
+								</span>
+							)}
+						</p>
+						{canStop && (
+							<SmallButton
+								label={`${stopLabel} ${current.title}`}
+								onPress={() =>
+									act(() => api.cancelJob(lane.lane, current.documentId))
+								}
+							>
+								{stopLabel}
+							</SmallButton>
 						)}
-					</p>
+					</div>
 				)}
 				{lane.waiting > 0 && lane.lane !== "index" && (
 					<p className="text-[12px] text-muted-foreground">
 						{lane.waiting.toLocaleString()} waiting
 					</p>
 				)}
+				{lane.paused && lane.state === "running" && (
+					<p className="text-[12px] text-muted-foreground">
+						Pauses after this one.
+					</p>
+				)}
 			</div>
 
-			<div className="@3xl:text-right">
-				<StatePill state={lane.state} />
+			<div className="flex items-start gap-1.5 @3xl:flex-col @3xl:items-end">
+				<StatePill lane={lane} />
+				{control}
 			</div>
 
 			{lane.failed.length > 0 && (
 				<ul
-					aria-label={`${LANE_TITLE[lane.lane]}, problems`}
+					aria-label={`${title}, problems`}
 					className="ml-0.5 space-y-2 border-l-2 border-problem/40 pl-3 @3xl:col-span-3"
 				>
 					{lane.failed.map((f) => (
-						<li key={f.documentId ?? f.error} className="min-w-0">
-							{f.title && (
-								<p className="truncate text-[13px] text-foreground">
-									{f.title}
-								</p>
+						<li
+							key={f.documentId ?? f.error}
+							className="flex min-w-0 items-start justify-between gap-3"
+						>
+							<div className="min-w-0">
+								{f.title && (
+									<p className="truncate text-[13px] text-foreground">
+										{f.title}
+									</p>
+								)}
+								<p className="text-[12px] text-problem">{f.error}</p>
+							</div>
+							{pausable && (
+								<SmallButton
+									label={`Retry ${f.title || title}`}
+									onPress={() =>
+										act(() => api.retryJob(lane.lane, f.documentId))
+									}
+								>
+									Retry
+								</SmallButton>
 							)}
-							<p className="text-[12px] text-problem">{f.error}</p>
 						</li>
 					))}
 				</ul>
