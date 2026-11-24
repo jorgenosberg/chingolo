@@ -8,6 +8,7 @@ A faster way to sort the library.
 - Each document shows the projects it is in and its original file name. Click the file name to show a copy of the file in Finder, for opening it in another program or importing it elsewhere.
 - Show only documents that are in no project, and filter by file type or status.
 - Sort by date added, title, author or year.
+- Notes under a document are orange when they are a warning and red when reading failed, each with a triangle.
 
 ## 0.4.0
 
