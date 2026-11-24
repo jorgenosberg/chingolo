@@ -146,6 +146,13 @@ export const api = {
 		unwrap(commands.attachDocument(projectId, documentId)),
 	detachDocument: (projectId: string, documentId: string) =>
 		unwrap(commands.detachDocument(projectId, documentId)),
+	setProjectDocuments: (
+		projectId: string,
+		documentIds: string[],
+		attached: boolean,
+	) => unwrap(commands.setProjectDocuments(projectId, documentIds, attached)),
+	revealDocumentFile: (id: string) => unwrap(commands.revealDocumentFile(id)),
+	deleteDocuments: (ids: string[]) => unwrap(commands.deleteDocuments(ids)),
 	getPassage: (passageId: string) => unwrap(commands.getPassage(passageId)),
 	getLayout: (documentId: string) => unwrap(commands.getLayout(documentId)),
 	getSource: (conversationId: string, handle: number) =>

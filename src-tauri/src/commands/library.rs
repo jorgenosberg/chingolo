@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::domain::library::{
@@ -12,6 +12,7 @@ use crate::domain::library::{
 use crate::error::{AppError, CmdResult};
 use crate::persistence::library::{self as repo, SearchOptions};
 use crate::services::ingestion::import::{self, ImportSummary};
+use crate::services::ingestion::queue::library_path;
 use crate::services::retrieval;
 use crate::state::AppState;
 
@@ -166,6 +167,76 @@ pub async fn detach_document(
         .db
         .call(move |c| repo::detach(c, &project_id, &document_id))
         .await?)
+}
+
+/// Shows Chingolo's copy of the file in Finder, under its original name so it can be dragged
+/// into other programs. The stored copy is named by its hash, so a renamed copy is made.
+#[tauri::command]
+#[specta::specta]
+pub async fn reveal_document_file(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> CmdResult<()> {
+    let doc = state.db.call(move |c| repo::get_document(c, &id)).await?;
+    let stored = library_path(state.ingest.library_dir(), &doc.content_hash, doc.kind);
+    let name = std::path::Path::new(&doc.original_name)
+        .file_name()
+        .map(|n| n.to_owned())
+        .unwrap_or_else(|| format!("document.{}", doc.kind.as_str()).into());
+    let dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| AppError::Internal(e.to_string()))?
+        .join("shown")
+        .join(&doc.content_hash);
+    let target = dir.join(name);
+    let ok = tauri::async_runtime::spawn_blocking(
+        move || -> std::io::Result<std::process::ExitStatus> {
+            std::fs::create_dir_all(&dir)?;
+            std::fs::copy(&stored, &target)?;
+            std::process::Command::new("open")
+                .arg("-R")
+                .arg(&target)
+                .status()
+        },
+    )
+    .await
+    .map_err(|e| AppError::Internal(e.to_string()))?;
+    match ok {
+        Ok(s) if s.success() => Ok(()),
+        _ => Err(AppError::Invalid("Couldn't show the file in Finder.".into()).into()),
+    }
+}
+
+/// Puts several documents into a project, or takes them out. All or nothing.
+#[tauri::command]
+#[specta::specta]
+pub async fn set_project_documents(
+    state: State<'_, AppState>,
+    project_id: String,
+    document_ids: Vec<String>,
+    attached: bool,
+) -> CmdResult<()> {
+    Ok(state
+        .db
+        .call(move |c| repo::set_membership(c, &project_id, &document_ids, attached))
+        .await?)
+}
+
+/// Deletes several documents. Keeps going past a failure and returns how many failed.
+#[tauri::command]
+#[specta::specta]
+pub async fn delete_documents(state: State<'_, AppState>, ids: Vec<String>) -> CmdResult<u32> {
+    let mut failed = 0;
+    for id in &ids {
+        if let Err(e) = import::delete_document(&state.db, &state.ingest, id).await {
+            log::warn!("couldn't delete document {id}: {e}");
+            failed += 1;
+        }
+    }
+    state.embedder.wake();
+    Ok(failed)
 }
 
 /// Search over the text of documents that are ready. With `meaning` set, keywords and meaning are

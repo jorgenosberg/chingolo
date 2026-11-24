@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.1
+
+A faster way to sort the library.
+
+- Tick documents in the Library to change their projects, refresh their details or delete them all at once. Shift-click selects a range.
+- Each document shows the projects it is in and its original file name. Click the file name to show a copy of the file in Finder, for opening it in another program or importing it elsewhere.
+- Show only documents that are in no project, and filter by file type or status.
+- Sort by date added, title, author or year.
+
 ## 0.4.0
 
 Optionally send crash reports, bug reports and usage counts to a server you set up.

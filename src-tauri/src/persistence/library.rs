@@ -222,6 +222,33 @@ pub fn detach(conn: &Connection, project_id: &str, document_id: &str) -> Result<
     Ok(())
 }
 
+/// Puts several documents into a project, or takes them out, in one transaction.
+pub fn set_membership(
+    conn: &mut Connection,
+    project_id: &str,
+    document_ids: &[Id],
+    attached: bool,
+) -> Result<()> {
+    let tx = conn.transaction()?;
+    let exists: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM projects WHERE id = ?1)",
+        [project_id],
+        |r| r.get(0),
+    )?;
+    if !exists {
+        return Err(AppError::NotFound);
+    }
+    for id in document_ids {
+        if attached {
+            attach(&tx, project_id, id)?;
+        } else {
+            detach(&tx, project_id, id)?;
+        }
+    }
+    tx.commit()?;
+    Ok(())
+}
+
 /// The text of the passages that start on the first `pages` pages, in order. Used to check that a
 /// lookup result belongs to this document.
 pub fn head_text(conn: &Connection, id: &str, pages: u32) -> Result<String> {
@@ -1661,5 +1688,29 @@ mod tests {
         assert!(search_passages(&conn, "old", &opts()).unwrap().is_empty());
         assert_eq!(search_passages(&conn, "new", &opts()).unwrap().len(), 1);
         assert_eq!(get_document(&conn, &d.id).unwrap().passage_count, 1);
+    }
+
+    #[test]
+    fn membership_changes_several_documents_at_once() {
+        let mut conn = test_conn();
+        let a = ready_doc(&mut conn, "h1", "a.pdf", &["x"]);
+        let b = ready_doc(&mut conn, "h2", "b.pdf", &["y"]);
+        let p = projects::create_project(&conn, "Thesis").unwrap();
+        let q = projects::create_project(&conn, "Course").unwrap();
+        attach(&conn, &p.id, &a.id).unwrap();
+        attach(&conn, &q.id, &a.id).unwrap();
+        let ids = [a.id.clone(), b.id.clone()];
+        set_membership(&mut conn, &p.id, &ids, true).unwrap();
+        assert_eq!(
+            get_document(&conn, &b.id).unwrap().project_ids,
+            [p.id.clone()]
+        );
+        set_membership(&mut conn, &p.id, &ids, false).unwrap();
+        assert!(get_document(&conn, &b.id).unwrap().project_ids.is_empty());
+        assert_eq!(
+            get_document(&conn, &a.id).unwrap().project_ids,
+            [q.id.clone()]
+        );
+        assert!(set_membership(&mut conn, "missing", &ids, true).is_err());
     }
 }

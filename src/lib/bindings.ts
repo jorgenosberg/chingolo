@@ -83,6 +83,15 @@ export const commands = {
 	attachDocument: (projectId: string, documentId: string) => typedError<null, CmdError>(__TAURI_INVOKE("attach_document", { projectId, documentId })),
 	/**  Takes the document out of a project. It stays in the library. */
 	detachDocument: (projectId: string, documentId: string) => typedError<null, CmdError>(__TAURI_INVOKE("detach_document", { projectId, documentId })),
+	/**  Puts several documents into a project, or takes them out. All or nothing. */
+	setProjectDocuments: (projectId: string, documentIds: string[], attached: boolean) => typedError<null, CmdError>(__TAURI_INVOKE("set_project_documents", { projectId, documentIds, attached })),
+	/**  Deletes several documents. Keeps going past a failure and returns how many failed. */
+	deleteDocuments: (ids: string[]) => typedError<number, CmdError>(__TAURI_INVOKE("delete_documents", { ids })),
+	/**
+	 *  Shows Chingolo's copy of the file in Finder, under its original name so it can be dragged
+	 *  into other programs. The stored copy is named by its hash, so a renamed copy is made.
+	 */
+	revealDocumentFile: (id: string) => typedError<null, CmdError>(__TAURI_INVOKE("reveal_document_file", { id })),
 	/**
 	 *  Search over the text of documents that are ready. With `meaning` set, keywords and meaning are
 	 *  merged once the search model is ready (this can cost one embedding call, which is cached for

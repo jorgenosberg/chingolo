@@ -1,7 +1,6 @@
 import {
 	ArrowsOutSimpleIcon,
 	BookmarkSimpleIcon,
-	CaretDownIcon,
 	CheckIcon,
 	CopyIcon,
 	FolderMinusIcon,
@@ -17,26 +16,13 @@ import {
 import { math } from "@streamdown/math";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
-import {
-	ListBox,
-	ListBoxItem,
-	Popover,
-	Button as RacButton,
-	Select,
-	SelectValue,
-} from "react-aria-components";
+import { Button as RacButton } from "react-aria-components";
 import { Streamdown } from "streamdown";
 import { type SavedScope, useNav } from "../../app/nav";
 import { type Action, ActionMenu } from "../../components/ActionMenu";
 import { useDialogs } from "../../components/dialogs";
-import {
-	cx,
-	focus,
-	IconButton,
-	ITEM,
-	POPOVER,
-	Spinner,
-} from "../../components/ui";
+import { type Choice, FilterSelect } from "../../components/FilterSelect";
+import { cx, focus, IconButton, Spinner } from "../../components/ui";
 import { api } from "../../lib/api";
 import type {
 	Project,
@@ -65,53 +51,6 @@ function filterFor(scope: SavedScope): SavedFilter {
 		: scope === "none"
 			? { kind: "unassigned" }
 			: { kind: "project", id: scope.projectId };
-}
-
-type Choice = { id: string; name: string };
-
-function FilterSelect({
-	label,
-	value,
-	items,
-	onChange,
-}: {
-	label: string;
-	value: string;
-	items: Choice[];
-	onChange: (id: string) => void;
-}) {
-	return (
-		<Select
-			aria-label={label}
-			selectedKey={value}
-			onSelectionChange={(k) => k && onChange(String(k))}
-		>
-			<RacButton
-				className={cx(
-					"flex h-8 items-center gap-2 rounded-lg border border-input bg-card px-2.5 text-[13px] data-[hovered]:bg-muted",
-					focus,
-				)}
-			>
-				<SelectValue className="max-w-48 truncate" />
-				<CaretDownIcon className="size-4 shrink-0 text-muted-foreground" />
-			</RacButton>
-			<Popover
-				className={`max-h-72 min-w-(--trigger-width) overflow-auto p-1 ${POPOVER}`}
-			>
-				<ListBox items={items} className="outline-none">
-					{(i) => (
-						<ListBoxItem
-							id={i.id}
-							textValue={i.name}
-							className={`${ITEM} truncate data-[selected]:font-medium`}
-						>
-							{i.name}
-						</ListBoxItem>
-					)}
-				</ListBox>
-			</Popover>
-		</Select>
-	);
 }
 
 function ScopeSelect({

@@ -1,34 +1,33 @@
 import {
 	ArrowClockwiseIcon,
 	BookOpenIcon,
-	CaretDownIcon,
+	CheckIcon,
 	FileIcon,
 	FilePlusIcon,
 	FolderIcon,
 	FolderMinusIcon,
 	FolderPlusIcon,
 	MagnifyingGlassIcon,
+	MinusIcon,
 	PencilSimpleIcon,
 	ProhibitIcon,
 	TrashIcon,
 	WarningIcon,
 } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
-	ListBox,
-	ListBoxItem,
+	Checkbox,
 	Menu,
 	MenuItem,
 	MenuTrigger,
 	Popover,
 	Button as RacButton,
-	Select,
-	SelectValue,
 } from "react-aria-components";
 import { useNav } from "../../app/nav";
 import { type Action, ActionMenu } from "../../components/ActionMenu";
 import { useDialogs } from "../../components/dialogs";
+import { FilterSelect } from "../../components/FilterSelect";
 import { Button, cx, focus, ITEM, POPOVER, Spinner } from "../../components/ui";
 import { api } from "../../lib/api";
 import type {
@@ -62,6 +61,61 @@ import { MetadataDialog } from "./MetadataDialog";
 import { ProjectsDialog } from "./ProjectsDialog";
 
 const ALL = "__all__";
+const NONE = "__none__";
+const SORT_KEY = "chingolo.librarySort";
+
+type TypeFilter = "all" | "pdf" | "docx";
+type StatusFilter = "all" | "attention" | "failed" | "scan" | "reading";
+type Sort = "new" | "old" | "title" | "author" | "year";
+
+const TYPE_ITEMS = [
+	{ id: "all", name: "Any type" },
+	{ id: "pdf", name: "PDF" },
+	{ id: "docx", name: "Word" },
+];
+const STATUS_ITEMS = [
+	{ id: "all", name: "Any status" },
+	{ id: "attention", name: "Needs a look" },
+	{ id: "failed", name: "Failed" },
+	{ id: "scan", name: "No text found" },
+	{ id: "reading", name: "Reading" },
+];
+const SORT_ITEMS = [
+	{ id: "new", name: "Newest added" },
+	{ id: "old", name: "Oldest added" },
+	{ id: "title", name: "Title A to Z" },
+	{ id: "author", name: "Author A to Z" },
+	{ id: "year", name: "Year, newest first" },
+];
+
+function readSort(): Sort {
+	try {
+		const v = localStorage.getItem(SORT_KEY);
+		return SORT_ITEMS.some((i) => i.id === v) ? (v as Sort) : "new";
+	} catch {
+		return "new";
+	}
+}
+
+const collator = new Intl.Collator(undefined, { sensitivity: "base" });
+
+/** Empty values go last. */
+function byText(a: string, b: string) {
+	if (!a !== !b) return a ? -1 : 1;
+	return collator.compare(a, b);
+}
+
+function sortDocs(list: Document[], sort: Sort) {
+	const by: Record<Sort, (a: Document, b: Document) => number> = {
+		new: (a, b) => b.createdAt - a.createdAt,
+		old: (a, b) => a.createdAt - b.createdAt,
+		title: (a, b) =>
+			byText(a.title || a.originalName, b.title || b.originalName),
+		author: (a, b) => byText(a.authors[0] ?? "", b.authors[0] ?? ""),
+		year: (a, b) => (b.year ?? -1) - (a.year ?? -1),
+	};
+	return [...list].sort(by[sort]);
+}
 /** How long typing must pause before meaning search runs (it can cost an API call). */
 const SETTLE_MS = 500;
 
@@ -156,18 +210,75 @@ function SummaryBanner({
 	);
 }
 
+/** The original file name, cut in the middle so the extension stays visible. */
+function FileLink({ name, onPress }: { name: string; onPress: () => void }) {
+	const dot = name.lastIndexOf(".");
+	const [base, ext] =
+		dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ""];
+	return (
+		<RacButton
+			onPress={onPress}
+			aria-label={`Show ${name} in Finder`}
+			className={cx(
+				"flex min-w-0 shrink items-baseline rounded text-left data-[hovered]:text-foreground data-[hovered]:underline",
+				focus,
+			)}
+		>
+			<span className="truncate">{base}</span>
+			<span className="shrink-0">{ext}</span>
+		</RacButton>
+	);
+}
+
+function RowCheckbox({
+	label,
+	isSelected,
+	isIndeterminate,
+	onChange,
+}: {
+	label: string;
+	isSelected: boolean;
+	isIndeterminate?: boolean;
+	onChange: (on: boolean) => void;
+}) {
+	return (
+		<Checkbox
+			aria-label={label}
+			isSelected={isSelected}
+			isIndeterminate={isIndeterminate}
+			onChange={onChange}
+			className={cx("group flex cursor-pointer items-center", focus)}
+		>
+			<span className="relative flex size-4 items-center justify-center rounded border border-input bg-card text-primary-foreground group-data-[indeterminate]:border-primary group-data-[selected]:border-primary group-data-[indeterminate]:bg-primary group-data-[selected]:bg-primary">
+				<CheckIcon className="size-4 opacity-0 group-data-[selected]:opacity-100" />
+				<MinusIcon className="absolute size-4 opacity-0 group-data-[indeterminate]:opacity-100" />
+			</span>
+		</Checkbox>
+	);
+}
+
 function DocumentRow({
 	doc,
 	actions,
 	onOpen,
 	onEdit,
 	onKeep,
+	onReveal,
+	projectNames,
+	selected,
+	onSelect,
 }: {
 	doc: Document;
+	projectNames: string[];
+	selected: boolean;
+	/** `range` is set when shift was held. */
+	onSelect: (on: boolean, range: boolean) => void;
 	actions: Action[];
 	onEdit: () => void;
 	/** Accepts the blanks as they are. */
 	onKeep: () => void;
+	/** Shows Chingolo's copy of the file in Finder. */
+	onReveal: () => void;
 	/** Set when the document can be opened in the reader. */
 	onOpen?: () => void;
 }) {
@@ -180,6 +291,7 @@ function DocumentRow({
 		doc.status === "ready" &&
 		embedding?.model.kind === "ready" &&
 		doc.embeddedCount < doc.passageCount;
+	const shift = useRef(false);
 	const pct = progress?.total ? (progress.done / progress.total) * 100 : 0;
 	const byline = [
 		doc.authors.length > 2
@@ -191,7 +303,27 @@ function DocumentRow({
 		.join(" · ");
 
 	return (
-		<li className="flex items-start gap-3 border-b border-border px-6 py-3">
+		<li
+			className={cx(
+				"flex items-start gap-3 border-b border-border px-6 py-3",
+				selected && "bg-muted/60",
+			)}
+		>
+			<div
+				className="pt-0.5"
+				onPointerDownCapture={(e) => {
+					shift.current = e.shiftKey;
+				}}
+				onKeyDownCapture={(e) => {
+					shift.current = e.shiftKey;
+				}}
+			>
+				<RowCheckbox
+					label={`Select ${doc.title || doc.originalName}`}
+					isSelected={selected}
+					onChange={(on) => onSelect(on, shift.current)}
+				/>
+			</div>
 			<div className="min-w-0 flex-1">
 				<div className="flex items-baseline gap-2">
 					<RacButton
@@ -212,9 +344,28 @@ function DocumentRow({
 						</span>
 					)}
 				</div>
-				{byline && (
-					<p className="truncate text-xs text-muted-foreground">{byline}</p>
+				{(byline || doc.title) && (
+					<p className="flex min-w-0 items-baseline gap-1.5 text-xs text-muted-foreground">
+						{byline && (
+							<span className="min-w-0 shrink-[3] truncate">{byline}</span>
+						)}
+						{byline && doc.title && <span aria-hidden>·</span>}
+						{doc.title && (
+							<FileLink name={doc.originalName} onPress={onReveal} />
+						)}
+					</p>
 				)}
+				<p className="mt-0.5 flex flex-wrap gap-1 text-xs text-muted-foreground">
+					{projectNames.length === 0 ? (
+						<span>No project</span>
+					) : (
+						projectNames.map((n) => (
+							<span key={n} className="rounded bg-muted px-1.5 py-0.5">
+								{n}
+							</span>
+						))
+					)}
+				</p>
 				{indexing && (
 					<p className="text-xs text-muted-foreground">
 						Indexing for meaning search: {doc.embeddedCount} of{" "}
@@ -353,47 +504,25 @@ function ImportMenu({
 
 function ScopeSelect({
 	value,
+	noProject,
 	onChange,
 }: {
 	value: string | null;
-	onChange: (scope: string | null) => void;
+	noProject: boolean;
+	onChange: (scope: string | null, noProject: boolean) => void;
 }) {
 	const projects = useProjects();
-	const items = [
-		{ id: ALL, name: "All documents" },
-		...(projects.data ?? []).map((p) => ({ id: p.id, name: p.name })),
-	];
 	return (
-		<Select
-			aria-label="Show documents from"
-			selectedKey={value ?? ALL}
-			onSelectionChange={(k) => k && onChange(k === ALL ? null : String(k))}
-		>
-			<RacButton
-				className={cx(
-					"flex h-8 items-center gap-2 rounded-lg border border-input bg-card px-2.5 text-[13px] data-[hovered]:bg-muted",
-					focus,
-				)}
-			>
-				<SelectValue className="max-w-48 truncate" />
-				<CaretDownIcon className="size-4 shrink-0 text-muted-foreground" />
-			</RacButton>
-			<Popover
-				className={`max-h-72 min-w-(--trigger-width) overflow-auto p-1 ${POPOVER}`}
-			>
-				<ListBox items={items} className="outline-none">
-					{(i) => (
-						<ListBoxItem
-							id={i.id}
-							textValue={i.name}
-							className={`${ITEM} truncate data-[selected]:font-medium`}
-						>
-							{i.name}
-						</ListBoxItem>
-					)}
-				</ListBox>
-			</Popover>
-		</Select>
+		<FilterSelect
+			label="Show documents from"
+			value={noProject ? NONE : (value ?? ALL)}
+			items={[
+				{ id: ALL, name: "All documents" },
+				{ id: NONE, name: "Not in any project" },
+				...(projects.data ?? []).map((p) => ({ id: p.id, name: p.name })),
+			]}
+			onChange={(k) => onChange(k === ALL || k === NONE ? null : k, k === NONE)}
+		/>
 	);
 }
 
@@ -432,7 +561,22 @@ export function LibraryView() {
 		keywordHits.isSuccess;
 	const [importing, setImporting] = useState(false);
 	const [editing, setEditing] = useState<Document | null>(null);
-	const [projectsFor, setProjectsFor] = useState<string | null>(null);
+	const [projectsFor, setProjectsFor] = useState<string[] | null>(null);
+	const [noProjectPick, setNoProject] = useState(false);
+	const noProject = noProjectPick && scope === null;
+	const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
+	const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+	const [sort, setSort] = useState<Sort>(readSort);
+	const pickSort = (v: Sort) => {
+		setSort(v);
+		try {
+			localStorage.setItem(SORT_KEY, v);
+		} catch {
+			// remembering the order is a convenience only
+		}
+	};
+	const [selected, setSelected] = useState<Set<string>>(new Set());
+	const anchor = useRef<string | null>(null);
 
 	const scopeName = projects.data?.find((p) => p.id === scope)?.name ?? null;
 	const refresh = () => qc.invalidateQueries({ queryKey: keys.documents });
@@ -440,7 +584,7 @@ export function LibraryView() {
 		alert({ title, message: errorText(e) });
 
 	const detailsIds = useDetailsIds();
-	const [attentionOnly, setAttentionOnly] = useState(false);
+
 	const needing = useMemo(
 		() =>
 			(docs.data ?? []).filter(
@@ -448,14 +592,132 @@ export function LibraryView() {
 			),
 		[docs.data, detailsIds],
 	);
-	const shown = useMemo(() => {
-		const all =
-			attentionOnly && needing.length > 0 ? needing : (docs.data ?? []);
-		return query.trim() ? all.filter((d) => matches(d, query)) : all;
-	}, [docs.data, needing, attentionOnly, query]);
+	const needingIds = useMemo(
+		() => new Set(needing.map((d) => d.id)),
+		[needing],
+	);
+	// Everything except the text query, which also narrows the passage hits below.
+	const base = useMemo(
+		() =>
+			(docs.data ?? []).filter(
+				(d) =>
+					(!noProject || d.projectIds.length === 0) &&
+					(typeFilter === "all" || d.kind === typeFilter) &&
+					(statusFilter === "all" ||
+						(statusFilter === "attention" && needingIds.has(d.id)) ||
+						(statusFilter === "failed" &&
+							(d.status === "error" || d.status === "cancelled")) ||
+						(statusFilter === "scan" && d.status === "no_text") ||
+						(statusFilter === "reading" &&
+							(d.status === "queued" || d.status === "processing"))),
+			),
+		[docs.data, noProject, typeFilter, statusFilter, needingIds],
+	);
+	const shown = useMemo(
+		() =>
+			sortDocs(
+				query.trim() ? base.filter((d) => matches(d, query)) : base,
+				sort,
+			),
+		[base, query, sort],
+	);
+	const filtering = noProject || typeFilter !== "all" || statusFilter !== "all";
+	const baseIds = useMemo(() => new Set(base.map((d) => d.id)), [base]);
+	const clearFilters = () => {
+		setNoProject(false);
+		setTypeFilter("all");
+		setStatusFilter("all");
+	};
+	const projectName = useMemo(
+		() => new Map((projects.data ?? []).map((p) => [p.id, p.name])),
+		[projects.data],
+	);
+
+	// A selection belongs to the list it was made in.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: clears when the list's filters change
+	useEffect(() => {
+		setSelected(new Set());
+		anchor.current = null;
+	}, [scope, noProject, typeFilter, statusFilter]);
+	const chosen = useMemo(
+		() => shown.filter((d) => selected.has(d.id)),
+		[shown, selected],
+	);
+	const clearSelection = () => {
+		setSelected(new Set());
+		anchor.current = null;
+	};
+	useEffect(() => {
+		if (selected.size === 0) return;
+		const onKey = (e: KeyboardEvent) => {
+			if (e.key === "Escape" && !(e.target instanceof HTMLInputElement)) {
+				setSelected(new Set());
+				anchor.current = null;
+			}
+		};
+		window.addEventListener("keydown", onKey);
+		return () => window.removeEventListener("keydown", onKey);
+	}, [selected.size]);
+	const select = (id: string, on: boolean, range: boolean) => {
+		setSelected((prev) => {
+			const next = new Set(prev);
+			const from = anchor.current
+				? shown.findIndex((d) => d.id === anchor.current)
+				: -1;
+			const to = shown.findIndex((d) => d.id === id);
+			const ids =
+				range && from >= 0 && to >= 0
+					? shown
+							.slice(Math.min(from, to), Math.max(from, to) + 1)
+							.map((d) => d.id)
+					: [id];
+			for (const i of ids) {
+				if (on) next.add(i);
+				else next.delete(i);
+			}
+			return next;
+		});
+		anchor.current = id;
+	};
+	const selectAll = (on: boolean) =>
+		setSelected(on ? new Set(shown.map((d) => d.id)) : new Set());
 	const jobs = summarizeJobs(useJobs());
 	const working = jobs.state === "busy" ? jobs.text : null;
-	const projectsDoc = docs.data?.find((d) => d.id === projectsFor) ?? null;
+	const projectsDocs = (docs.data ?? []).filter((d) =>
+		projectsFor?.includes(d.id),
+	);
+	const refreshable = chosen.filter(
+		(d) => d.status === "ready" || d.status === "no_text",
+	);
+
+	const refreshChosen = () =>
+		Promise.all(refreshable.map((d) => api.refreshDetails(d.id))).catch(
+			fail("Couldn't refresh the details"),
+		);
+
+	const deleteChosen = async () => {
+		const n = chosen.length;
+		const ok = await confirm({
+			title: n === 1 ? "Delete document?" : `Delete ${n} documents?`,
+			message: `${n === 1 ? "It is" : "They are"} removed from the library, along with Chingolo's copy and the search index. Your original files are not touched.`,
+			confirmLabel: "Delete",
+			danger: true,
+		});
+		if (!ok) return;
+		try {
+			const failed = await api.deleteDocuments(chosen.map((d) => d.id));
+			if (failed > 0)
+				await alert({
+					title: "Couldn't delete everything",
+					message: `${plural(failed, "document")} could not be deleted.`,
+				});
+		} catch (e) {
+			await fail("Couldn't delete")(e);
+		}
+		clearSelection();
+		refresh();
+		qc.invalidateQueries({ queryKey: ["library-search"] });
+	};
 
 	const pick = async (folder: boolean) => {
 		setImporting(true);
@@ -512,7 +774,7 @@ export function LibraryView() {
 				id: "projects",
 				icon: <FolderIcon className="size-4" />,
 				label: "Projects…",
-				run: () => setProjectsFor(d.id),
+				run: () => setProjectsFor([d.id]),
 			},
 		];
 		if (d.status === "queued" || d.status === "processing") {
@@ -588,7 +850,14 @@ export function LibraryView() {
 			>
 				<div className="flex items-center gap-3">
 					<h1 className="text-[15px] font-semibold">Library</h1>
-					<ScopeSelect value={scope} onChange={setLibraryScope} />
+					<ScopeSelect
+						value={scope}
+						noProject={noProject}
+						onChange={(s, none) => {
+							setLibraryScope(s);
+							setNoProject(none);
+						}}
+					/>
 				</div>
 				<div className="flex items-center gap-3">
 					{working && (
@@ -633,6 +902,38 @@ export function LibraryView() {
 				</div>
 			</div>
 
+			<div className="flex flex-wrap items-center gap-2 px-6 pb-3">
+				<FilterSelect
+					label="File type"
+					value={typeFilter}
+					items={TYPE_ITEMS}
+					onChange={(k) => setTypeFilter(k as TypeFilter)}
+				/>
+				<FilterSelect
+					label="Status"
+					value={statusFilter}
+					items={STATUS_ITEMS}
+					onChange={(k) => setStatusFilter(k as StatusFilter)}
+				/>
+				<FilterSelect
+					label="Sort by"
+					value={sort}
+					items={SORT_ITEMS}
+					onChange={(k) => pickSort(k as Sort)}
+				/>
+				{filtering && (
+					<RacButton
+						onPress={clearFilters}
+						className={cx(
+							"rounded text-xs text-primary underline-offset-2 hover:underline",
+							focus,
+						)}
+					>
+						Clear filters
+					</RacButton>
+				)}
+			</div>
+
 			{needing.length > 0 && (
 				<div className="flex items-center gap-2 px-6 pb-2 text-xs text-muted-foreground">
 					<WarningIcon className="size-3.5 text-problem" />
@@ -641,20 +942,24 @@ export function LibraryView() {
 						{needing.length === 1 ? "s" : ""} a look.
 					</span>
 					<RacButton
-						onPress={() => setAttentionOnly((v) => !v)}
+						onPress={() =>
+							setStatusFilter((v) => (v === "attention" ? "all" : "attention"))
+						}
 						className={cx(
 							"rounded text-primary underline-offset-2 hover:underline",
 							focus,
 						)}
 					>
-						{attentionOnly ? "Show all" : "Show them"}
+						{statusFilter === "attention" ? "Show all" : "Show them"}
 					</RacButton>
 				</div>
 			)}
 			{summary && <SummaryBanner summary={summary} scopeName={scopeName} />}
 			<EmbeddingNotice />
 
-			<div className="min-h-0 flex-1 overflow-y-auto">
+			{/* relative: the checkboxes' hidden inputs are absolutely positioned and would otherwise
+			    stretch the page's scroll area instead of this list's. */}
+			<div className="relative min-h-0 flex-1 overflow-y-auto">
 				{docs.isPending && (
 					<div className="flex justify-center py-10">
 						<Spinner />
@@ -684,21 +989,77 @@ export function LibraryView() {
 								Documents
 							</h2>
 						)}
+						<div className="flex h-12 items-center gap-3 border-b border-border px-6 text-xs text-muted-foreground">
+							<RowCheckbox
+								label="Select all shown documents"
+								isSelected={shown.length > 0 && chosen.length === shown.length}
+								isIndeterminate={
+									chosen.length > 0 && chosen.length < shown.length
+								}
+								onChange={selectAll}
+							/>
+							{chosen.length === 0 ? (
+								<span>{plural(shown.length, "document")}</span>
+							) : (
+								<>
+									<span className="font-medium text-foreground">
+										{chosen.length} selected
+									</span>
+									<div className="flex items-center gap-1">
+										<Button
+											onPress={() => setProjectsFor(chosen.map((d) => d.id))}
+										>
+											<FolderIcon className="size-4" /> Projects…
+										</Button>
+										<Button
+											onPress={refreshChosen}
+											isDisabled={refreshable.length === 0}
+										>
+											<ArrowClockwiseIcon className="size-4" /> Refresh details
+										</Button>
+										<Button variant="ghost" onPress={deleteChosen}>
+											<TrashIcon className="size-4" /> Delete…
+										</Button>
+									</div>
+									<RacButton
+										onPress={clearSelection}
+										className={cx(
+											"rounded text-primary underline-offset-2 hover:underline",
+											focus,
+										)}
+									>
+										Clear
+									</RacButton>
+								</>
+							)}
+						</div>
 						<ul>
 							{shown.map((d) => (
 								<DocumentRow
 									key={d.id}
 									doc={d}
+									projectNames={d.projectIds.flatMap(
+										(id) => projectName.get(id) ?? [],
+									)}
+									selected={selected.has(d.id)}
+									onSelect={(on, range) => select(d.id, on, range)}
 									actions={actionsFor(d)}
 									onEdit={() => setEditing(d)}
 									onKeep={() => keepBlank(d)}
+									onReveal={() =>
+										api
+											.revealDocumentFile(d.id)
+											.catch(fail("Couldn't show the file"))
+									}
 									onOpen={d.kind === "pdf" ? () => open(d) : undefined}
 								/>
 							))}
 						</ul>
-						{searching && shown.length === 0 && (
+						{(searching || filtering) && shown.length === 0 && (
 							<p className="px-6 py-2 text-sm text-muted-foreground">
-								No titles or authors match.
+								{filtering
+									? "No documents match the filters."
+									: "No titles or authors match."}
 							</p>
 						)}
 					</>
@@ -728,40 +1089,42 @@ export function LibraryView() {
 							</p>
 						)}
 						<ul>
-							{textHits.data?.map((h) => (
-								<li key={h.passageId} className="border-b border-border">
-									<RacButton
-										onPress={() =>
-											openReader({
-												documentId: h.documentId,
-												page: h.pageStart,
-												passageId: h.passageId,
-											})
-										}
-										className={cx(
-											"block w-full px-6 py-3 text-left data-[hovered]:bg-muted",
-											focus,
-										)}
-									>
-										<p className="text-[13px] font-medium">
-											{h.documentTitle}
-											<span className="ml-2 font-normal text-muted-foreground">
-												{h.pageStart === h.pageEnd
-													? `Page ${h.pageStart}`
-													: `Pages ${h.pageStart} to ${h.pageEnd}`}
-											</span>
-											{h.matchedBy === "meaning" && (
-												<span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-[11px] font-normal text-muted-foreground">
-													Related by meaning
-												</span>
+							{textHits.data
+								?.filter((h) => !filtering || baseIds.has(h.documentId))
+								.map((h) => (
+									<li key={h.passageId} className="border-b border-border">
+										<RacButton
+											onPress={() =>
+												openReader({
+													documentId: h.documentId,
+													page: h.pageStart,
+													passageId: h.passageId,
+												})
+											}
+											className={cx(
+												"block w-full px-6 py-3 text-left data-[hovered]:bg-muted",
+												focus,
 											)}
-										</p>
-										<p className="mt-0.5 line-clamp-3 text-xs text-muted-foreground">
-											{h.text}
-										</p>
-									</RacButton>
-								</li>
-							))}
+										>
+											<p className="text-[13px] font-medium">
+												{h.documentTitle}
+												<span className="ml-2 font-normal text-muted-foreground">
+													{h.pageStart === h.pageEnd
+														? `Page ${h.pageStart}`
+														: `Pages ${h.pageStart} to ${h.pageEnd}`}
+												</span>
+												{h.matchedBy === "meaning" && (
+													<span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-[11px] font-normal text-muted-foreground">
+														Related by meaning
+													</span>
+												)}
+											</p>
+											<p className="mt-0.5 line-clamp-3 text-xs text-muted-foreground">
+												{h.text}
+											</p>
+										</RacButton>
+									</li>
+								))}
 						</ul>
 					</section>
 				)}
@@ -775,9 +1138,9 @@ export function LibraryView() {
 					onSaved={refresh}
 				/>
 			)}
-			{projectsDoc && (
+			{projectsDocs.length > 0 && (
 				<ProjectsDialog
-					doc={projectsDoc}
+					docs={projectsDocs}
 					onClose={() => setProjectsFor(null)}
 					onError={(message) => alert({ title: "Couldn't update", message })}
 				/>
