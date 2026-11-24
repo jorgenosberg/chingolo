@@ -57,6 +57,7 @@ export function ReportingSection() {
 	const [error, setError] = useState<string | null>(null);
 	const [tested, setTested] = useState<string | null>(null);
 	const [reporting, setReporting] = useState(false);
+	const [changing, setChanging] = useState(false);
 	if (!settings) return null;
 	const connected = !!settings.reportingUrl && settings.hasReportingToken;
 	const refresh = () => qc.invalidateQueries({ queryKey: keys.settings });
@@ -79,6 +80,7 @@ export function ReportingSection() {
 			await api.connectReporting(url, token);
 			setUrl("");
 			setToken("");
+			setChanging(false);
 			await refresh();
 		});
 
@@ -117,7 +119,7 @@ export function ReportingSection() {
 				them here to help them find problems. Reports go only to that server.
 				They never include your papers, file names, titles, chats or API keys.
 			</p>
-			{connected ? (
+			{connected && !changing ? (
 				<div className="flex flex-col gap-2">
 					<div className="flex items-center justify-between gap-3">
 						<p className="min-w-0 truncate text-sm text-muted-foreground">
@@ -128,6 +130,17 @@ export function ReportingSection() {
 							<Button onPress={test} isDisabled={busy}>
 								Test connection
 							</Button>
+							<Button
+								onPress={() => {
+									setUrl(settings.reportingUrl ?? "");
+									setToken("");
+									setError(null);
+									setChanging(true);
+								}}
+								isDisabled={busy}
+							>
+								Change token
+							</Button>
 							<Button variant="ghost" onPress={disconnect} isDisabled={busy}>
 								Disconnect
 							</Button>
@@ -135,7 +148,7 @@ export function ReportingSection() {
 					</div>
 					{settings.reportingError && (
 						<p role="alert" className="text-sm text-problem">
-							{settings.reportingError} Disconnect and enter the token again.
+							{settings.reportingError} Use Change token to enter it again.
 						</p>
 					)}
 				</div>
@@ -161,7 +174,18 @@ export function ReportingSection() {
 						isInvalid={!!error}
 						description="Checked with the server before it is saved."
 					/>
-					<div className="flex justify-end">
+					<div className="flex justify-end gap-2">
+						{changing && (
+							<Button
+								variant="ghost"
+								onPress={() => {
+									setChanging(false);
+									setError(null);
+								}}
+							>
+								Cancel
+							</Button>
+						)}
 						<Button
 							type="submit"
 							variant="primary"
