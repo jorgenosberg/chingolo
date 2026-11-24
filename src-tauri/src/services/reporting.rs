@@ -179,13 +179,43 @@ pub async fn body(db: &Db, extra: Value) -> Result<Value> {
 const LOG_LINES: usize = 500;
 const MAX_DESCRIPTION: usize = 5_000;
 
-/// The last `LOG_LINES` lines of the app log. Logs hold no chat text or keys, document names
-/// are logged by id, and `/Users/<name>` is replaced by `~` here as a last step.
+/// The version in a "Chingolo 0.3.1 starting" log line.
+fn started_version(line: &str) -> Option<&str> {
+    line.split_once("] Chingolo ")?.1.strip_suffix(" starting")
+}
+
+/// The last `LOG_LINES` lines of the app log, from this version's runs only. The log file spans
+/// versions, and older ones logged document file names. As a second step, any line that still
+/// mentions a `.pdf` or `.docx` is replaced, and `/Users/<name>` becomes `~`.
 pub fn log_tail(file: &std::path::Path) -> String {
+    static FILE_NAME: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"(?i)\.(pdf|docx)\b").expect("regex"));
     let text = std::fs::read_to_string(file).unwrap_or_default();
     let lines: Vec<&str> = text.lines().collect();
-    let tail = lines[lines.len().saturating_sub(LOG_LINES)..].join("\n");
-    crate::services::crashes::scrub_home(&tail)
+    let mut from = 0;
+    if lines.iter().any(|l| started_version(l).is_some()) {
+        // The earliest run of this version that no other version's run follows.
+        from = lines.len();
+        for (i, line) in lines.iter().enumerate().rev() {
+            match started_version(line) {
+                Some(v) if v == env!("CARGO_PKG_VERSION") => from = i,
+                Some(_) => break,
+                None => {}
+            }
+        }
+    }
+    let lines = &lines[from..];
+    let tail: Vec<String> = lines[lines.len().saturating_sub(LOG_LINES)..]
+        .iter()
+        .map(|l| {
+            if FILE_NAME.is_match(l) {
+                "[line removed: it mentions a file name]".to_string()
+            } else {
+                crate::services::crashes::scrub_home(l)
+            }
+        })
+        .collect();
+    tail.join("\n")
 }
 
 /// The body of a bug report: the envelope, the description and, if asked for, the log tail.
@@ -294,6 +324,29 @@ mod tests {
         assert!(tail.starts_with("line 200 ~/x"));
         assert!(!tail.contains("anna"));
         assert_eq!(log_tail(&tmp.path().join("missing.log")), "");
+    }
+
+    #[test]
+    fn the_log_tail_skips_other_versions_and_lines_naming_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let file = tmp.path().join("chingolo.log");
+        let me = env!("CARGO_PKG_VERSION");
+        let text = format!(
+            "[d][t][x][INFO] Chingolo 0.0.1 starting\n[d][t][x][INFO] layout for My Paper.PDF: ok\n\
+             [d][t][x][INFO] Chingolo {me} starting\n[d][t][x][INFO] fine line\n\
+             [d][t][x][INFO] opened Thesis draft.docx today\n"
+        );
+        std::fs::write(&file, text).unwrap();
+        let tail = log_tail(&file);
+        assert!(!tail.contains("My Paper"));
+        assert!(!tail.contains("Thesis"));
+        assert!(tail.contains("fine line"));
+        assert_eq!(tail.lines().count(), 3);
+        assert!(tail.contains("[line removed"));
+        // runs of another version only: nothing to send
+        let other = "[d][t][x][INFO] Chingolo 0.0.1 starting\n[d][t][x][INFO] a line\n";
+        std::fs::write(&file, other).unwrap();
+        assert_eq!(log_tail(&file), "");
     }
 
     #[tokio::test]
