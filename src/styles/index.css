@@ -26,6 +26,7 @@
 	--verified: oklch(0.52 0.1 150);
 	--unverified: oklch(0.62 0.1 80);
 	--problem: oklch(0.55 0.16 27);
+	--warning: oklch(0.58 0.09 70);
 	--radius: 0.625rem;
 }
 
@@ -46,6 +47,7 @@
 	--verified: oklch(0.72 0.11 150);
 	--unverified: oklch(0.78 0.1 85);
 	--problem: oklch(0.7 0.15 27);
+	--warning: oklch(0.78 0.09 80);
 }
 
 @theme inline {
@@ -64,6 +66,7 @@
 	--color-verified: var(--verified);
 	--color-unverified: var(--unverified);
 	--color-problem: var(--problem);
+	--color-warning: var(--warning);
 	--font-sans:
 		-apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro", system-ui,
 		"Segoe UI", sans-serif;

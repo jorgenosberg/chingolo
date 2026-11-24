@@ -4,13 +4,16 @@ import {
 	CheckIcon,
 	FileIcon,
 	FilePlusIcon,
+	FileTextIcon,
 	FolderIcon,
 	FolderMinusIcon,
 	FolderPlusIcon,
+	FunnelSimpleIcon,
 	MagnifyingGlassIcon,
 	MinusIcon,
 	PencilSimpleIcon,
 	ProhibitIcon,
+	SortAscendingIcon,
 	TrashIcon,
 	WarningIcon,
 } from "@phosphor-icons/react";
@@ -230,6 +233,27 @@ function FileLink({ name, onPress }: { name: string; onPress: () => void }) {
 	);
 }
 
+/** A note under a document: orange for something to be aware of, red for a failure. */
+function Notice({
+	kind,
+	children,
+}: {
+	kind: "warning" | "error";
+	children: React.ReactNode;
+}) {
+	return (
+		<p
+			className={cx(
+				"mt-1 flex items-start gap-1.5 text-xs",
+				kind === "error" ? "text-problem" : "text-warning",
+			)}
+		>
+			<WarningIcon weight="fill" className="mt-px size-3.5 shrink-0" />
+			<span>{children}</span>
+		</p>
+	);
+}
+
 function RowCheckbox({
 	label,
 	isSelected,
@@ -404,8 +428,8 @@ function DocumentRow({
 					</p>
 				)}
 				{attention.length > 0 && (
-					<p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-foreground/80">
-						<WarningIcon className="size-3.5 shrink-0 text-problem" />
+					<p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-warning">
+						<WarningIcon weight="fill" className="size-3.5 shrink-0" />
 						{attention.join(" · ")}
 						<RacButton
 							onPress={onEdit}
@@ -430,20 +454,15 @@ function DocumentRow({
 					</p>
 				)}
 				{doc.status === "no_text" && (
-					<p className="mt-1 text-xs text-muted-foreground">
+					<Notice kind="warning">
 						This looks like a scanned document. Chingolo can't read scans yet,
 						so it can't search or cite it.
-					</p>
+					</Notice>
 				)}
 				{doc.error && (
-					<p
-						className={cx(
-							"mt-1 text-xs",
-							doc.status === "error" ? "text-problem" : "text-muted-foreground",
-						)}
-					>
+					<Notice kind={doc.status === "error" ? "error" : "warning"}>
 						{doc.error}
-					</p>
+					</Notice>
 				)}
 			</div>
 			<div className="flex shrink-0 items-center gap-3">
@@ -905,18 +924,21 @@ export function LibraryView() {
 			<div className="flex flex-wrap items-center gap-2 px-6 pb-3">
 				<FilterSelect
 					label="File type"
+					icon={<FileTextIcon className="size-4" />}
 					value={typeFilter}
 					items={TYPE_ITEMS}
 					onChange={(k) => setTypeFilter(k as TypeFilter)}
 				/>
 				<FilterSelect
 					label="Status"
+					icon={<FunnelSimpleIcon className="size-4" />}
 					value={statusFilter}
 					items={STATUS_ITEMS}
 					onChange={(k) => setStatusFilter(k as StatusFilter)}
 				/>
 				<FilterSelect
 					label="Sort by"
+					icon={<SortAscendingIcon className="size-4" />}
 					value={sort}
 					items={SORT_ITEMS}
 					onChange={(k) => pickSort(k as Sort)}
@@ -936,7 +958,7 @@ export function LibraryView() {
 
 			{needing.length > 0 && (
 				<div className="flex items-center gap-2 px-6 pb-2 text-xs text-muted-foreground">
-					<WarningIcon className="size-3.5 text-problem" />
+					<WarningIcon weight="fill" className="size-3.5 text-warning" />
 					<span>
 						{plural(needing.length, "document")} need
 						{needing.length === 1 ? "s" : ""} a look.

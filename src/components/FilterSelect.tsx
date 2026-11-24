@@ -1,4 +1,5 @@
 import { CaretDownIcon } from "@phosphor-icons/react";
+import type { ReactNode } from "react";
 import {
 	ListBox,
 	ListBoxItem,
@@ -13,11 +14,13 @@ export type Choice = { id: string; name: string };
 
 export function FilterSelect({
 	label,
+	icon,
 	value,
 	items,
 	onChange,
 }: {
 	label: string;
+	icon?: ReactNode;
 	value: string;
 	items: Choice[];
 	onChange: (id: string) => void;
@@ -34,6 +37,7 @@ export function FilterSelect({
 					focus,
 				)}
 			>
+				{icon && <span className="shrink-0 text-muted-foreground">{icon}</span>}
 				<SelectValue className="max-w-48 truncate" />
 				<CaretDownIcon className="size-4 shrink-0 text-muted-foreground" />
 			</RacButton>
