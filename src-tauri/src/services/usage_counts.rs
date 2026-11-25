@@ -182,7 +182,7 @@ pub fn count_context(
     limit: Option<u32>,
     price_jump_over: Option<u32>,
 ) {
-    let mut once = |flag: &str, event: Event, bucket: &str| {
+    let once = |flag: &str, event: Event, bucket: &str| {
         if flag_once(c, conversation_id, flag).unwrap_or(false) {
             count_conn(c, event, provider, model, bucket);
         }

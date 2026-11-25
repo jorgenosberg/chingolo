@@ -428,6 +428,12 @@ function SavedCard({
 					)
 				)
 					return;
+				// While anything is selected, a click on a card selects it instead of opening it.
+				if (selecting) {
+					if (window.getSelection()?.isCollapsed === false) return;
+					onSelect(!selected, e.shiftKey);
+					return;
+				}
 				open();
 			}}
 			className={cx(
