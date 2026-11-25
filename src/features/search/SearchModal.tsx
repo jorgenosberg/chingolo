@@ -1,4 +1,5 @@
 import {
+	BookmarkSimpleIcon,
 	ChatCircleIcon,
 	FolderIcon,
 	MagnifyingGlassIcon,
@@ -18,9 +19,10 @@ import {
 	useConversations,
 	useMessageSearch,
 	useProjects,
+	useSaved,
 } from "../../lib/queries";
 
-type Mode = "conversations" | "projects";
+type Mode = "conversations" | "projects" | "saved";
 
 const MODES: { id: Mode; label: string; placeholder: string }[] = [
 	{
@@ -29,13 +31,14 @@ const MODES: { id: Mode; label: string; placeholder: string }[] = [
 		placeholder: "Search conversations",
 	},
 	{ id: "projects", label: "Projects", placeholder: "Search projects" },
+	{ id: "saved", label: "Saved", placeholder: "Search saved items" },
 ];
 
 type Result = {
 	id: string;
 	label: string;
 	detail: string;
-	icon: "chat" | "project";
+	icon: "chat" | "project" | "saved";
 	/** Matching message text, with the matched words between U+0002 and U+0003. */
 	snippet?: string;
 	run: () => void;
@@ -87,7 +90,7 @@ export function SearchModal() {
 
 // Mounted each time the modal opens, so the query and mode start fresh.
 function SearchPanel({ close }: { close: () => void }) {
-	const { select, openLibrary } = useNav();
+	const { select, openLibrary, openSavedItem } = useNav();
 	const [mode, setMode] = useState<Mode>("conversations");
 	const [query, setQuery] = useState("");
 	const [active, setActive] = useState(0);
@@ -95,6 +98,7 @@ function SearchPanel({ close }: { close: () => void }) {
 
 	const conversations = useConversations();
 	const projects = useProjects();
+	const savedItems = useSaved({ kind: "all" });
 	const found = useConversationSearch(mode === "conversations" ? query : "");
 	const hits = useMessageSearch(mode === "conversations" ? query : "");
 	const q = query.trim();
@@ -103,6 +107,43 @@ function SearchPanel({ close }: { close: () => void }) {
 		const projectName = new Map(
 			(projects.data ?? []).map((p) => [p.id, p.name]),
 		);
+		if (mode === "saved") {
+			const needle = q.toLowerCase();
+			// Newest first, as the list arrives. With no query, the latest few.
+			return (savedItems.data ?? [])
+				.filter(
+					(i) =>
+						!needle ||
+						[
+							i.body,
+							...i.notes.map((n) => n.body),
+							...i.tags.map((t) => t.name),
+							i.conversationTitle,
+							...i.sources.flatMap((x) => [x.title, x.label]),
+						]
+							.join("\n")
+							.toLowerCase()
+							.includes(needle),
+				)
+				.slice(0, 30)
+				.map((i) => ({
+					id: i.id,
+					label:
+						i.body
+							.replace(/\s*\[S\d+\]/g, "")
+							.replace(/\s+/g, " ")
+							.trim()
+							.slice(0, 120) || "Saved item",
+					detail: [
+						i.tags.map((t) => t.name).join(", "),
+						i.projectId ? projectName.get(i.projectId) : null,
+					]
+						.filter(Boolean)
+						.join(" · "),
+					icon: "saved" as const,
+					run: () => openSavedItem(i.id),
+				}));
+		}
 		if (mode === "projects") {
 			const needle = q.toLowerCase();
 			const all = conversations.data ?? [];
@@ -162,8 +203,10 @@ function SearchPanel({ close }: { close: () => void }) {
 		hits.data,
 		conversations.data,
 		projects.data,
+		savedItems.data,
 		select,
 		openLibrary,
+		openSavedItem,
 	]);
 
 	// A new query or mode starts at the top of the list.
@@ -270,6 +313,8 @@ function SearchPanel({ close }: { close: () => void }) {
 						<span className="shrink-0 text-muted-foreground">
 							{r.icon === "chat" ? (
 								<ChatCircleIcon className="size-[17px]" />
+							) : r.icon === "saved" ? (
+								<BookmarkSimpleIcon className="size-[17px]" />
 							) : (
 								<FolderIcon className="size-[17px]" />
 							)}
@@ -300,7 +345,9 @@ function SearchPanel({ close }: { close: () => void }) {
 							? "No matches."
 							: mode === "projects"
 								? "No projects yet."
-								: "No conversations yet."}
+								: mode === "saved"
+									? "Nothing saved yet."
+									: "No conversations yet."}
 					</p>
 				)}
 				{mode === "conversations" && (found.isError || hits.isError) && (
