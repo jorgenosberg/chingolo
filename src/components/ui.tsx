@@ -88,6 +88,15 @@ export function Kbd({
 	);
 }
 
+/**
+ * Tooltip timing for the whole app. The cursor has to rest on something for a moment before a
+ * tooltip opens, so sweeping across a toolbar shows nothing. It closes quickly, so it doesn't
+ * linger over the next thing. (react-aria keeps its own 500 ms warm-up after a tooltip closes,
+ * so moving to a neighbour right after one showed opens that one at once.)
+ */
+export const TOOLTIP_DELAY = 600;
+export const TOOLTIP_CLOSE_DELAY = 100;
+
 /** Shows `label` (and a ⌘ shortcut, if any) in a tooltip when the trigger is hovered or focused. */
 export function Tip({
 	label,
@@ -102,7 +111,11 @@ export function Tip({
 	children: ReactNode;
 }) {
 	return (
-		<TooltipTrigger delay={400} isDisabled={isDisabled}>
+		<TooltipTrigger
+			delay={TOOLTIP_DELAY}
+			closeDelay={TOOLTIP_CLOSE_DELAY}
+			isDisabled={isDisabled}
+		>
 			{children}
 			<Tooltip offset={6} className={`flex items-center gap-2 ${TOOLTIP}`}>
 				{label}

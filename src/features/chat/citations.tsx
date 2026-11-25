@@ -2,7 +2,11 @@ import { createContext, type ReactNode, useContext, useMemo } from "react";
 import { Button, Tooltip, TooltipTrigger } from "react-aria-components";
 import { defaultRemarkPlugins } from "streamdown";
 import { type ReaderTarget, useNav } from "../../app/nav";
-import { POPOVER } from "../../components/ui";
+import {
+	POPOVER,
+	TOOLTIP_CLOSE_DELAY,
+	TOOLTIP_DELAY,
+} from "../../components/ui";
 import type { Citation, SavedSource } from "../../lib/bindings";
 
 const TOKEN = /\[S(\d+)\]/g;
@@ -145,7 +149,7 @@ function Cite({ children }: { children?: ReactNode }) {
 		);
 	const flagged = c.status !== "ok";
 	return (
-		<TooltipTrigger delay={300} closeDelay={100}>
+		<TooltipTrigger delay={TOOLTIP_DELAY} closeDelay={TOOLTIP_CLOSE_DELAY}>
 			<Button
 				data-cite
 				aria-label={`Open source ${c.handle}: ${where(c)}${flagged ? " (not fully supported)" : ""}`}
@@ -236,7 +240,11 @@ export function SourcesList({
 						</span>
 						<span className="flex flex-wrap items-center">
 							{passages.map((c) => (
-								<TooltipTrigger key={c.handle} delay={300} closeDelay={100}>
+								<TooltipTrigger
+									key={c.handle}
+									delay={TOOLTIP_DELAY}
+									closeDelay={TOOLTIP_CLOSE_DELAY}
+								>
 									<Button
 										aria-label={`Open source ${c.handle}: ${where(c)}`}
 										onPress={() =>
