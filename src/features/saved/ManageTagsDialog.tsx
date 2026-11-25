@@ -100,9 +100,7 @@ export function ManageTagsDialog({
 									focus,
 								)}
 							>
-								<span className="scale-150">
-									<TagDot color={t.color} />
-								</span>
+								<TagDot color={t.color} className="size-4" />
 							</RacButton>
 							<Popover placement="bottom start" className={`p-2 ${POPOVER}`}>
 								<Dialog
@@ -126,9 +124,7 @@ export function ManageTagsDialog({
 													focus,
 												)}
 											>
-												<span className="scale-150">
-													<TagDot color={c} />
-												</span>
+												<TagDot color={c} className="size-4" />
 											</RacButton>
 										))}
 									</div>

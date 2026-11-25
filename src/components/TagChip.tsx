@@ -18,11 +18,18 @@ const tone = (color: string) =>
 	({ "--tag": `var(--tag-${color})` }) as CSSProperties;
 
 /** A round dot in a tag's colour. */
-export function TagDot({ color }: { color: string }) {
+export function TagDot({
+	color,
+	className = "size-2.5",
+}: {
+	color: string;
+	/** Sets the size. */
+	className?: string;
+}) {
 	return (
 		<span
 			style={tone(color)}
-			className="size-2.5 shrink-0 rounded-full bg-[var(--tag)]"
+			className={cx("block shrink-0 rounded-full bg-[var(--tag)]", className)}
 		/>
 	);
 }
