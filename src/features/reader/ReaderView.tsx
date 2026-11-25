@@ -35,10 +35,12 @@ export default function ReaderView({
 	const conversations = useConversations();
 	// Text saved from the reader goes to the project in view: the open chat's when this is the
 	// citation pane, the library's filter when it fills the main pane.
-	const projectId = compact
-		? (conversations.data?.find((c) => c.id === conversationId)?.projectId ??
-			null)
-		: libraryScope;
+	const chat = compact
+		? conversations.data?.find((c) => c.id === conversationId)
+		: undefined;
+	const projectId = compact ? (chat?.projectId ?? null) : libraryScope;
+	// The folder only comes with the open chat, which is in that project.
+	const chapterId = chat?.chapterId ?? null;
 	const docs = useDocuments(null);
 	const passage = usePassage(reader?.passageId ?? null);
 
@@ -137,7 +139,7 @@ export default function ReaderView({
 						documentId={doc.id}
 						highlight={highlight}
 						onSaveSelection={async (page, text) => {
-							await api.savePassage(doc.id, page, text, projectId);
+							await api.savePassage(doc.id, page, text, projectId, chapterId);
 							qc.invalidateQueries({ queryKey: keys.saved });
 						}}
 					/>

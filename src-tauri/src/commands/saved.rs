@@ -1,6 +1,6 @@
 use tauri::State;
 
-use crate::domain::{SavedFilter, SavedItem, SavedSource};
+use crate::domain::{SavedFilter, SavedItem, SavedSource, SavedTagInfo};
 use crate::error::CmdResult;
 use crate::persistence::saved as repo;
 use crate::services::usage_counts::{self, Event};
@@ -56,11 +56,19 @@ pub async fn save_passage(
     page: u32,
     text: String,
     project_id: Option<String>,
+    chapter_id: Option<String>,
 ) -> CmdResult<SavedItem> {
     Ok(state
         .db
         .call(move |c| {
-            let item = repo::save_passage(c, &document_id, page, &text, project_id.as_deref())?;
+            let item = repo::save_passage(
+                c,
+                &document_id,
+                page,
+                &text,
+                project_id.as_deref(),
+                chapter_id.as_deref(),
+            )?;
             usage_counts::count_conn(c, Event::SavedItemCreated, "", "", "passage");
             Ok(item)
         })
@@ -106,17 +114,18 @@ pub async fn delete_saved_note(
         .await?)
 }
 
-/// Sets the project of every item, or takes them out of their project with `None`.
+/// Sets the project and folder of every item. The folder must belong to the project.
 #[tauri::command]
 #[specta::specta]
 pub async fn move_saved_items(
     state: State<'_, AppState>,
     ids: Vec<String>,
     project_id: Option<String>,
+    chapter_id: Option<String>,
 ) -> CmdResult<()> {
     Ok(state
         .db
-        .call(move |c| repo::move_items(c, &ids, project_id.as_deref()))
+        .call(move |c| repo::move_items(c, &ids, project_id.as_deref(), chapter_id.as_deref()))
         .await?)
 }
 
@@ -125,6 +134,74 @@ pub async fn move_saved_items(
 #[specta::specta]
 pub async fn delete_saved_items(state: State<'_, AppState>, ids: Vec<String>) -> CmdResult<u32> {
     Ok(state.db.call(move |c| repo::delete_items(c, &ids)).await?)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn list_saved_tags(state: State<'_, AppState>) -> CmdResult<Vec<SavedTagInfo>> {
+    Ok(state.db.call(|c| repo::list_tags(c)).await?)
+}
+
+/// Adds the named tags (made if new) to every item and takes the `remove_tag_ids` off them.
+#[tauri::command]
+#[specta::specta]
+pub async fn tag_saved_items(
+    state: State<'_, AppState>,
+    ids: Vec<String>,
+    add_names: Vec<String>,
+    remove_tag_ids: Vec<String>,
+) -> CmdResult<()> {
+    Ok(state
+        .db
+        .call(move |c| repo::tag_items(c, &ids, &add_names, &remove_tag_ids))
+        .await?)
+}
+
+/// A name another tag already has merges the two.
+#[tauri::command]
+#[specta::specta]
+pub async fn rename_saved_tag(
+    state: State<'_, AppState>,
+    id: String,
+    name: String,
+) -> CmdResult<()> {
+    Ok(state
+        .db
+        .call(move |c| repo::rename_tag(c, &id, &name))
+        .await?)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn set_saved_tag_color(
+    state: State<'_, AppState>,
+    id: String,
+    color: String,
+) -> CmdResult<()> {
+    Ok(state
+        .db
+        .call(move |c| repo::set_tag_color(c, &id, &color))
+        .await?)
+}
+
+/// Takes the tag off every item and deletes it. The items stay.
+#[tauri::command]
+#[specta::specta]
+pub async fn delete_saved_tag(state: State<'_, AppState>, id: String) -> CmdResult<()> {
+    Ok(state.db.call(move |c| repo::delete_tag(c, &id)).await?)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn set_saved_used(
+    state: State<'_, AppState>,
+    ids: Vec<String>,
+    used: bool,
+) -> CmdResult<()> {
+    Ok(state
+        .db
+        .call(move |c| repo::set_used(c, &ids, used))
+        .await?)
 }
 
 #[tauri::command]

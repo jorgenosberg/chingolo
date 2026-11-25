@@ -25,6 +25,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../migrations/0004_saved_notes.sql"),
     include_str!("../../migrations/0005_layout_errors.sql"),
     include_str!("../../migrations/0006_usage_counts.sql"),
+    include_str!("../../migrations/0007_saved_organize.sql"),
 ];
 
 #[derive(Clone)]
@@ -217,6 +218,44 @@ mod tests {
     }
 
     #[test]
+    fn saved_items_get_their_chats_folder_only_if_still_in_its_project() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        for sql in &MIGRATIONS[..6] {
+            conn.execute_batch(sql).unwrap();
+        }
+        conn.pragma_update(None, "user_version", 6i64).unwrap();
+        conn.execute_batch(
+            "INSERT INTO projects (id, name, created_at, updated_at) VALUES ('p1', 'A', 1, 1), ('p2', 'B', 1, 1);
+             INSERT INTO chapters (id, project_id, title, position, created_at, updated_at) VALUES ('ch1', 'p1', 'Methods', 0, 1, 1);
+             INSERT INTO conversations (id, project_id, chapter_id, title, provider, created_at, updated_at)
+               VALUES ('c1', 'p1', 'ch1', 'Chat', 'gemini', 1, 1);
+             INSERT INTO saved_items (id, kind, project_id, conversation_id, body, created_at, updated_at) VALUES
+               ('stays', 'reply', 'p1', 'c1', 'x', 1, 1),
+               ('moved', 'reply', 'p2', 'c1', 'x', 1, 1),
+               ('none', 'reply', NULL, 'c1', 'x', 1, 1),
+               ('loose', 'passage', 'p1', NULL, 'x', 1, 1);",
+        )
+        .unwrap();
+        migrate(&mut conn).unwrap();
+        let folder = |id: &str| -> Option<String> {
+            conn.query_row(
+                "SELECT chapter_id FROM saved_items WHERE id = ?1",
+                [id],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(folder("stays").as_deref(), Some("ch1"));
+        assert_eq!(
+            folder("moved"),
+            None,
+            "another project's folder would break the rule"
+        );
+        assert_eq!(folder("none"), None);
+        assert_eq!(folder("loose"), None);
+    }
+
+    #[test]
     fn an_older_database_is_backed_up_before_migrating_and_old_backups_are_pruned() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test.sqlite");
@@ -258,7 +297,8 @@ mod tests {
             .filter_map(|e| e.file_name().to_str().map(String::from))
             .filter(|n| n.contains(".bak-v"))
             .collect();
-        left.sort();
+        // By version number: as text, v10 sorts before v9.
+        left.sort_by_key(|n| n.rsplit("bak-v").next().unwrap().parse::<usize>().unwrap());
         let (a, b) = (MIGRATIONS.len() + 2, MIGRATIONS.len() + 3);
         assert_eq!(
             left,

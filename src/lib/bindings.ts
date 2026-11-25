@@ -109,15 +109,24 @@ export const commands = {
 	saveReply: (messageId: string) => typedError<SavedItem, CmdError>(__TAURI_INVOKE("save_reply", { messageId })),
 	/**  `handles` are the `[S<n>]` numbers of the citation chips inside the selection. */
 	saveSelection: (messageId: string, text: string, handles: number[]) => typedError<SavedItem, CmdError>(__TAURI_INVOKE("save_selection", { messageId, text, handles })),
-	savePassage: (documentId: string, page: number, text: string, projectId: string | null) => typedError<SavedItem, CmdError>(__TAURI_INVOKE("save_passage", { documentId, page, text, projectId })),
+	savePassage: (documentId: string, page: number, text: string, projectId: string | null, chapterId: string | null) => typedError<SavedItem, CmdError>(__TAURI_INVOKE("save_passage", { documentId, page, text, projectId, chapterId })),
 	/**  Adds a note to the end of the item's thread. Returns the updated item. */
 	addSavedNote: (itemId: string, body: string) => typedError<SavedItem, CmdError>(__TAURI_INVOKE("add_saved_note", { itemId, body })),
 	updateSavedNote: (noteId: string, body: string) => typedError<SavedItem, CmdError>(__TAURI_INVOKE("update_saved_note", { noteId, body })),
 	deleteSavedNote: (noteId: string) => typedError<SavedItem, CmdError>(__TAURI_INVOKE("delete_saved_note", { noteId })),
-	/**  Sets the project of every item, or takes them out of their project with `None`. */
-	moveSavedItems: (ids: string[], projectId: string | null) => typedError<null, CmdError>(__TAURI_INVOKE("move_saved_items", { ids, projectId })),
+	/**  Sets the project and folder of every item. The folder must belong to the project. */
+	moveSavedItems: (ids: string[], projectId: string | null, chapterId: string | null) => typedError<null, CmdError>(__TAURI_INVOKE("move_saved_items", { ids, projectId, chapterId })),
 	/**  Deletes the items and returns how many were there. */
 	deleteSavedItems: (ids: string[]) => typedError<number, CmdError>(__TAURI_INVOKE("delete_saved_items", { ids })),
+	listSavedTags: () => typedError<SavedTagInfo[], CmdError>(__TAURI_INVOKE("list_saved_tags")),
+	/**  Adds the named tags (made if new) to every item and takes the `remove_tag_ids` off them. */
+	tagSavedItems: (ids: string[], addNames: string[], removeTagIds: string[]) => typedError<null, CmdError>(__TAURI_INVOKE("tag_saved_items", { ids, addNames, removeTagIds })),
+	/**  A name another tag already has merges the two. */
+	renameSavedTag: (id: string, name: string) => typedError<null, CmdError>(__TAURI_INVOKE("rename_saved_tag", { id, name })),
+	setSavedTagColor: (id: string, color: string) => typedError<null, CmdError>(__TAURI_INVOKE("set_saved_tag_color", { id, color })),
+	/**  Takes the tag off every item and deletes it. The items stay. */
+	deleteSavedTag: (id: string) => typedError<null, CmdError>(__TAURI_INVOKE("delete_saved_tag", { id })),
+	setSavedUsed: (ids: string[], used: boolean) => typedError<null, CmdError>(__TAURI_INVOKE("set_saved_used", { ids, used })),
 	getSavedSource: (itemId: string, handle: number) => typedError<SavedSource | null, CmdError>(__TAURI_INVOKE("get_saved_source", { itemId, handle })),
 	/**  Asks the release page whether a newer version exists. Nothing is downloaded. */
 	checkForUpdate: () => typedError<UpdateInfo | null, CmdError>(__TAURI_INVOKE("check_for_update")),
@@ -637,6 +646,8 @@ export type SavedItem = {
 	id: string,
 	kind: SavedKind,
 	projectId: string | null,
+	/**  A folder of the item's project. Starts as the chat's folder. */
+	chapterId: string | null,
 	/**  None once the conversation is deleted. */
 	conversationId: string | null,
 	messageId: string | null,
@@ -646,6 +657,10 @@ export type SavedItem = {
 	/**  Oldest first, like comments under a post. */
 	notes: SavedNote[],
 	sources: SavedSource[],
+	/**  By name. */
+	tags: SavedTag[],
+	/**  When it was marked as used in the user's own text. */
+	usedAt: number | null,
 	createdAt: number,
 	updatedAt: number,
 };
@@ -681,6 +696,21 @@ export type SavedSource = {
 	page: number,
 	text: string,
 	doi: string | null,
+};
+
+/**  A label on saved items. Shared by all projects. `color` is one of a fixed set of names. */
+export type SavedTag = {
+	id: string,
+	name: string,
+	color: string,
+};
+
+/**  A tag with the number of saved items that have it. */
+export type SavedTagInfo = {
+	id: string,
+	name: string,
+	color: string,
+	itemCount: number,
 };
 
 /**

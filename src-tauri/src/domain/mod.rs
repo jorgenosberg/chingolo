@@ -245,12 +245,33 @@ pub struct SavedNote {
     pub updated_at: i64,
 }
 
+/// A label on saved items. Shared by all projects. `color` is one of a fixed set of names.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedTag {
+    pub id: Id,
+    pub name: String,
+    pub color: String,
+}
+
+/// A tag with the number of saved items that have it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedTagInfo {
+    pub id: Id,
+    pub name: String,
+    pub color: String,
+    pub item_count: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SavedItem {
     pub id: Id,
     pub kind: SavedKind,
     pub project_id: Option<Id>,
+    /// A folder of the item's project. Starts as the chat's folder.
+    pub chapter_id: Option<Id>,
     /// None once the conversation is deleted.
     pub conversation_id: Option<Id>,
     pub message_id: Option<Id>,
@@ -260,6 +281,11 @@ pub struct SavedItem {
     /// Oldest first, like comments under a post.
     pub notes: Vec<SavedNote>,
     pub sources: Vec<SavedSource>,
+    /// By name.
+    pub tags: Vec<SavedTag>,
+    /// When it was marked as used in the user's own text.
+    #[specta(type = Option<Number>)]
+    pub used_at: Option<i64>,
     #[specta(type = Number)]
     pub created_at: i64,
     #[specta(type = Number)]

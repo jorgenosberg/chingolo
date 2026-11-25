@@ -1,11 +1,12 @@
 import {
 	type QueryClient,
 	useMutation,
+	useQueries,
 	useQuery,
 	useQueryClient,
 } from "@tanstack/react-query";
 import { api, Channel, sendMessageRaw } from "./api";
-import type { ChatEvent, Message, SavedFilter } from "./bindings";
+import type { Chapter, ChatEvent, Message, SavedFilter } from "./bindings";
 import { appendDelta, bindMessage, endStream, setStatus } from "./streams";
 
 export const keys = {
@@ -13,6 +14,7 @@ export const keys = {
 	models: ["models"] as const,
 	projects: ["projects"] as const,
 	chapters: (projectId: string) => ["chapters", projectId] as const,
+	savedTags: ["saved-tags"] as const,
 	conversations: ["conversations"] as const,
 	conversationCost: (id: string) => ["conversation-cost", id] as const,
 	search: (q: string) => ["conversations", "search", q] as const,
@@ -56,6 +58,26 @@ export function useChapters(projectId: string) {
 		queryKey: keys.chapters(projectId),
 		queryFn: () => api.listChapters(projectId),
 	});
+}
+
+const allChapters = (results: { data?: Chapter[] }[]) =>
+	results.flatMap((r) => r.data ?? []);
+
+/** The folders of every project, for naming the folder of a saved item. */
+export function useAllChapters(): Chapter[] {
+	const projects = useProjects();
+	return useQueries({
+		queries: (projects.data ?? []).map((p) => ({
+			queryKey: keys.chapters(p.id),
+			queryFn: () => api.listChapters(p.id),
+		})),
+		combine: allChapters,
+	});
+}
+
+/** Every saved-item tag with the number of items that have it. */
+export function useSavedTags() {
+	return useQuery({ queryKey: keys.savedTags, queryFn: api.listSavedTags });
 }
 
 /** Every conversation, archived included. The sidebar groups them on the client. */

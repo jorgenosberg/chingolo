@@ -166,14 +166,29 @@ export const api = {
 		page: number,
 		text: string,
 		projectId: string | null,
-	) => unwrap(commands.savePassage(documentId, page, text, projectId)),
+		chapterId: string | null,
+	) =>
+		unwrap(commands.savePassage(documentId, page, text, projectId, chapterId)),
 	addSavedNote: (itemId: string, body: string) =>
 		unwrap(commands.addSavedNote(itemId, body)),
 	updateSavedNote: (noteId: string, body: string) =>
 		unwrap(commands.updateSavedNote(noteId, body)),
 	deleteSavedNote: (noteId: string) => unwrap(commands.deleteSavedNote(noteId)),
-	moveSavedItems: (ids: string[], projectId: string | null) =>
-		unwrap(commands.moveSavedItems(ids, projectId)),
+	moveSavedItems: (
+		ids: string[],
+		projectId: string | null,
+		chapterId: string | null,
+	) => unwrap(commands.moveSavedItems(ids, projectId, chapterId)),
+	listSavedTags: () => unwrap(commands.listSavedTags()),
+	tagSavedItems: (ids: string[], addNames: string[], removeTagIds: string[]) =>
+		unwrap(commands.tagSavedItems(ids, addNames, removeTagIds)),
+	renameSavedTag: (id: string, name: string) =>
+		unwrap(commands.renameSavedTag(id, name)),
+	setSavedTagColor: (id: string, color: string) =>
+		unwrap(commands.setSavedTagColor(id, color)),
+	deleteSavedTag: (id: string) => unwrap(commands.deleteSavedTag(id)),
+	setSavedUsed: (ids: string[], used: boolean) =>
+		unwrap(commands.setSavedUsed(ids, used)),
 	deleteSavedItems: (ids: string[]) => unwrap(commands.deleteSavedItems(ids)),
 	getSavedSource: (itemId: string, handle: number) =>
 		unwrap(commands.getSavedSource(itemId, handle)),

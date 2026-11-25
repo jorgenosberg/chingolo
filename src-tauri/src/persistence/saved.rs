@@ -4,7 +4,8 @@
 use rusqlite::{Connection, OptionalExtension, Row, params};
 
 use crate::domain::{
-    Id, SavedFilter, SavedItem, SavedKind, SavedNote, SavedSource, new_id, now_ms,
+    Id, SavedFilter, SavedItem, SavedKind, SavedNote, SavedSource, SavedTag, SavedTagInfo, new_id,
+    now_ms,
 };
 use crate::error::{AppError, Result};
 use crate::persistence::{chat, library, sources};
@@ -30,7 +31,7 @@ fn kind_from(s: &str) -> SavedKind {
 }
 
 const COLS: &str = "id, kind, project_id, conversation_id, message_id, conversation_title, body, \
-                    created_at, updated_at";
+                    created_at, updated_at, chapter_id, used_at";
 
 fn from_row(r: &Row) -> rusqlite::Result<SavedItem> {
     Ok(SavedItem {
@@ -43,8 +44,11 @@ fn from_row(r: &Row) -> rusqlite::Result<SavedItem> {
         body: r.get(6)?,
         created_at: r.get(7)?,
         updated_at: r.get(8)?,
+        chapter_id: r.get(9)?,
+        used_at: r.get(10)?,
         notes: Vec::new(),
         sources: Vec::new(),
+        tags: Vec::new(),
     })
 }
 
@@ -89,6 +93,22 @@ fn load_notes(conn: &Connection, item_id: &str) -> Result<Vec<SavedNote>> {
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
+fn load_tags(conn: &Connection, item_id: &str) -> Result<Vec<SavedTag>> {
+    let mut stmt = conn.prepare(
+        "SELECT t.id, t.name, t.color FROM saved_item_tags it
+           JOIN saved_tags t ON t.id = it.tag_id
+          WHERE it.saved_item_id = ?1 ORDER BY t.key",
+    )?;
+    let rows = stmt.query_map([item_id], |r| {
+        Ok(SavedTag {
+            id: r.get(0)?,
+            name: r.get(1)?,
+            color: r.get(2)?,
+        })
+    })?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
 pub fn get(conn: &Connection, id: &str) -> Result<SavedItem> {
     let mut item = conn
         .query_row(
@@ -100,6 +120,7 @@ pub fn get(conn: &Connection, id: &str) -> Result<SavedItem> {
         .ok_or(AppError::NotFound)?;
     item.sources = load_sources(conn, id)?;
     item.notes = load_notes(conn, id)?;
+    item.tags = load_tags(conn, id)?;
     Ok(item)
 }
 
@@ -164,9 +185,29 @@ pub fn list(conn: &Connection, filter: &SavedFilter) -> Result<Vec<SavedItem>> {
         let (id, n) = row?;
         notes_by_item.entry(id).or_default().push(n);
     }
+    let mut tags_by_item: std::collections::HashMap<String, Vec<SavedTag>> = Default::default();
+    let mut tag_stmt = conn.prepare(
+        "SELECT it.saved_item_id, t.id, t.name, t.color FROM saved_item_tags it
+           JOIN saved_tags t ON t.id = it.tag_id ORDER BY t.key",
+    )?;
+    let tag_rows = tag_stmt.query_map([], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            SavedTag {
+                id: r.get(1)?,
+                name: r.get(2)?,
+                color: r.get(3)?,
+            },
+        ))
+    })?;
+    for row in tag_rows {
+        let (id, t) = row?;
+        tags_by_item.entry(id).or_default().push(t);
+    }
     for item in &mut items {
         item.sources = by_item.remove(&item.id).unwrap_or_default();
         item.notes = notes_by_item.remove(&item.id).unwrap_or_default();
+        item.tags = tags_by_item.remove(&item.id).unwrap_or_default();
     }
     Ok(items)
 }
@@ -182,6 +223,7 @@ fn doi_of(conn: &Connection, document_id: &str) -> Option<String> {
 struct NewItem<'a> {
     kind: SavedKind,
     project_id: Option<&'a str>,
+    chapter_id: Option<&'a str>,
     conversation_id: Option<&'a str>,
     message_id: Option<&'a str>,
     conversation_title: &'a str,
@@ -192,6 +234,7 @@ fn insert_item(conn: &mut Connection, new: &NewItem, srcs: &[SavedSource]) -> Re
     let NewItem {
         kind,
         project_id,
+        chapter_id,
         conversation_id,
         message_id,
         conversation_title,
@@ -203,8 +246,8 @@ fn insert_item(conn: &mut Connection, new: &NewItem, srcs: &[SavedSource]) -> Re
     tx.execute(
         "INSERT INTO saved_items
            (id, kind, project_id, conversation_id, message_id, conversation_title, body,
-            created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
+            created_at, updated_at, chapter_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8, ?9)",
         params![
             id,
             kind_str(kind),
@@ -213,7 +256,8 @@ fn insert_item(conn: &mut Connection, new: &NewItem, srcs: &[SavedSource]) -> Re
             message_id,
             conversation_title,
             body,
-            now
+            now,
+            chapter_id
         ],
     )?;
     for s in srcs {
@@ -293,6 +337,7 @@ pub fn save_reply(conn: &mut Connection, message_id: &str) -> Result<SavedItem> 
         &NewItem {
             kind: SavedKind::Reply,
             project_id: conv.project_id.as_deref(),
+            chapter_id: conv.chapter_id.as_deref(),
             conversation_id: Some(&conv.id),
             message_id: Some(&msg.id),
             conversation_title: &conv.title,
@@ -317,6 +362,7 @@ pub fn save_selection(
         &NewItem {
             kind: SavedKind::Selection,
             project_id: conv.project_id.as_deref(),
+            chapter_id: conv.chapter_id.as_deref(),
             conversation_id: Some(&conv.id),
             message_id: Some(&msg.id),
             conversation_title: &conv.title,
@@ -335,8 +381,10 @@ pub fn save_passage(
     page: u32,
     text: &str,
     project_id: Option<&str>,
+    chapter_id: Option<&str>,
 ) -> Result<SavedItem> {
     let text = clean_text(text)?;
+    check_folder(conn, project_id, chapter_id)?;
     let doc = library::get_document(conn, document_id)?;
     let passage_id = match_passage(conn, document_id, page, &text)?.unwrap_or_default();
     let src = SavedSource {
@@ -358,6 +406,7 @@ pub fn save_passage(
         &NewItem {
             kind: SavedKind::Passage,
             project_id,
+            chapter_id,
             conversation_id: None,
             message_id: None,
             conversation_title: "",
@@ -500,11 +549,43 @@ fn unique_ids(ids: &[Id]) -> Result<Vec<&str>> {
     Ok(out)
 }
 
-/// Sets the project of every item, or takes them out of their project with `None`. All or none:
-/// an item or project that doesn't exist fails the whole move.
-pub fn move_items(conn: &mut Connection, ids: &[Id], project_id: Option<&str>) -> Result<()> {
+/// A folder must belong to the project the item is in, so there can be no folder without one.
+fn check_folder(
+    conn: &Connection,
+    project_id: Option<&str>,
+    chapter_id: Option<&str>,
+) -> Result<()> {
+    let Some(chapter) = chapter_id else {
+        return Ok(());
+    };
+    let owner: Option<String> = conn
+        .query_row(
+            "SELECT project_id FROM chapters WHERE id = ?1",
+            [chapter],
+            |r| r.get(0),
+        )
+        .optional()?;
+    match owner {
+        None => Err(AppError::NotFound),
+        Some(o) if Some(o.as_str()) == project_id => Ok(()),
+        Some(_) => Err(AppError::Invalid(
+            "That folder belongs to another project.".into(),
+        )),
+    }
+}
+
+/// Sets the project and folder of every item. `None` for the project takes them out of their
+/// project, `None` for the folder out of their folder. All or none: an item, project or folder
+/// that doesn't exist fails the whole move.
+pub fn move_items(
+    conn: &mut Connection,
+    ids: &[Id],
+    project_id: Option<&str>,
+    chapter_id: Option<&str>,
+) -> Result<()> {
     let ids = unique_ids(ids)?;
     let tx = conn.transaction()?;
+    check_folder(&tx, project_id, chapter_id)?;
     if let Some(p) = project_id {
         let exists: bool = tx.query_row(
             "SELECT EXISTS(SELECT 1 FROM projects WHERE id = ?1)",
@@ -518,8 +599,8 @@ pub fn move_items(conn: &mut Connection, ids: &[Id], project_id: Option<&str>) -
     let now = now_ms();
     for id in ids {
         let n = tx.execute(
-            "UPDATE saved_items SET project_id = ?2, updated_at = ?3 WHERE id = ?1",
-            params![id, project_id, now],
+            "UPDATE saved_items SET project_id = ?2, chapter_id = ?3, updated_at = ?4 WHERE id = ?1",
+            params![id, project_id, chapter_id, now],
         )?;
         if n == 0 {
             return Err(AppError::NotFound);
@@ -539,6 +620,193 @@ pub fn delete_items(conn: &mut Connection, ids: &[Id]) -> Result<u32> {
     }
     tx.commit()?;
     Ok(deleted)
+}
+
+/// The colours a tag can have. The frontend maps each name to a palette token.
+const TAG_COLORS: [&str; 8] = [
+    "gray", "green", "blue", "purple", "pink", "red", "orange", "yellow",
+];
+const MAX_TAG_CHARS: usize = 40;
+const MAX_TAGS_PER_CALL: usize = 20;
+
+/// The name with its words single-spaced, and the key two names are the same tag by. `to_lowercase`
+/// handles Æ, Ø and Å, which SQLite's NOCASE does not.
+fn clean_tag(raw: &str) -> Result<(String, String)> {
+    let name = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+    if name.is_empty() {
+        return Err(AppError::Invalid("A tag can't be empty.".into()));
+    }
+    if name.chars().count() > MAX_TAG_CHARS {
+        return Err(AppError::Invalid("The tag name is too long.".into()));
+    }
+    let key = name.to_lowercase();
+    Ok((name, key))
+}
+
+/// The tag with this name, made if it isn't there yet. New tags take the next colour in turn.
+fn tag_for(conn: &Connection, raw: &str) -> Result<Id> {
+    let (name, key) = clean_tag(raw)?;
+    if let Some(id) = conn
+        .query_row("SELECT id FROM saved_tags WHERE key = ?1", [&key], |r| {
+            r.get::<_, String>(0)
+        })
+        .optional()?
+    {
+        return Ok(id);
+    }
+    let count: i64 = conn.query_row("SELECT COUNT(*) FROM saved_tags", [], |r| r.get(0))?;
+    let id = new_id();
+    conn.execute(
+        "INSERT INTO saved_tags (id, name, key, color, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![
+            id,
+            name,
+            key,
+            TAG_COLORS[count as usize % TAG_COLORS.len()],
+            now_ms()
+        ],
+    )?;
+    Ok(id)
+}
+
+fn item_exists(conn: &Connection, id: &str) -> Result<bool> {
+    Ok(conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM saved_items WHERE id = ?1)",
+        [id],
+        |r| r.get(0),
+    )?)
+}
+
+/// Every tag, with how many items have it.
+pub fn list_tags(conn: &Connection) -> Result<Vec<SavedTagInfo>> {
+    let mut stmt = conn.prepare(
+        "SELECT t.id, t.name, t.color, COUNT(it.saved_item_id) FROM saved_tags t
+           LEFT JOIN saved_item_tags it ON it.tag_id = t.id
+          GROUP BY t.id ORDER BY t.key",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok(SavedTagInfo {
+            id: r.get(0)?,
+            name: r.get(1)?,
+            color: r.get(2)?,
+            item_count: r.get(3)?,
+        })
+    })?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+/// Adds the named tags (made if new) to every item and takes the `remove` tags off them. All or
+/// none.
+pub fn tag_items(conn: &mut Connection, ids: &[Id], add: &[String], remove: &[Id]) -> Result<()> {
+    let ids = unique_ids(ids)?;
+    if add.len() > MAX_TAGS_PER_CALL || remove.len() > MAX_TAGS_PER_CALL {
+        return Err(AppError::Invalid("Too many tags at once.".into()));
+    }
+    let tx = conn.transaction()?;
+    for id in &ids {
+        if !item_exists(&tx, id)? {
+            return Err(AppError::NotFound);
+        }
+    }
+    let added: Vec<Id> = add.iter().map(|n| tag_for(&tx, n)).collect::<Result<_>>()?;
+    for item in &ids {
+        for tag in &added {
+            tx.execute(
+                "INSERT OR IGNORE INTO saved_item_tags (saved_item_id, tag_id) VALUES (?1, ?2)",
+                params![item, tag],
+            )?;
+        }
+        for tag in remove {
+            tx.execute(
+                "DELETE FROM saved_item_tags WHERE saved_item_id = ?1 AND tag_id = ?2",
+                params![item, tag],
+            )?;
+        }
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+/// Renames a tag. A name that another tag already has merges this tag into that one: its items
+/// move over (each keeps one link) and this tag is deleted.
+pub fn rename_tag(conn: &mut Connection, id: &str, raw: &str) -> Result<()> {
+    let (name, key) = clean_tag(raw)?;
+    let tx = conn.transaction()?;
+    let exists: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM saved_tags WHERE id = ?1)",
+        [id],
+        |r| r.get(0),
+    )?;
+    if !exists {
+        return Err(AppError::NotFound);
+    }
+    let other: Option<String> = tx
+        .query_row(
+            "SELECT id FROM saved_tags WHERE key = ?1 AND id <> ?2",
+            params![key, id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    match other {
+        Some(other) => {
+            tx.execute(
+                "INSERT OR IGNORE INTO saved_item_tags (saved_item_id, tag_id)
+                 SELECT saved_item_id, ?1 FROM saved_item_tags WHERE tag_id = ?2",
+                params![other, id],
+            )?;
+            tx.execute("DELETE FROM saved_tags WHERE id = ?1", [id])?;
+        }
+        None => {
+            tx.execute(
+                "UPDATE saved_tags SET name = ?2, key = ?3 WHERE id = ?1",
+                params![id, name, key],
+            )?;
+        }
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+pub fn set_tag_color(conn: &Connection, id: &str, color: &str) -> Result<()> {
+    if !TAG_COLORS.contains(&color) {
+        return Err(AppError::Invalid("Unknown tag colour.".into()));
+    }
+    let n = conn.execute(
+        "UPDATE saved_tags SET color = ?2 WHERE id = ?1",
+        params![id, color],
+    )?;
+    if n == 0 {
+        return Err(AppError::NotFound);
+    }
+    Ok(())
+}
+
+/// Deletes the tag from every item. The items stay.
+pub fn delete_tag(conn: &Connection, id: &str) -> Result<()> {
+    let n = conn.execute("DELETE FROM saved_tags WHERE id = ?1", [id])?;
+    if n == 0 {
+        return Err(AppError::NotFound);
+    }
+    Ok(())
+}
+
+/// Marks items as used in the user's own text, or clears the mark. An item that is already used
+/// keeps its first date.
+pub fn set_used(conn: &mut Connection, ids: &[Id], used: bool) -> Result<()> {
+    let ids = unique_ids(ids)?;
+    let tx = conn.transaction()?;
+    let now = now_ms();
+    for id in ids {
+        let n = tx.execute(
+            "UPDATE saved_items SET used_at = CASE WHEN ?2 THEN COALESCE(used_at, ?3) END WHERE id = ?1",
+            params![id, used, now],
+        )?;
+        if n == 0 {
+            return Err(AppError::NotFound);
+        }
+    }
+    tx.commit()?;
+    Ok(())
 }
 
 pub fn get_source(conn: &Connection, item_id: &str, handle: u32) -> Result<Option<SavedSource>> {
@@ -675,9 +943,9 @@ mod tests {
         let item = save_reply(&mut conn, &msg).unwrap();
         add_note(&conn, &item.id, "a note").unwrap();
         let ids = [item.id.clone()];
-        move_items(&mut conn, &ids, None).unwrap();
+        move_items(&mut conn, &ids, None, None).unwrap();
         assert_eq!(get(&conn, &item.id).unwrap().project_id, None);
-        move_items(&mut conn, &ids, Some(&project)).unwrap();
+        move_items(&mut conn, &ids, Some(&project), None).unwrap();
         assert_eq!(
             get(&conn, &item.id).unwrap().project_id.as_deref(),
             Some(project.as_str())
@@ -779,20 +1047,28 @@ mod tests {
             None
         );
 
-        let hit =
-            save_passage(&mut conn, &doc.id, 2, "Iron limits plankton growth.", None).unwrap();
+        let hit = save_passage(
+            &mut conn,
+            &doc.id,
+            2,
+            "Iron limits plankton growth.",
+            None,
+            None,
+        )
+        .unwrap();
         assert_eq!(hit.kind, SavedKind::Passage);
         assert_eq!(
             (hit.sources.len(), hit.sources[0].passage_id.as_str()),
             (1, "p1")
         );
-        let miss = save_passage(&mut conn, &doc.id, 2, "words from two passages", None).unwrap();
+        let miss =
+            save_passage(&mut conn, &doc.id, 2, "words from two passages", None, None).unwrap();
         assert_eq!(
             miss.sources[0].passage_id, "",
             "no match, the page is the fallback"
         );
         assert_eq!(miss.sources[0].page, 2);
-        assert!(save_passage(&mut conn, "missing", 1, "x", None).is_err());
+        assert!(save_passage(&mut conn, "missing", 1, "x", None, None).is_err());
     }
 
     #[test]
@@ -808,6 +1084,7 @@ mod tests {
             &mut conn,
             &[a.id.clone(), b.id.clone(), a.id.clone()],
             Some(&other.id),
+            None,
         )
         .unwrap();
         assert_eq!(
@@ -823,14 +1100,19 @@ mod tests {
         );
 
         // One missing id leaves the others where they were.
-        let err = move_items(&mut conn, &[a.id.clone(), "missing".into()], Some(&project));
+        let err = move_items(
+            &mut conn,
+            &[a.id.clone(), "missing".into()],
+            Some(&project),
+            None,
+        );
         assert!(matches!(err, Err(AppError::NotFound)));
         assert_eq!(
             get(&conn, &a.id).unwrap().project_id.as_deref(),
             Some(other.id.as_str())
         );
         // So does a missing project.
-        let err = move_items(&mut conn, &[a.id.clone()], Some("missing"));
+        let err = move_items(&mut conn, &[a.id.clone()], Some("missing"), None);
         assert!(matches!(err, Err(AppError::NotFound)));
         assert_eq!(
             get(&conn, &a.id).unwrap().project_id.as_deref(),
@@ -839,13 +1121,170 @@ mod tests {
 
         let too_many: Vec<Id> = (0..=MAX_BATCH).map(|i| format!("id{i}")).collect();
         assert!(matches!(
-            move_items(&mut conn, &too_many, None),
+            move_items(&mut conn, &too_many, None, None),
             Err(AppError::Invalid(_))
         ));
 
         let deleted = delete_items(&mut conn, &[a.id, "missing".into(), b.id]).unwrap();
         assert_eq!(deleted, 2);
         assert!(list(&conn, &SavedFilter::All).unwrap().is_empty());
+    }
+
+    #[test]
+    fn an_item_takes_its_chats_folder_and_a_folder_must_belong_to_its_project() {
+        let mut conn = test_conn();
+        let p = projects::create_project(&conn, "Thesis").unwrap();
+        let other = projects::create_project(&conn, "Other").unwrap();
+        let ch = projects::create_chapter(&conn, &p.id, "Methods").unwrap();
+        let foreign = projects::create_chapter(&conn, &other.id, "Intro").unwrap();
+        let c = chat::create_conversation(&conn, Some(&p.id), Some(&ch.id), "gemini", Some("m"))
+            .unwrap();
+        let m = chat::insert_message(
+            &conn,
+            &c.id,
+            Role::Assistant,
+            "A reply.",
+            MessageStatus::Complete,
+            None,
+            None,
+        )
+        .unwrap();
+        let item = save_reply(&mut conn, &m.id).unwrap();
+        assert_eq!(item.chapter_id.as_deref(), Some(ch.id.as_str()));
+        let ids = [item.id.clone()];
+
+        let refused = |r: Result<()>| matches!(r, Err(AppError::Invalid(_)));
+        assert!(refused(move_items(
+            &mut conn,
+            &ids,
+            Some(&p.id),
+            Some(&foreign.id)
+        )));
+        assert!(refused(move_items(&mut conn, &ids, None, Some(&ch.id))));
+        assert!(matches!(
+            move_items(&mut conn, &ids, Some(&p.id), Some("missing")),
+            Err(AppError::NotFound)
+        ));
+        assert_eq!(
+            get(&conn, &item.id).unwrap().chapter_id.as_deref(),
+            Some(ch.id.as_str()),
+            "a refused move changes nothing"
+        );
+        // A reader save takes the same check.
+        assert!(save_passage(&mut conn, "missing", 1, "x", Some(&other.id), Some(&ch.id)).is_err());
+        assert!(matches!(
+            save_passage(&mut conn, "missing", 1, "x", None, Some(&ch.id)),
+            Err(AppError::Invalid(_))
+        ));
+
+        // Another project without a folder clears it, with a folder of that project sets it.
+        move_items(&mut conn, &ids, Some(&other.id), None).unwrap();
+        assert_eq!(get(&conn, &item.id).unwrap().chapter_id, None);
+        move_items(&mut conn, &ids, Some(&other.id), Some(&foreign.id)).unwrap();
+        assert_eq!(
+            get(&conn, &item.id).unwrap().chapter_id.as_deref(),
+            Some(foreign.id.as_str())
+        );
+
+        projects::delete_chapter(&conn, &foreign.id).unwrap();
+        let after = get(&conn, &item.id).unwrap();
+        assert_eq!(after.chapter_id, None);
+        assert_eq!(after.project_id.as_deref(), Some(other.id.as_str()));
+        projects::delete_project(&conn, &other.id).unwrap();
+        assert_eq!(get(&conn, &item.id).unwrap().project_id, None);
+    }
+
+    #[test]
+    fn tags_are_shared_normalized_and_merge_on_rename() {
+        let mut conn = test_conn();
+        let (_, _, msg) = setup(&conn);
+        let a = save_reply(&mut conn, &msg).unwrap();
+        let b = save_selection(&mut conn, &msg, "It fell later.", &[2]).unwrap();
+        let both = [a.id.clone(), b.id.clone()];
+
+        tag_items(
+            &mut conn,
+            &both,
+            &["Ørret".into(), "  methods ".into()],
+            &[],
+        )
+        .unwrap();
+        // Another spelling of the same tag is the same tag.
+        tag_items(
+            &mut conn,
+            &[a.id.clone()],
+            &["ørret".into(), "ØRRET".into()],
+            &[],
+        )
+        .unwrap();
+        let tags = list_tags(&conn).unwrap();
+        assert_eq!(tags.len(), 2);
+        let trout = tags.iter().find(|t| t.name == "Ørret").unwrap().clone();
+        assert_eq!(trout.item_count, 2);
+        assert_ne!(tags[0].color, tags[1].color);
+        assert!(
+            list(&conn, &SavedFilter::All)
+                .unwrap()
+                .iter()
+                .all(|i| i.tags.len() == 2)
+        );
+
+        tag_items(&mut conn, &[b.id.clone()], &[], &[trout.id.clone()]).unwrap();
+        assert_eq!(get(&conn, &b.id).unwrap().tags.len(), 1);
+
+        assert!(tag_items(&mut conn, &both, &["   ".into()], &[]).is_err());
+        assert!(tag_items(&mut conn, &both, &["x".repeat(41)], &[]).is_err());
+        assert!(matches!(
+            tag_items(&mut conn, &["missing".into()], &["new".into()], &[]),
+            Err(AppError::NotFound)
+        ));
+        assert_eq!(
+            list_tags(&conn).unwrap().len(),
+            2,
+            "a failed call makes no tag"
+        );
+
+        // Renaming "methods" to a name that exists merges it into Ørret. a keeps one link.
+        let methods = tags.iter().find(|t| t.name == "methods").unwrap();
+        rename_tag(&mut conn, &methods.id, "ørret").unwrap();
+        let tags = list_tags(&conn).unwrap();
+        assert_eq!(tags.len(), 1);
+        assert_eq!((tags[0].name.as_str(), tags[0].item_count), ("Ørret", 2));
+        assert_eq!(get(&conn, &a.id).unwrap().tags.len(), 1);
+        assert_eq!(get(&conn, &b.id).unwrap().tags.len(), 1);
+
+        rename_tag(&mut conn, &tags[0].id, "Trout").unwrap();
+        set_tag_color(&conn, &tags[0].id, "blue").unwrap();
+        let tag = &list_tags(&conn).unwrap()[0];
+        assert_eq!((tag.name.as_str(), tag.color.as_str()), ("Trout", "blue"));
+        assert!(set_tag_color(&conn, &tag.id, "teal").is_err());
+
+        delete_tag(&conn, &tag.id).unwrap();
+        assert!(get(&conn, &a.id).unwrap().tags.is_empty());
+        assert!(matches!(
+            delete_tag(&conn, &tag.id),
+            Err(AppError::NotFound)
+        ));
+    }
+
+    #[test]
+    fn used_is_marked_and_cleared_and_keeps_the_first_date() {
+        let mut conn = test_conn();
+        let (_, _, msg) = setup(&conn);
+        let item = save_reply(&mut conn, &msg).unwrap();
+        assert_eq!(item.used_at, None);
+        let ids = [item.id.clone()];
+        set_used(&mut conn, &ids, true).unwrap();
+        let first = get(&conn, &item.id).unwrap().used_at;
+        assert!(first.is_some());
+        set_used(&mut conn, &ids, true).unwrap();
+        assert_eq!(get(&conn, &item.id).unwrap().used_at, first);
+        set_used(&mut conn, &ids, false).unwrap();
+        assert_eq!(get(&conn, &item.id).unwrap().used_at, None);
+        assert!(matches!(
+            set_used(&mut conn, &["missing".into()], true),
+            Err(AppError::NotFound)
+        ));
     }
 
     #[test]

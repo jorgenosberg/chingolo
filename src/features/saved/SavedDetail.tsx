@@ -2,6 +2,8 @@ import {
 	ArrowLeftIcon,
 	ArrowRightIcon,
 	ChatCircleTextIcon,
+	CheckCircleIcon,
+	PlusIcon,
 } from "@phosphor-icons/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button as RacButton } from "react-aria-components";
@@ -9,10 +11,11 @@ import { Streamdown } from "streamdown";
 import { useNav } from "../../app/nav";
 import { ActionMenu } from "../../components/ActionMenu";
 import { useDialogs } from "../../components/dialogs";
+import { TagChip } from "../../components/TagChip";
 import { Button, cx, focus, Spinner } from "../../components/ui";
 import { api } from "../../lib/api";
 import type { Project, SavedItem } from "../../lib/bindings";
-import { useProjects, useSaved } from "../../lib/queries";
+import { useAllChapters, useProjects, useSaved } from "../../lib/queries";
 import {
 	CiteProvider,
 	citeComponents,
@@ -22,6 +25,7 @@ import {
 	targetOf,
 	where,
 } from "../chat/citations";
+import { MoveDialog } from "./MoveDialog";
 import {
 	CopyItem,
 	itemActions,
@@ -29,6 +33,7 @@ import {
 	plugins,
 	useSavedRefresh,
 } from "./SavedView";
+import { TagsDialog } from "./TagsDialog";
 
 /** One saved item on its own page: the full text, the note, every source and where it came from. */
 export function SavedDetail({
@@ -309,6 +314,9 @@ function Detail({
 		[item.sources],
 	);
 	const project = projects.find((p) => p.id === item.projectId);
+	const chapters = useAllChapters();
+	const chapter = chapters.find((c) => c.id === item.chapterId);
+	const [dialog, setDialog] = useState<"tags" | "move" | null>(null);
 
 	return (
 		<div className="flex h-full flex-col">
@@ -318,10 +326,11 @@ function Detail({
 					label="Saved item actions"
 					actions={itemActions({
 						item,
-						projects,
 						refresh,
 						fail,
 						confirm,
+						onTags: () => setDialog("tags"),
+						onMove: () => setDialog("move"),
 						onDeleted: () => openSaved(),
 					})}
 				/>
@@ -334,7 +343,54 @@ function Detail({
 							{KIND_LABEL[item.kind]} ·{" "}
 							{new Date(item.createdAt).toLocaleString()}
 							{project ? ` · ${project.name}` : ""}
+							{chapter ? ` › ${chapter.title}` : ""}
 						</p>
+
+						<div className="-mt-3 flex flex-wrap items-center gap-1.5">
+							{item.tags.map((t) => (
+								<TagChip
+									key={t.id}
+									name={t.name}
+									color={t.color}
+									onRemove={() =>
+										api
+											.tagSavedItems([item.id], [], [t.id])
+											.then(refresh, fail("Couldn't change tags"))
+									}
+								/>
+							))}
+							<RacButton
+								onPress={() => setDialog("tags")}
+								className={cx(
+									"flex h-5 items-center gap-1 rounded-full border border-dashed border-input px-2 text-[11px] text-muted-foreground data-[hovered]:bg-muted data-[hovered]:text-foreground",
+									focus,
+								)}
+							>
+								<PlusIcon className="size-3" />
+								{item.tags.length === 0 ? "Add tags" : "Tags"}
+							</RacButton>
+							<RacButton
+								aria-pressed={Boolean(item.usedAt)}
+								onPress={() =>
+									api
+										.setSavedUsed([item.id], !item.usedAt)
+										.then(refresh, fail("Couldn't change the mark"))
+								}
+								className={cx(
+									"ml-1 flex h-5 items-center gap-1 rounded-full border px-2 text-[11px]",
+									item.usedAt
+										? "border-primary/40 bg-accent-soft font-medium text-foreground"
+										: "border-border text-muted-foreground data-[hovered]:bg-muted data-[hovered]:text-foreground",
+									focus,
+								)}
+							>
+								<CheckCircleIcon
+									weight={item.usedAt ? "fill" : "regular"}
+									className="size-3"
+								/>
+								{item.usedAt ? "Used in my text" : "Mark as used"}
+							</RacButton>
+						</div>
 
 						{item.kind === "reply" ? (
 							<div ref={proseRef} className="selectable chat-prose text-[15px]">
@@ -447,6 +503,22 @@ function Detail({
 					</aside>
 				</article>
 			</div>
+			{dialog === "tags" && (
+				<TagsDialog
+					items={[item]}
+					onClose={() => setDialog(null)}
+					onChanged={refresh}
+					onError={(message) => fail("Couldn't change tags")(message)}
+				/>
+			)}
+			{dialog === "move" && (
+				<MoveDialog
+					items={[item]}
+					onClose={() => setDialog(null)}
+					onMoved={refresh}
+					onError={(message) => fail("Couldn't move")(message)}
+				/>
+			)}
 		</div>
 	);
 }
