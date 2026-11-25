@@ -180,8 +180,12 @@ export const api = {
 		chapterId: string | null,
 	) => unwrap(commands.moveSavedItems(ids, projectId, chapterId)),
 	listSavedTags: () => unwrap(commands.listSavedTags()),
-	tagSavedItems: (ids: string[], addNames: string[], removeTagIds: string[]) =>
-		unwrap(commands.tagSavedItems(ids, addNames, removeTagIds)),
+	tagSavedItems: (
+		ids: string[],
+		addNames: string[],
+		removeTagIds: string[],
+		newColor: string | null = null,
+	) => unwrap(commands.tagSavedItems(ids, addNames, removeTagIds, newColor)),
 	renameSavedTag: (id: string, name: string) =>
 		unwrap(commands.renameSavedTag(id, name)),
 	setSavedTagColor: (id: string, color: string) =>

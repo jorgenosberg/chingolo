@@ -150,10 +150,11 @@ pub async fn tag_saved_items(
     ids: Vec<String>,
     add_names: Vec<String>,
     remove_tag_ids: Vec<String>,
+    new_color: Option<String>,
 ) -> CmdResult<()> {
     Ok(state
         .db
-        .call(move |c| repo::tag_items(c, &ids, &add_names, &remove_tag_ids))
+        .call(move |c| repo::tag_items(c, &ids, &add_names, &remove_tag_ids, new_color.as_deref()))
         .await?)
 }
 

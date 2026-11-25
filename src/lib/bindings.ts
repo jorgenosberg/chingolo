@@ -120,7 +120,7 @@ export const commands = {
 	deleteSavedItems: (ids: string[]) => typedError<number, CmdError>(__TAURI_INVOKE("delete_saved_items", { ids })),
 	listSavedTags: () => typedError<SavedTagInfo[], CmdError>(__TAURI_INVOKE("list_saved_tags")),
 	/**  Adds the named tags (made if new) to every item and takes the `remove_tag_ids` off them. */
-	tagSavedItems: (ids: string[], addNames: string[], removeTagIds: string[]) => typedError<null, CmdError>(__TAURI_INVOKE("tag_saved_items", { ids, addNames, removeTagIds })),
+	tagSavedItems: (ids: string[], addNames: string[], removeTagIds: string[], newColor: string | null) => typedError<null, CmdError>(__TAURI_INVOKE("tag_saved_items", { ids, addNames, removeTagIds, newColor })),
 	/**  A name another tag already has merges the two. */
 	renameSavedTag: (id: string, name: string) => typedError<null, CmdError>(__TAURI_INVOKE("rename_saved_tag", { id, name })),
 	setSavedTagColor: (id: string, color: string) => typedError<null, CmdError>(__TAURI_INVOKE("set_saved_tag_color", { id, color })),

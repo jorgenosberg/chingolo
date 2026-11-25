@@ -1,20 +1,7 @@
 import { PencilSimpleIcon, TrashIcon } from "@phosphor-icons/react";
-import {
-	Dialog,
-	DialogTrigger,
-	Popover,
-	Button as RacButton,
-} from "react-aria-components";
 import { useDialogs } from "../../components/dialogs";
-import { TAG_COLORS, TagDot } from "../../components/TagChip";
-import {
-	Button,
-	cx,
-	focus,
-	IconButton,
-	Modal_,
-	POPOVER,
-} from "../../components/ui";
+import { TagColorButton } from "../../components/TagColorButton";
+import { Button, IconButton, Modal_ } from "../../components/ui";
 import { api } from "../../lib/api";
 import type { SavedTagInfo } from "../../lib/bindings";
 import { useSavedTags } from "../../lib/queries";
@@ -92,45 +79,15 @@ export function ManageTagsDialog({
 						key={t.id}
 						className="flex items-center gap-2 rounded-md px-1 py-1 hover:bg-muted"
 					>
-						<DialogTrigger>
-							<RacButton
-								aria-label={`Colour of ${t.name}`}
-								className={cx(
-									"flex size-7 items-center justify-center rounded-md",
-									focus,
-								)}
-							>
-								<TagDot color={t.color} className="size-4" />
-							</RacButton>
-							<Popover placement="bottom start" className={`p-2 ${POPOVER}`}>
-								<Dialog
-									aria-label={`Colour of ${t.name}`}
-									className="outline-none"
-								>
-									<div className="grid grid-cols-4 gap-1">
-										{TAG_COLORS.map((c) => (
-											<RacButton
-												key={c}
-												aria-label={c}
-												aria-pressed={t.color === c}
-												onPress={() =>
-													attempt("Couldn't change the colour", () =>
-														api.setSavedTagColor(t.id, c),
-													)
-												}
-												className={cx(
-													"flex size-7 items-center justify-center rounded-md data-[hovered]:bg-muted",
-													t.color === c && "bg-border/60",
-													focus,
-												)}
-											>
-												<TagDot color={c} className="size-4" />
-											</RacButton>
-										))}
-									</div>
-								</Dialog>
-							</Popover>
-						</DialogTrigger>
+						<TagColorButton
+							color={t.color}
+							label={`Colour of ${t.name}`}
+							onChange={(c) =>
+								attempt("Couldn't change the colour", () =>
+									api.setSavedTagColor(t.id, c),
+								)
+							}
+						/>
 						<span className="min-w-0 flex-1 truncate text-[13px]">
 							{t.name}
 						</span>

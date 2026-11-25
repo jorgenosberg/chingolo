@@ -643,8 +643,17 @@ fn clean_tag(raw: &str) -> Result<(String, String)> {
     Ok((name, key))
 }
 
-/// The tag with this name, made if it isn't there yet. New tags take the next colour in turn.
-fn tag_for(conn: &Connection, raw: &str) -> Result<Id> {
+fn check_color(color: &str) -> Result<()> {
+    if TAG_COLORS.contains(&color) {
+        Ok(())
+    } else {
+        Err(AppError::Invalid("Unknown tag colour.".into()))
+    }
+}
+
+/// The tag with this name, made if it isn't there yet. A new tag gets `color`, or the next colour
+/// in turn.
+fn tag_for(conn: &Connection, raw: &str, color: Option<&str>) -> Result<Id> {
     let (name, key) = clean_tag(raw)?;
     if let Some(id) = conn
         .query_row("SELECT id FROM saved_tags WHERE key = ?1", [&key], |r| {
@@ -655,16 +664,11 @@ fn tag_for(conn: &Connection, raw: &str) -> Result<Id> {
         return Ok(id);
     }
     let count: i64 = conn.query_row("SELECT COUNT(*) FROM saved_tags", [], |r| r.get(0))?;
+    let color = color.unwrap_or(TAG_COLORS[count as usize % TAG_COLORS.len()]);
     let id = new_id();
     conn.execute(
         "INSERT INTO saved_tags (id, name, key, color, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![
-            id,
-            name,
-            key,
-            TAG_COLORS[count as usize % TAG_COLORS.len()],
-            now_ms()
-        ],
+        params![id, name, key, color, now_ms()],
     )?;
     Ok(id)
 }
@@ -695,9 +699,18 @@ pub fn list_tags(conn: &Connection) -> Result<Vec<SavedTagInfo>> {
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
-/// Adds the named tags (made if new) to every item and takes the `remove` tags off them. All or
-/// none.
-pub fn tag_items(conn: &mut Connection, ids: &[Id], add: &[String], remove: &[Id]) -> Result<()> {
+/// Adds the named tags (made if new, in `new_color` if given) to every item and takes the
+/// `remove` tags off them. A tag that already exists keeps its colour. All or none.
+pub fn tag_items(
+    conn: &mut Connection,
+    ids: &[Id],
+    add: &[String],
+    remove: &[Id],
+    new_color: Option<&str>,
+) -> Result<()> {
+    if let Some(c) = new_color {
+        check_color(c)?;
+    }
     let ids = unique_ids(ids)?;
     if add.len() > MAX_TAGS_PER_CALL || remove.len() > MAX_TAGS_PER_CALL {
         return Err(AppError::Invalid("Too many tags at once.".into()));
@@ -708,7 +721,10 @@ pub fn tag_items(conn: &mut Connection, ids: &[Id], add: &[String], remove: &[Id
             return Err(AppError::NotFound);
         }
     }
-    let added: Vec<Id> = add.iter().map(|n| tag_for(&tx, n)).collect::<Result<_>>()?;
+    let added: Vec<Id> = add
+        .iter()
+        .map(|n| tag_for(&tx, n, new_color))
+        .collect::<Result<_>>()?;
     for item in &ids {
         for tag in &added {
             tx.execute(
@@ -768,9 +784,7 @@ pub fn rename_tag(conn: &mut Connection, id: &str, raw: &str) -> Result<()> {
 }
 
 pub fn set_tag_color(conn: &Connection, id: &str, color: &str) -> Result<()> {
-    if !TAG_COLORS.contains(&color) {
-        return Err(AppError::Invalid("Unknown tag colour.".into()));
-    }
+    check_color(color)?;
     let n = conn.execute(
         "UPDATE saved_tags SET color = ?2 WHERE id = ?1",
         params![id, color],
@@ -1207,6 +1221,7 @@ mod tests {
             &both,
             &["Ørret".into(), "  methods ".into()],
             &[],
+            None,
         )
         .unwrap();
         // Another spelling of the same tag is the same tag.
@@ -1215,6 +1230,7 @@ mod tests {
             &[a.id.clone()],
             &["ørret".into(), "ØRRET".into()],
             &[],
+            None,
         )
         .unwrap();
         let tags = list_tags(&conn).unwrap();
@@ -1229,13 +1245,13 @@ mod tests {
                 .all(|i| i.tags.len() == 2)
         );
 
-        tag_items(&mut conn, &[b.id.clone()], &[], &[trout.id.clone()]).unwrap();
+        tag_items(&mut conn, &[b.id.clone()], &[], &[trout.id.clone()], None).unwrap();
         assert_eq!(get(&conn, &b.id).unwrap().tags.len(), 1);
 
-        assert!(tag_items(&mut conn, &both, &["   ".into()], &[]).is_err());
-        assert!(tag_items(&mut conn, &both, &["x".repeat(41)], &[]).is_err());
+        assert!(tag_items(&mut conn, &both, &["   ".into()], &[], None).is_err());
+        assert!(tag_items(&mut conn, &both, &["x".repeat(41)], &[], None).is_err());
         assert!(matches!(
-            tag_items(&mut conn, &["missing".into()], &["new".into()], &[]),
+            tag_items(&mut conn, &["missing".into()], &["new".into()], &[], None),
             Err(AppError::NotFound)
         ));
         assert_eq!(
@@ -1265,6 +1281,31 @@ mod tests {
             delete_tag(&conn, &tag.id),
             Err(AppError::NotFound)
         ));
+    }
+
+    #[test]
+    fn a_chosen_colour_is_for_new_tags_only() {
+        let mut conn = test_conn();
+        let (_, _, msg) = setup(&conn);
+        let item = save_reply(&mut conn, &msg).unwrap();
+        let ids = [item.id.clone()];
+        let color_of = |conn: &Connection, name: &str| {
+            list_tags(conn)
+                .unwrap()
+                .into_iter()
+                .find(|t| t.name == name)
+                .unwrap()
+                .color
+        };
+
+        tag_items(&mut conn, &ids, &["Plankton".into()], &[], Some("pink")).unwrap();
+        assert_eq!(color_of(&conn, "Plankton"), "pink");
+        // The tag exists now, so asking for another colour leaves it as it is.
+        tag_items(&mut conn, &ids, &["plankton".into()], &[], Some("blue")).unwrap();
+        assert_eq!(color_of(&conn, "Plankton"), "pink");
+        // An unknown colour is refused and nothing is made.
+        assert!(tag_items(&mut conn, &ids, &["Algae".into()], &[], Some("teal")).is_err());
+        assert_eq!(list_tags(&conn).unwrap().len(), 1);
     }
 
     #[test]
