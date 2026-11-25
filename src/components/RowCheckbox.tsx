@@ -7,11 +7,14 @@ export function RowCheckbox({
 	isSelected,
 	isIndeterminate,
 	onChange,
+	className,
 }: {
 	label: string;
 	isSelected: boolean;
 	isIndeterminate?: boolean;
 	onChange: (on: boolean) => void;
+	/** Padding with a matching negative margin makes the click target bigger. */
+	className?: string;
 }) {
 	return (
 		<Checkbox
@@ -19,7 +22,7 @@ export function RowCheckbox({
 			isSelected={isSelected}
 			isIndeterminate={isIndeterminate}
 			onChange={onChange}
-			className={cx("group flex cursor-pointer items-center", focus)}
+			className={cx("group flex cursor-pointer items-center", focus, className)}
 		>
 			<span className="relative flex size-4 items-center justify-center rounded border border-input bg-card text-primary-foreground group-data-[indeterminate]:border-primary group-data-[selected]:border-primary group-data-[indeterminate]:bg-primary group-data-[selected]:bg-primary">
 				<CheckIcon className="size-4 opacity-0 group-data-[selected]:opacity-100" />

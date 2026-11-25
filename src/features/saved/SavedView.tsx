@@ -458,6 +458,8 @@ function SavedCard({
 						label={`Select ${KIND_LABEL[item.kind].toLowerCase()} from ${date}`}
 						isSelected={selected}
 						onChange={(on) => onSelect(on, shift.current)}
+						// Reaches the card's corner, so a click near the box counts.
+						className="-m-3 p-3"
 					/>
 				</div>
 				<span className="min-w-0 flex-1 truncate">
