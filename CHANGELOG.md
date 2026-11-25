@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.2
+
+A faster way to sort what you have saved.
+
+- Tick saved items on the Saved page to move them to a project (or to no project), copy them or delete them all at once. Shift-click selects a range, Escape clears the selection. It works in the list and both grids.
+- While anything is selected, clicking a card selects it instead of opening it. The checkbox has a larger click target in the card's top-left corner.
+- Copy with references puts the text of the selected items on the clipboard with one reference list, one line per document, ready to paste into Word.
+- Filter saved items by the conversation they came from. Items from a deleted conversation are grouped by the title they kept.
+- Tooltips wait a little longer before they show and close sooner after you move away, so they no longer pop up while the cursor passes over something.
+
 ## 0.4.1
 
 A faster way to sort the library.
