@@ -484,23 +484,61 @@ pub fn delete_note(conn: &Connection, note_id: &str) -> Result<SavedItem> {
     get(conn, &item)
 }
 
-pub fn set_project(conn: &Connection, id: &str, project_id: Option<&str>) -> Result<SavedItem> {
-    let n = conn.execute(
-        "UPDATE saved_items SET project_id = ?2, updated_at = ?3 WHERE id = ?1",
-        params![id, project_id, now_ms()],
-    )?;
-    if n == 0 {
-        return Err(AppError::NotFound);
+/// Most items one batch may touch. The page never selects more than it has loaded.
+const MAX_BATCH: usize = 1000;
+
+fn unique_ids(ids: &[Id]) -> Result<Vec<&str>> {
+    let mut seen = std::collections::HashSet::new();
+    let out: Vec<&str> = ids
+        .iter()
+        .map(String::as_str)
+        .filter(|i| seen.insert(*i))
+        .collect();
+    if out.len() > MAX_BATCH {
+        return Err(AppError::Invalid("Too many items at once.".into()));
     }
-    get(conn, id)
+    Ok(out)
 }
 
-pub fn delete(conn: &Connection, id: &str) -> Result<()> {
-    let n = conn.execute("DELETE FROM saved_items WHERE id = ?1", [id])?;
-    if n == 0 {
-        return Err(AppError::NotFound);
+/// Sets the project of every item, or takes them out of their project with `None`. All or none:
+/// an item or project that doesn't exist fails the whole move.
+pub fn move_items(conn: &mut Connection, ids: &[Id], project_id: Option<&str>) -> Result<()> {
+    let ids = unique_ids(ids)?;
+    let tx = conn.transaction()?;
+    if let Some(p) = project_id {
+        let exists: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM projects WHERE id = ?1)",
+            [p],
+            |r| r.get(0),
+        )?;
+        if !exists {
+            return Err(AppError::NotFound);
+        }
     }
+    let now = now_ms();
+    for id in ids {
+        let n = tx.execute(
+            "UPDATE saved_items SET project_id = ?2, updated_at = ?3 WHERE id = ?1",
+            params![id, project_id, now],
+        )?;
+        if n == 0 {
+            return Err(AppError::NotFound);
+        }
+    }
+    tx.commit()?;
     Ok(())
+}
+
+/// Deletes the items (their notes and sources go with them) and returns how many existed.
+pub fn delete_items(conn: &mut Connection, ids: &[Id]) -> Result<u32> {
+    let ids = unique_ids(ids)?;
+    let tx = conn.transaction()?;
+    let mut deleted = 0;
+    for id in ids {
+        deleted += tx.execute("DELETE FROM saved_items WHERE id = ?1", [id])? as u32;
+    }
+    tx.commit()?;
+    Ok(deleted)
 }
 
 pub fn get_source(conn: &Connection, item_id: &str, handle: u32) -> Result<Option<SavedSource>> {
@@ -636,17 +674,17 @@ mod tests {
         let (project, _, msg) = setup(&conn);
         let item = save_reply(&mut conn, &msg).unwrap();
         add_note(&conn, &item.id, "a note").unwrap();
-        assert_eq!(set_project(&conn, &item.id, None).unwrap().project_id, None);
+        let ids = [item.id.clone()];
+        move_items(&mut conn, &ids, None).unwrap();
+        assert_eq!(get(&conn, &item.id).unwrap().project_id, None);
+        move_items(&mut conn, &ids, Some(&project)).unwrap();
         assert_eq!(
-            set_project(&conn, &item.id, Some(&project))
-                .unwrap()
-                .project_id
-                .as_deref(),
+            get(&conn, &item.id).unwrap().project_id.as_deref(),
             Some(project.as_str())
         );
-        delete(&conn, &item.id).unwrap();
+        assert_eq!(delete_items(&mut conn, &ids).unwrap(), 1);
         assert!(matches!(get(&conn, &item.id), Err(AppError::NotFound)));
-        assert!(matches!(delete(&conn, &item.id), Err(AppError::NotFound)));
+        assert_eq!(delete_items(&mut conn, &ids).unwrap(), 0);
         assert_eq!(
             conn.query_row("SELECT COUNT(*) FROM saved_item_sources", [], |r| r
                 .get::<_, i64>(0))
@@ -755,6 +793,59 @@ mod tests {
         );
         assert_eq!(miss.sources[0].page, 2);
         assert!(save_passage(&mut conn, "missing", 1, "x", None).is_err());
+    }
+
+    #[test]
+    fn a_batch_move_is_all_or_nothing_and_a_batch_delete_skips_missing_items() {
+        let mut conn = test_conn();
+        let (project, _, msg) = setup(&conn);
+        let a = save_reply(&mut conn, &msg).unwrap();
+        let b = save_selection(&mut conn, &msg, "It fell later.", &[2]).unwrap();
+        let other = projects::create_project(&conn, "Other").unwrap();
+
+        // A duplicate id is harmless.
+        move_items(
+            &mut conn,
+            &[a.id.clone(), b.id.clone(), a.id.clone()],
+            Some(&other.id),
+        )
+        .unwrap();
+        assert_eq!(
+            list(
+                &conn,
+                &SavedFilter::Project {
+                    id: other.id.clone()
+                }
+            )
+            .unwrap()
+            .len(),
+            2
+        );
+
+        // One missing id leaves the others where they were.
+        let err = move_items(&mut conn, &[a.id.clone(), "missing".into()], Some(&project));
+        assert!(matches!(err, Err(AppError::NotFound)));
+        assert_eq!(
+            get(&conn, &a.id).unwrap().project_id.as_deref(),
+            Some(other.id.as_str())
+        );
+        // So does a missing project.
+        let err = move_items(&mut conn, &[a.id.clone()], Some("missing"));
+        assert!(matches!(err, Err(AppError::NotFound)));
+        assert_eq!(
+            get(&conn, &a.id).unwrap().project_id.as_deref(),
+            Some(other.id.as_str())
+        );
+
+        let too_many: Vec<Id> = (0..=MAX_BATCH).map(|i| format!("id{i}")).collect();
+        assert!(matches!(
+            move_items(&mut conn, &too_many, None),
+            Err(AppError::Invalid(_))
+        ));
+
+        let deleted = delete_items(&mut conn, &[a.id, "missing".into(), b.id]).unwrap();
+        assert_eq!(deleted, 2);
+        assert!(list(&conn, &SavedFilter::All).unwrap().is_empty());
     }
 
     #[test]

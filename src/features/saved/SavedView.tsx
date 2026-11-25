@@ -16,13 +16,28 @@ import {
 import { math } from "@streamdown/math";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Button as RacButton } from "react-aria-components";
+import {
+	Menu,
+	MenuItem,
+	MenuTrigger,
+	Popover,
+	Button as RacButton,
+} from "react-aria-components";
 import { Streamdown } from "streamdown";
 import { type SavedScope, useNav } from "../../app/nav";
 import { type Action, ActionMenu } from "../../components/ActionMenu";
 import { useDialogs } from "../../components/dialogs";
 import { type Choice, FilterSelect } from "../../components/FilterSelect";
-import { cx, focus, IconButton, Spinner } from "../../components/ui";
+import { RowCheckbox } from "../../components/RowCheckbox";
+import {
+	Button,
+	cx,
+	focus,
+	IconButton,
+	ITEM,
+	POPOVER,
+	Spinner,
+} from "../../components/ui";
 import { api } from "../../lib/api";
 import type {
 	Project,
@@ -31,6 +46,7 @@ import type {
 	SavedSource,
 } from "../../lib/bindings";
 import { keys, useProjects, useSaved } from "../../lib/queries";
+import { useSelection } from "../../lib/useSelection";
 import {
 	CiteProvider,
 	citeComponents,
@@ -144,6 +160,11 @@ export const KIND_LABEL = {
 	selection: "Selection",
 	passage: "From a document",
 } as const;
+
+/** The chat an item came from, or its kept title when the chat is gone. */
+function conversationKey(i: SavedItem): string {
+	return i.conversationId ?? `title:${i.conversationTitle}`;
+}
 
 type ViewMode = "list" | "small" | "large";
 const VIEW_KEY = "chingolo.savedView";
@@ -300,7 +321,9 @@ export function itemActions({
 				icon: <FolderSimpleIcon className="size-4" />,
 				label: `Move to ${p.name}`,
 				run: () =>
-					api.moveSaved(item.id, p.id).then(refresh, fail("Couldn't move")),
+					api
+						.moveSavedItems([item.id], p.id)
+						.then(refresh, fail("Couldn't move")),
 			})),
 		...(item.projectId
 			? [
@@ -309,7 +332,9 @@ export function itemActions({
 						icon: <FolderMinusIcon className="size-4" />,
 						label: "Remove from project",
 						run: () =>
-							api.moveSaved(item.id, null).then(refresh, fail("Couldn't move")),
+							api
+								.moveSavedItems([item.id], null)
+								.then(refresh, fail("Couldn't move")),
 					},
 				]
 			: []),
@@ -328,7 +353,7 @@ export function itemActions({
 				});
 				if (!ok) return;
 				try {
-					await api.deleteSaved(item.id);
+					await api.deleteSavedItems([item.id]);
 					refresh();
 					onDeleted?.();
 				} catch (e) {
@@ -343,11 +368,20 @@ function SavedCard({
 	item,
 	projects,
 	mode,
+	selected,
+	selecting,
+	onSelect,
 }: {
 	item: SavedItem;
 	projects: Project[];
 	mode: ViewMode;
+	selected: boolean;
+	/** Something is selected, so every card shows its checkbox. */
+	selecting: boolean;
+	/** `range` is set when shift was held. */
+	onSelect: (on: boolean, range: boolean) => void;
 }) {
+	const shift = useRef(false);
 	const { select, savedScope, openSavedItem } = useNav();
 	const { confirm } = useDialogs();
 	const proseRef = useRef<HTMLDivElement>(null);
@@ -390,16 +424,37 @@ function SavedCard({
 				const t = e.target as Element;
 				if (
 					t.closest(
-						"button, a, textarea, input, [role=menu], [role=menuitem], [data-cite]",
+						"button, a, label, textarea, input, [role=menu], [role=menuitem], [data-cite]",
 					)
 				)
 					return;
 				open();
 			}}
-			className="group flex min-h-0 cursor-pointer flex-col gap-2 rounded-xl border border-border bg-card px-4 py-3 transition-colors hover:border-primary/70 hover:ring-1 hover:ring-primary/30"
+			className={cx(
+				"group flex min-h-0 cursor-pointer flex-col gap-2 rounded-xl border border-border bg-card px-4 py-3 transition-colors hover:border-primary/70 hover:ring-1 hover:ring-primary/30",
+				selected && "border-primary/70 ring-1 ring-primary/30",
+			)}
 		>
-			<div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-				<span className="min-w-0 truncate">
+			<div className="flex items-center gap-2 text-xs text-muted-foreground">
+				<div
+					className={cx(
+						"shrink-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100",
+						selecting || selected ? "opacity-100" : "opacity-0",
+					)}
+					onPointerDownCapture={(e) => {
+						shift.current = e.shiftKey;
+					}}
+					onKeyDownCapture={(e) => {
+						shift.current = e.shiftKey;
+					}}
+				>
+					<RowCheckbox
+						label={`Select ${KIND_LABEL[item.kind].toLowerCase()} from ${date}`}
+						isSelected={selected}
+						onChange={(on) => onSelect(on, shift.current)}
+					/>
+				</div>
+				<span className="min-w-0 flex-1 truncate">
 					{KIND_LABEL[item.kind]} · {date}
 					{savedScope === "all" && project ? ` · ${project.name}` : ""}
 				</span>
@@ -428,6 +483,7 @@ function SavedCard({
 					{/* Hidden in the grid, where the preview shows. Copy reads the formatted reply. */}
 					<div
 						ref={proseRef}
+						data-saved-prose={item.id}
 						className={cx(
 							"selectable chat-prose text-[15px]",
 							mode !== "list" && "hidden",
@@ -509,6 +565,10 @@ export function SavedView() {
 	const [query, setQuery] = useState("");
 	const [kind, setKind] = useState<KindFilter>("all");
 	const [source, setSource] = useState(ALL);
+	const [conversation, setConversation] = useState(ALL);
+	const [copied, setCopied] = useState(false);
+	const { confirm } = useDialogs();
+	const { refresh, fail } = useSavedRefresh();
 	const [withNote, setWithNote] = useState(false);
 	const [oldestFirst, setOldestFirst] = useState(false);
 	const [mode, setMode] = useState<ViewMode>(readView);
@@ -544,6 +604,27 @@ export function SavedView() {
 	}, [items]);
 	// A source that is not in this project's items falls back to all.
 	const sourceKey = sources.some((x) => x.id === source) ? source : ALL;
+	// Chats the items came from. A deleted chat is told apart by the title the item kept.
+	const conversations = useMemo<Choice[]>(() => {
+		const byKey = new Map<string, string>();
+		for (const i of items) {
+			if (!i.conversationId && !i.conversationTitle) continue;
+			const key = conversationKey(i);
+			if (!byKey.has(key))
+				byKey.set(
+					key,
+					i.conversationId
+						? i.conversationTitle
+						: `${i.conversationTitle} (deleted)`,
+				);
+		}
+		return [...byKey]
+			.map(([id, name]) => ({ id, name }))
+			.sort((a, b) => a.name.localeCompare(b.name));
+	}, [items]);
+	const conversationKeyChosen = conversations.some((x) => x.id === conversation)
+		? conversation
+		: ALL;
 
 	const shown = useMemo(() => {
 		const q = query.trim().toLowerCase();
@@ -552,6 +633,8 @@ export function SavedView() {
 				(kind === "all" || i.kind === kind) &&
 				(sourceKey === ALL ||
 					i.sources.some((x) => x.documentId === sourceKey)) &&
+				(conversationKeyChosen === ALL ||
+					conversationKey(i) === conversationKeyChosen) &&
 				(!withNote || i.notes.length > 0) &&
 				(!q ||
 					[
@@ -565,15 +648,101 @@ export function SavedView() {
 						.includes(q)),
 		);
 		return oldestFirst ? [...list].reverse() : list;
-	}, [items, query, kind, sourceKey, withNote, oldestFirst]);
+	}, [
+		items,
+		query,
+		kind,
+		sourceKey,
+		conversationKeyChosen,
+		withNote,
+		oldestFirst,
+	]);
 
 	const filtering =
-		query.trim() !== "" || kind !== "all" || sourceKey !== ALL || withNote;
+		query.trim() !== "" ||
+		kind !== "all" ||
+		sourceKey !== ALL ||
+		conversationKeyChosen !== ALL ||
+		withNote;
 	const clear = () => {
 		setQuery("");
 		setKind("all");
 		setSource(ALL);
+		setConversation(ALL);
 		setWithNote(false);
+	};
+
+	const {
+		selected,
+		select,
+		selectAll,
+		clear: clearSelection,
+	} = useSelection(
+		shown.map((i) => i.id),
+		`${JSON.stringify(savedScope)}|${kind}|${sourceKey}|${conversationKeyChosen}|${withNote}`,
+	);
+	// Only what is on screen counts, so a filter never leaves hidden items in an action.
+	const chosen = useMemo(
+		() => shown.filter((i) => selected.has(i.id)),
+		[shown, selected],
+	);
+
+	const moveChosen = (projectId: string | null) =>
+		api
+			.moveSavedItems(
+				chosen.map((i) => i.id),
+				projectId,
+			)
+			.then(() => {
+				clearSelection();
+				refresh();
+			}, fail("Couldn't move"));
+
+	const deleteChosen = async () => {
+		const n = chosen.length;
+		const ok = await confirm({
+			title: n === 1 ? "Delete saved item?" : `Delete ${n} saved items?`,
+			message: `${n === 1 ? "The item and its notes are" : "The items and their notes are"} removed. The conversations and the documents are not touched.`,
+			confirmLabel: "Delete",
+			danger: true,
+		});
+		if (!ok) return;
+		try {
+			await api.deleteSavedItems(chosen.map((i) => i.id));
+		} catch (e) {
+			fail("Couldn't delete")(e);
+		}
+		clearSelection();
+		refresh();
+	};
+
+	// Replies are copied from what is drawn, as the card's own Copy does. The references of all
+	// items go in one list, one line per document.
+	const copyChosen = async () => {
+		const parts = chosen.map((i) => {
+			const prose =
+				i.kind === "reply"
+					? document.querySelector<HTMLElement>(
+							`[data-saved-prose="${CSS.escape(i.id)}"]`,
+						)
+					: null;
+			return prose
+				? cleanCopy(prose)
+				: { html: `<p>${esc(i.body)}</p>`, text: i.body };
+		});
+		const refs = referenceLines(chosen.flatMap((i) => i.sources));
+		try {
+			await writeRich({
+				html:
+					parts.map((p) => p.html).join("") +
+					refs.map((r) => `<p>${esc(r)}</p>`).join(""),
+				text: [...parts.map((p) => p.text.trim()), ...refs].join("\n\n"),
+			});
+			setCopied(true);
+			setTimeout(() => setCopied(false), 1500);
+		} catch {
+			// clipboard can be unavailable; nothing useful to show
+		}
 	};
 
 	const views: { id: ViewMode; label: string; icon: React.ReactNode }[] = [
@@ -629,6 +798,14 @@ export function SavedView() {
 						onChange={setSource}
 					/>
 				)}
+				{conversations.length > 0 && (
+					<FilterSelect
+						label="Conversation"
+						value={conversationKeyChosen}
+						items={[{ id: ALL, name: "Any conversation" }, ...conversations]}
+						onChange={setConversation}
+					/>
+				)}
 				<FilterSelect
 					label="Order"
 					value={oldestFirst ? "old" : "new"}
@@ -664,16 +841,92 @@ export function SavedView() {
 						Clear filters
 					</RacButton>
 				)}
-				{saved.isSuccess && items.length > 0 && (
-					<span className="ml-auto text-xs text-muted-foreground">
-						{shown.length === items.length
-							? `${items.length} saved`
-							: `${shown.length} of ${items.length}`}
-					</span>
-				)}
 			</div>
 
-			<div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6">
+			{saved.isSuccess && items.length > 0 && (
+				<div className="flex h-10 shrink-0 items-center gap-3 border-y border-border px-6 text-xs text-muted-foreground">
+					<RowCheckbox
+						label="Select all shown items"
+						isSelected={shown.length > 0 && chosen.length === shown.length}
+						isIndeterminate={chosen.length > 0 && chosen.length < shown.length}
+						onChange={selectAll}
+					/>
+					{chosen.length === 0 ? (
+						<span>
+							{shown.length === items.length
+								? `${items.length} saved`
+								: `${shown.length} of ${items.length}`}
+						</span>
+					) : (
+						<>
+							<span className="font-medium text-foreground">
+								{chosen.length} selected
+							</span>
+							<div className="flex items-center gap-1">
+								<MenuTrigger>
+									<Button>
+										<FolderSimpleIcon className="size-4" /> Move to…
+									</Button>
+									<Popover
+										placement="bottom start"
+										className={`min-w-44 p-1 ${POPOVER}`}
+									>
+										<Menu
+											aria-label="Move to project"
+											onAction={(k) =>
+												moveChosen(k === NONE ? null : String(k))
+											}
+											className="outline-none"
+										>
+											<MenuItem
+												id={NONE}
+												className={cx(ITEM, "flex items-center gap-2")}
+											>
+												<FolderMinusIcon className="size-4" />
+												No project
+											</MenuItem>
+											{(projects.data ?? []).map((p) => (
+												<MenuItem
+													key={p.id}
+													id={p.id}
+													className={cx(ITEM, "flex items-center gap-2")}
+												>
+													<FolderSimpleIcon className="size-4" />
+													{p.name}
+												</MenuItem>
+											))}
+										</Menu>
+									</Popover>
+								</MenuTrigger>
+								<Button onPress={copyChosen}>
+									{copied ? (
+										<CheckIcon className="size-4" />
+									) : (
+										<CopyIcon className="size-4" />
+									)}
+									{copied ? "Copied" : "Copy with references"}
+								</Button>
+								<Button variant="ghost" onPress={deleteChosen}>
+									<TrashIcon className="size-4" /> Delete…
+								</Button>
+							</div>
+							<RacButton
+								onPress={clearSelection}
+								className={cx(
+									"rounded text-primary underline-offset-2 hover:underline",
+									focus,
+								)}
+							>
+								Clear
+							</RacButton>
+						</>
+					)}
+				</div>
+			)}
+
+			{/* relative: the checkboxes' hidden inputs are absolutely positioned and would otherwise
+			    stretch the page's scroll area instead of this list's. */}
+			<div className="relative min-h-0 flex-1 overflow-y-auto px-6 pb-6 pt-3">
 				{saved.isPending && (
 					<div className="flex justify-center py-10">
 						<Spinner />
@@ -712,6 +965,9 @@ export function SavedView() {
 							item={i}
 							projects={projects.data ?? []}
 							mode={mode}
+							selected={selected.has(i.id)}
+							selecting={chosen.length > 0}
+							onSelect={(on, range) => select(i.id, on, range)}
 						/>
 					))}
 				</ul>

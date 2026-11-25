@@ -172,9 +172,9 @@ export const api = {
 	updateSavedNote: (noteId: string, body: string) =>
 		unwrap(commands.updateSavedNote(noteId, body)),
 	deleteSavedNote: (noteId: string) => unwrap(commands.deleteSavedNote(noteId)),
-	moveSaved: (id: string, projectId: string | null) =>
-		unwrap(commands.moveSaved(id, projectId)),
-	deleteSaved: (id: string) => unwrap(commands.deleteSaved(id)),
+	moveSavedItems: (ids: string[], projectId: string | null) =>
+		unwrap(commands.moveSavedItems(ids, projectId)),
+	deleteSavedItems: (ids: string[]) => unwrap(commands.deleteSavedItems(ids)),
 	getSavedSource: (itemId: string, handle: number) =>
 		unwrap(commands.getSavedSource(itemId, handle)),
 	searchLibrary: (query: string, projectId: string | null, meaning: boolean) =>

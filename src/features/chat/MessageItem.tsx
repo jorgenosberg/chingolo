@@ -212,7 +212,10 @@ function BookmarkButton({ messageId }: { messageId: string }) {
 	);
 	const { confirm } = useDialogs();
 	const toggle = useApiMutation(
-		() => (item ? api.deleteSaved(item.id) : api.saveReply(messageId)),
+		() =>
+			item
+				? api.deleteSavedItems([item.id]).then(() => null)
+				: api.saveReply(messageId),
 		[keys.saved],
 	);
 	return (

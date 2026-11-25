@@ -1,7 +1,6 @@
 import {
 	ArrowClockwiseIcon,
 	BookOpenIcon,
-	CheckIcon,
 	FileIcon,
 	FilePlusIcon,
 	FileTextIcon,
@@ -10,7 +9,6 @@ import {
 	FolderPlusIcon,
 	FunnelSimpleIcon,
 	MagnifyingGlassIcon,
-	MinusIcon,
 	PencilSimpleIcon,
 	ProhibitIcon,
 	SortAscendingIcon,
@@ -20,7 +18,6 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
-	Checkbox,
 	Menu,
 	MenuItem,
 	MenuTrigger,
@@ -31,6 +28,7 @@ import { useNav } from "../../app/nav";
 import { type Action, ActionMenu } from "../../components/ActionMenu";
 import { useDialogs } from "../../components/dialogs";
 import { FilterSelect } from "../../components/FilterSelect";
+import { RowCheckbox } from "../../components/RowCheckbox";
 import { Button, cx, focus, ITEM, POPOVER, Spinner } from "../../components/ui";
 import { api } from "../../lib/api";
 import type {
@@ -59,6 +57,7 @@ import {
 	useLibrarySearch,
 	useProjects,
 } from "../../lib/queries";
+import { useSelection } from "../../lib/useSelection";
 import { EmbeddingNotice } from "./EmbeddingNotice";
 import { MetadataDialog } from "./MetadataDialog";
 import { ProjectsDialog } from "./ProjectsDialog";
@@ -251,33 +250,6 @@ function Notice({
 			<WarningIcon weight="fill" className="mt-px size-3.5 shrink-0" />
 			<span>{children}</span>
 		</p>
-	);
-}
-
-function RowCheckbox({
-	label,
-	isSelected,
-	isIndeterminate,
-	onChange,
-}: {
-	label: string;
-	isSelected: boolean;
-	isIndeterminate?: boolean;
-	onChange: (on: boolean) => void;
-}) {
-	return (
-		<Checkbox
-			aria-label={label}
-			isSelected={isSelected}
-			isIndeterminate={isIndeterminate}
-			onChange={onChange}
-			className={cx("group flex cursor-pointer items-center", focus)}
-		>
-			<span className="relative flex size-4 items-center justify-center rounded border border-input bg-card text-primary-foreground group-data-[indeterminate]:border-primary group-data-[selected]:border-primary group-data-[indeterminate]:bg-primary group-data-[selected]:bg-primary">
-				<CheckIcon className="size-4 opacity-0 group-data-[selected]:opacity-100" />
-				<MinusIcon className="absolute size-4 opacity-0 group-data-[indeterminate]:opacity-100" />
-			</span>
-		</Checkbox>
 	);
 }
 
@@ -594,9 +566,6 @@ export function LibraryView() {
 			// remembering the order is a convenience only
 		}
 	};
-	const [selected, setSelected] = useState<Set<string>>(new Set());
-	const anchor = useRef<string | null>(null);
-
 	const scopeName = projects.data?.find((p) => p.id === scope)?.name ?? null;
 	const refresh = () => qc.invalidateQueries({ queryKey: keys.documents });
 	const fail = (title: string) => (e: unknown) =>
@@ -652,54 +621,19 @@ export function LibraryView() {
 		[projects.data],
 	);
 
-	// A selection belongs to the list it was made in.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: clears when the list's filters change
-	useEffect(() => {
-		setSelected(new Set());
-		anchor.current = null;
-	}, [scope, noProject, typeFilter, statusFilter]);
+	const {
+		selected,
+		select,
+		selectAll,
+		clear: clearSelection,
+	} = useSelection(
+		shown.map((d) => d.id),
+		`${scope}|${noProject}|${typeFilter}|${statusFilter}`,
+	);
 	const chosen = useMemo(
 		() => shown.filter((d) => selected.has(d.id)),
 		[shown, selected],
 	);
-	const clearSelection = () => {
-		setSelected(new Set());
-		anchor.current = null;
-	};
-	useEffect(() => {
-		if (selected.size === 0) return;
-		const onKey = (e: KeyboardEvent) => {
-			if (e.key === "Escape" && !(e.target instanceof HTMLInputElement)) {
-				setSelected(new Set());
-				anchor.current = null;
-			}
-		};
-		window.addEventListener("keydown", onKey);
-		return () => window.removeEventListener("keydown", onKey);
-	}, [selected.size]);
-	const select = (id: string, on: boolean, range: boolean) => {
-		setSelected((prev) => {
-			const next = new Set(prev);
-			const from = anchor.current
-				? shown.findIndex((d) => d.id === anchor.current)
-				: -1;
-			const to = shown.findIndex((d) => d.id === id);
-			const ids =
-				range && from >= 0 && to >= 0
-					? shown
-							.slice(Math.min(from, to), Math.max(from, to) + 1)
-							.map((d) => d.id)
-					: [id];
-			for (const i of ids) {
-				if (on) next.add(i);
-				else next.delete(i);
-			}
-			return next;
-		});
-		anchor.current = id;
-	};
-	const selectAll = (on: boolean) =>
-		setSelected(on ? new Set(shown.map((d) => d.id)) : new Set());
 	const jobs = summarizeJobs(useJobs());
 	const working = jobs.state === "busy" ? jobs.text : null;
 	const projectsDocs = (docs.data ?? []).filter((d) =>

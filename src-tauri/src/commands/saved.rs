@@ -106,23 +106,25 @@ pub async fn delete_saved_note(
         .await?)
 }
 
+/// Sets the project of every item, or takes them out of their project with `None`.
 #[tauri::command]
 #[specta::specta]
-pub async fn move_saved(
+pub async fn move_saved_items(
     state: State<'_, AppState>,
-    id: String,
+    ids: Vec<String>,
     project_id: Option<String>,
-) -> CmdResult<SavedItem> {
+) -> CmdResult<()> {
     Ok(state
         .db
-        .call(move |c| repo::set_project(c, &id, project_id.as_deref()))
+        .call(move |c| repo::move_items(c, &ids, project_id.as_deref()))
         .await?)
 }
 
+/// Deletes the items and returns how many were there.
 #[tauri::command]
 #[specta::specta]
-pub async fn delete_saved(state: State<'_, AppState>, id: String) -> CmdResult<()> {
-    Ok(state.db.call(move |c| repo::delete(c, &id)).await?)
+pub async fn delete_saved_items(state: State<'_, AppState>, ids: Vec<String>) -> CmdResult<u32> {
+    Ok(state.db.call(move |c| repo::delete_items(c, &ids)).await?)
 }
 
 #[tauri::command]
