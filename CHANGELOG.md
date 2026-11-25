@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.0
+
+Organize what you have saved with tags and folders.
+
+- Give saved items tags, from the card menu, the item's own page or the selection bar for several at once. Tags are shared by all projects. Each has a colour you can change, and "Manage tags" renames, recolours and deletes them. Renaming a tag to a name that already exists merges the two.
+- A saved item now has a folder. It starts as the folder of the conversation it came from, and "Move to" changes the project and folder together.
+- Mark items as used in your text, and show only the ones that are or aren't.
+- Filter by tag, folder, source, conversation and use. Sort by newest, oldest, latest note or source. Group the list by folder, tag, source or conversation.
+- Search for saved items from the command search (⌘K).
+
 ## 0.4.2
 
 A faster way to sort what you have saved.
